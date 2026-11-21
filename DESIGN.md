@@ -576,12 +576,15 @@ Mensagem centralizada em `mute` com 24 px de respiro, sempre dizendo como sair d
 - **Don't** espalhar cartões soltos com selos avulsos; o veredito vai numa caixa com cabeçalho e os grants na linha do tempo.
 - **Don't** escrever cor literal fora da paleta de tokens.
 
-## Marca do repositório (banner do README)
+## Marca do repositório
 
-O banner `assets/banner.svg` é a marca da biblioteca e não segue o estilo Primer do Themis Inspect: cada um tem identidade própria.
+A marca da biblioteca (banner, ícone e prévia social, em `assets/`) não segue o estilo Primer do Themis Inspect: cada um tem identidade própria.
 
-- **Ideia:** a balança da Themis mostra como o motor decide. No degrau decisivo o `deny` vence, então o prato da negação fica mais baixo e é o único dourado.
-- **Cores:** bronze com pátina como fundo inteiro (`#1F5C51`; no tema escuro `#14302A`, claro o bastante para o cartão aparecer sobre o `#0D1117` do GitHub), tinta osso `#F1E7CF` para o nome, a frase e a marca, verde claro `#C6DCD1` (escuro `#9FC0B2`) para a linha técnica, e um único dourado `#E3B04B`, reservado ao prato que decide.
-- **Tipos:** nome em capitulares Marcellus (106 px, espaçamento de inscrição de 0,06 em); frase e linha técnica em Hanken Grotesk 500 e 400. As duas são OFL e vão em contorno no SVG, que assim não depende de fonte instalada.
-- **Formato:** SVG de 960×240 com raio de 16, autocontido, sem script nem referência externa. O tema escuro troca só o fundo e o verde claro; a marca fica idêntica nos dois.
-- **Regras:** o dourado só aparece no prato que decide; o travessão fica inclinado 9°, com o lado da negação para baixo; o texto do banner é em inglês.
+- **Ideia:** a Themis de olhos vendados. A decisão não olha quem pede, só o que os grants dizem. A marca é a cabeça reduzida a um círculo, com a venda inclinada 9° em espaço negativo e o nó dourado. A balança ficou de fora por ser a leitura literal e repetida da categoria.
+- **Tema Mármore:** pedra clara `#F1F0EB` com borda `#DAD6CA`, tinta de pátina `#1F5C51`, texto secundário `#4E6B63` e um único dourado `#B07D1E`. No escuro: `#16201D`, borda `#26352F`, tinta osso `#E9E2D0`, secundário `#9FC0B2` e dourado `#E3B04B`. A borda deixa o cartão visível sobre o branco e o `#0D1117` do GitHub.
+- **PNGs:** como não acompanham o tema, usam o tile pátina `#1F5C51` com a marca osso `#E9E2D0` e o nó `#E3B04B` (fonte: `assets/icon-solid.svg`). Cada PNG registra no comentário a fonte, o tema, o renderizador e a data.
+- **16 px:** desenho próprio no pixel (`assets/icon-16.svg`): disco r 6, venda de 2 px com um degrau, nó 3×3 e uma fita de 1 px. Não derivar o 16 px por redução do 512.
+- **Tipos:** nome em capitulares Marcellus com espaçamento de inscrição (0,09 em); frase e linha técnica em Hanken Grotesk 500 e 400. As duas são OFL e vão em contorno, então os SVGs não dependem de fonte instalada.
+- **Banner:** SVG 960×240, raio 16, sem script nem referência externa. A marca vai do topo da capitular de THEMIS à linha de base da linha técnica, e o texto começa em x 300: nome com 106 px, frase com 34 px e linha técnica com 26 px. O texto do banner é em inglês.
+- **Regras:** o dourado só aparece no nó; a venda fica sempre a −9°; a marca não ganha rosto, perfil nem outra cor de destaque.
+- **Prévia social:** `assets/social-preview.png` (1280×640). O GitHub só a aceita por upload manual em Settings → General → Social preview.

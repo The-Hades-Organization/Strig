@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" role="img" aria-labelledby="t d">
+  <title id="t">Themis</title>
+  <desc id="d">The Themis mark hinted for 16 pixels.</desc>
+  <style>.bg{fill:#1F5C51}.edge{fill:none;stroke:none}.fg{fill:#E9E2D0}.gilt{fill:#E3B04B}</style>
+  <rect class="bg" width="16" height="16" rx="3.5"/>
+  <circle class="fg" cx="7.5" cy="8" r="6"/>
+  <rect class="bg" x="1" y="8" width="7" height="2"/><rect class="bg" x="8" y="7" width="5" height="2"/>
+  <rect class="gilt" x="12" y="6" width="3" height="3"/><rect class="gilt" x="13" y="9" width="1" height="4"/>
+</svg>

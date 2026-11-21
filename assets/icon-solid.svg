@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">Themis</title>
+  <desc id="d">The Themis mark on a patina tile.</desc>
+  <style>.bg{fill:#1F5C51}.edge{fill:none;stroke:none}.fg{fill:#E9E2D0}.gilt{fill:#E3B04B}</style>
+  <rect class="bg" width="512" height="512" rx="112"/>
+  <g transform="translate(-14 0)"><circle class="fg" cx="236" cy="256" r="150"/><g transform="rotate(-9 256 256)"><rect class="bg" x="70" y="222" width="340" height="64"/><circle class="gilt" cx="400" cy="254" r="30"/><path class="gilt" d="M412 270 L456 360 L428 366 Z M396 278 L404 380 L376 372 Z"/></g></g>
+</svg>

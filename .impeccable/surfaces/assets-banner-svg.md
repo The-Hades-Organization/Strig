@@ -2,16 +2,16 @@
 version: 1
 slug: "assets-banner-svg"
 primary_target: "assets/banner.svg"
-related_targets: []
+related_targets: ["assets/icon.svg"]
 ---
 
-Scope: banner do README do repositório Themis (assets/banner.svg), modo persuade. Público: quem chega ao repositório no GitHub (devs Rust e quem avalia uma lib de autorização). Restrições: SVG 960x240 autocontido, sem fonte externa (texto em contorno), sem script, claro e escuro por prefers-color-scheme, legível na largura do README (~830 px) e no celular.
+Scope: marca do repositório Themis: banner do README (assets/banner.svg), ícone (assets/icon.svg e PNGs 512/256/32) e prévia social (assets/social-preview.png, 1280x640, upload manual no GitHub). Modo persuade. Público: quem chega ao repositório (devs Rust, quem avalia uma lib de autorização). Restrições: SVG autocontido, texto em contorno, sem script, claro e escuro por prefers-color-scheme, legível no README (~830 px), no celular e o ícone até 16 px.
 
 ## Direction contract
 
-THESIS: A balança da Themis como prova do mecanismo: no degrau decisivo o deny pesa mais, então o prato da negação desce e é o único dourado. Recusa o banner de categoria (ícone num quadrado azul + nome).
-OWN-WORLD: bronze com pátina verde (#1F5C51; escuro #14302A, para o cartão não sumir no fundo #0D1117 do GitHub escuro) como campo inteiro, tinta osso #F1E7CF, um único dourado #E3B04B no prato que decide; capitulares de inscrição (Marcellus) e grotesca de texto (Hanken Grotesk).
-STORY: em um segundo a pessoa lê o nome, entende que é sobre decidir acesso e por quê, e vê na linha técnica RBAC, ABAC e ReBAC numa decisão para Rust.
-FIRST VIEWPORT: balança à esquerda (pilar, base, travessão inclinado 9 graus), THEMIS em capitulares de 106 px com espaçamento de inscrição, "Who can do what, and why." abaixo, linha técnica menor em verde claro.
-FORM: candidato 7 da lista (escultura pública da Justiça), seed:f8876bc9c077d59a. Raises: camisa titular e reserva (marca idêntica nos dois temas), um único dourado reservado ao prato que decide, nome no tamanho de palco.
+THESIS: A Themis de olhos vendados: a decisão não olha quem pede, só o que os grants dizem. O ícone é a cabeça reduzida a um círculo com a venda inclinada 9 graus e o nó dourado; recusa a balança, leitura literal e repetida da categoria.
+OWN-WORLD: tema Mármore: pedra clara #F1F0EB com borda #DAD6CA, tinta de pátina #1F5C51, um único dourado #B07D1E (escuro: #16201D, borda #26352F, tinta osso #E9E2D0, dourado #E3B04B), texto secundário #4E6B63 / #9FC0B2. Capitulares de inscrição Marcellus, texto em Hanken Grotesk.
+STORY: a pessoa lê o nome, reconhece a imparcialidade da decisão na venda e entende pela linha técnica que é autorização RBAC, ABAC e ReBAC para Rust.
+FIRST VIEWPORT: banner com a venda à esquerda (48% do grid de 512), THEMIS 106 px a partir de x 300, a frase "Who can do what, and why." 28 px e a linha técnica 20 px, todas alinhadas em x 300.
+FORM: escultura pública da Justiça (candidato 7), seed:f8876bc9c077d59a; ícone "A venda" e tema "Mármore" escolhidos pelo dono entre 16 ícones e 6 temas derivados do banner. O dourado só aparece no nó.
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
