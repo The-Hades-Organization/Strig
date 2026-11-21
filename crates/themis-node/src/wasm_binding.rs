@@ -104,6 +104,10 @@ impl WasmEngine {
         self.inner.check(&ctx.inner, from_js(request)?).map_err(err)
     }
 
+    pub fn explain(&self, ctx: &WasmContext, request: JsValue) -> Result<JsValue, JsError> {
+        to_js(&self.inner.explain(&ctx.inner, from_js(request)?).map_err(err)?)
+    }
+
     pub fn capabilities(&self, ctx: &WasmContext, subject: JsValue, scope: JsValue) -> Result<JsValue, JsError> {
         let set = self
             .inner

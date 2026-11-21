@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["crates/themis", "crates/themis-sync", "crates/themis-redis", "crates/themis-postgres", "crates/themis-axum", "crates/themis-node"]
+members = ["crates/themis", "crates/themis-sync", "crates/themis-redis", "crates/themis-postgres", "crates/themis-axum", "crates/themis-node", "crates/themis-inspect"]
+default-members = ["crates/themis", "crates/themis-sync", "crates/themis-redis", "crates/themis-postgres", "crates/themis-axum", "crates/themis-node"]
 
 [workspace.package]
 version = "0.2.0"

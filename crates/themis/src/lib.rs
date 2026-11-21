@@ -29,6 +29,7 @@ pub mod catalog;
 pub mod condition;
 pub mod decision;
 pub mod engine;
+pub mod explain;
 pub mod governance;
 pub mod grant;
 pub mod overrides;
@@ -52,6 +53,9 @@ pub use catalog::{
 pub use condition::{Condition, ConditionError, ConditionRegistry, EvalContext, Operand};
 pub use decision::{Decision, Reason, Request};
 pub use engine::{CapabilitySet, Context, Engine, EngineBuilder, EngineError, GrantError};
+pub use explain::{
+    ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, TraceResult, Verdict, trace_condition,
+};
 pub use governance::{
     CatalogConformance, Forbid, Governance, Invariant, Mutation, NoLockout, NoSelfManagement, Proposal,
     RequirePermission, Violation,

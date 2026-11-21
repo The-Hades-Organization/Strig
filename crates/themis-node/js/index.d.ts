@@ -29,6 +29,31 @@ export interface Decision {
   warnings?: string[];
 }
 
+export interface Explanation {
+  subject: Subject;
+  permission: string;
+  resource: Resource;
+  effective: string[];
+  path: Array<{ kind: string; id?: string }>;
+  roles: string[];
+  overrides: Array<{ name: string; outcome: 'excepted' | 'abstained' | 'allowed' | 'denied' }>;
+  grants: Array<{
+    grant: Grant;
+    verdict: { kind: string; problem?: string };
+    rank?: number;
+    anchor?: { kind: string; id?: string };
+    condition?: ConditionTrace;
+  }>;
+  strategy: string;
+  decision: Decision;
+}
+
+export interface ConditionTrace {
+  label: string;
+  result: { kind: 'true' | 'false' | 'skipped' } | { kind: 'error'; detail: string };
+  children?: ConditionTrace[];
+}
+
 export interface CapabilitySet {
   subject: Subject;
   grants: Grant[];
@@ -75,6 +100,8 @@ export declare class Engine {
   constructor(spec: unknown);
   decide(context: Context, request: DecisionRequest): Decision;
   check(context: Context, request: DecisionRequest): boolean;
+  /** A decisão com o rastro: overrides, destino de cada grant e árvore das condições. */
+  explain(context: Context, request: DecisionRequest): Explanation;
   capabilities(context: Context, subject: Subject, scope: Resource): CapabilitySet;
   validateGrant(grant: Grant): void;
   catalog(): unknown;

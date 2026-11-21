@@ -13,6 +13,7 @@ O núcleo não faz IO, não depende de runtime assíncrono e compila para WebAss
 | `themis-redis` | `Transport` sobre Redis pub/sub | `redis` |
 | `themis-postgres` | `Transport` sobre Postgres `LISTEN/NOTIFY`, com aviso dentro da transação | `tokio-postgres` |
 | `themis-axum` | Rotas SSE e WebSocket do axum sobre as sessões do `themis-sync` | `axum` |
+| `themis-inspect` | Visualizador: rastro de cada decisão, simulação de grants, matriz de acesso e leitura da auditoria. Janela gpui opcional (feature `gui`) e comandos de terminal | `gpui-pre`, `gpui-component` |
 | `themis-node` | Bindings JS: módulo nativo (N-API) para Node e Bun, WebAssembly para navegador, cliente e servidor de tempo real em JS | `napi` ou `wasm-bindgen` |
 
 Dependência de outro crate pelo git:
@@ -136,6 +137,17 @@ Cada nível inclui tudo do anterior. Os tamanhos são do registro de referência
 | `detailed` | Mais o grant inteiro com a condição, o ator completo, as mensagens das violações e os metadados da requisição | 1.097 | 1,10 GB (1.046 MiB) |
 | `forensic` | Mais o digest SHA-256 do conjunto de grants antes e depois e a cadeia de hashes entre registros | 1.415 | 1,42 GB (1.349 MiB) |
 
+Decisões de acesso também podem ser auditadas: `Auditor::decide(&engine, &ctx, &request, &meta)` decide e registra, e no nível `forensic` usa `Engine::explain` e guarda o rastro completo. Registro de referência: três grants na fonte (um com condição), recurso com três degraus, ids UUID e três metadados (`audit::reference_decision_record`, teste `decision_estimates_match_reference_records`).
+
+| Nível | O que guarda de uma decisão | Bytes por registro | Por 1 milhão de registros |
+|---|---|---|---|
+| `minimal` | Quando, sujeito, `permissão@recurso`, permitido ou negado | 285 | 285 MB (272 MiB) |
+| `standard` | Mais o motivo (override, grant decisivo e degrau, ou nenhum grant) e os grants que casaram | 669 | 669 MB (638 MiB) |
+| `detailed` | Mais o sujeito e o recurso completos, os avisos e os metadados da requisição; dá para reavaliar a decisão depois | 1.239 | 1,24 GB (1.182 MiB) |
+| `forensic` | Mais o rastro completo (`Explanation`) e a cadeia de hashes | 3.582 | 3,58 GB (3.416 MiB) |
+
+O rastro forense cresce com o número de grants que a fonte entrega por decisão. `AuditLevel::estimate_decision_bytes(n)` dá a projeção em código.
+
 `AuditLevel::estimate_bytes(n)` devolve a mesma projeção em código. Em banco, some o custo da linha (no Postgres, uns 28 bytes entre cabeçalho da tupla e ponteiro de item) e os índices que você criar. Condições longas ou metadados grandes aumentam `detailed` e `forensic` na mesma proporção.
 
 No nível `forensic`, cada registro carrega o hash do anterior. `audit::verify_chain` detecta registro editado ou removido. `Auditor::resume_chain` continua a cadeia depois de um reinício.
@@ -199,6 +211,26 @@ client.can('document.edit', resource);
 **Backend em JS** (`/server`). `Hub`, `openSession`, `sseResponse` (Fetch API: Bun.serve, Hono, Deno), `pipeSse` (`http` do Node) e os transportes `redisTransport` (node-redis e o `RedisClient` do Bun), `ioredisTransport` e `pgTransport` (pacote `pg`). Os avisos têm o mesmo formato do `themis-sync`, então instâncias em Rust e em JS trocam mudanças pelo mesmo canal.
 
 Limites dos bindings: funções de condição próprias (`call`) e overrides próprios só existem em Rust. A spec em JSON cobre os overrides prontos (`resource_owner`, `permission_holder`).
+
+## Visualizador (`themis-inspect`)
+
+Crate opcional, fora dos `default-members`: `cargo build -p themis-inspect`. A janela usa gpui (`gpui-pre =0.3.11` e `gpui-component =0.9.0`); sem a feature `gui` (`--no-default-features`) sobram a biblioteca e os comandos de terminal.
+
+```sh
+themis-inspect --scenario cenario.json --audit trilha.jsonl     # janela
+themis-inspect explain --scenario cenario.json --subject beto --permission document.view --resource secret
+themis-inspect matrix  --scenario cenario.json --resource secret --disable no-secret --add grant.json
+themis-inspect audit   --audit trilha.jsonl --scenario cenario.json
+```
+
+O cenário é um JSON com a política (`spec`, a mesma `EngineSpec`), os dados (`grants`, `tuples`, `env`) e os sujeitos e recursos a examinar, por nome. Exemplo em `crates/themis-inspect/examples/scenario.json`.
+
+- **Avaliação**: escolha sujeito, permissão e recurso e veja a decisão, o motivo, o caminho do recurso com o degrau decisivo, os papéis efetivos, cada override e o destino de cada grant (candidato, permissão não relacionada, fora do escopo, alvo fora do caminho, sujeito não casa, condição falsa ou não avaliável), com a árvore da condição e os valores resolvidos. A base é `Engine::explain`, disponível também em Rust e JS.
+- **Simulação**: ligue e desligue grants (ou acrescente pelo `--add`) e veja se o conjunto permitiria o acesso. Quando a decisão muda, o painel mostra também a decisão com os grants originais.
+- **Matriz**: cada permissão do catálogo para cada sujeito sobre um recurso, com as células que a simulação mudou marcadas. Clicar numa célula abre o rastro.
+- **Auditoria**: lê a trilha em JSON Lines, confere a cadeia de hashes dos registros `forensic`, mostra o rastro gravado e reavalia decisões `detailed` ou `forensic` contra a política atual, apontando as que mudariam.
+
+Os arquivos são relidos sozinhos quando mudam no disco.
 
 ## Pontos de extensão
 

@@ -17,10 +17,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::attr::Attributes;
+use crate::decision::{Decision, Reason, Request};
+use crate::engine::{Context, Engine};
+use crate::explain::Explanation;
 use crate::governance::{Mutation, Violation};
 use crate::grant::{Effect, Grant, SubjectMatcher, TargetSelector};
 use crate::rebac::Tuple;
-use crate::resource::Anchor;
+use crate::resource::{Anchor, Resource};
 use crate::subject::Subject;
 
 /// Quanto de cada mudança se registra. Cada nível inclui tudo do anterior.
@@ -60,6 +63,21 @@ impl AuditLevel {
         }
     }
 
+    /// Como [`AuditLevel::typical_record_bytes`], para registros de decisão, medido sobre
+    /// [`reference_decision_record`] (três grants na fonte, um com condição).
+    pub const fn typical_decision_bytes(self) -> u64 {
+        match self {
+            AuditLevel::Minimal => 284,
+            AuditLevel::Standard => 668,
+            AuditLevel::Detailed => 1_238,
+            AuditLevel::Forensic => 3_581,
+        }
+    }
+
+    pub const fn estimate_decision_bytes(self, records: u64) -> u64 {
+        (self.typical_decision_bytes() + 1) * records
+    }
+
     /// Estimativa de armazenamento para `records` registros em JSON Lines, sem compressão e sem
     /// índice. Num banco, some o overhead por linha (no Postgres, uns 28 bytes entre cabeçalho de
     /// tupla e ponteiro de item, mais os índices que você criar).
@@ -88,6 +106,8 @@ pub enum AuditAction {
     TupleRemove,
     RoleAssign,
     RoleRevoke,
+    /// Uma decisão de acesso (`Engine::decide`), não uma mudança.
+    Decision,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,6 +115,31 @@ pub enum AuditAction {
 pub enum AuditOutcome {
     Applied,
     Rejected,
+    Allowed,
+    Denied,
+}
+
+/// Resumo de uma decisão, guardado a partir de [`AuditLevel::Standard`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DecisionSummary {
+    pub permission: String,
+    /// Caminho do recurso em texto (`document:d1/project:p1`).
+    pub resource: String,
+    pub reason: Reason,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub matched: Vec<String>,
+    /// A partir de `detailed`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+fn path_text(resource: &Resource) -> String {
+    resource
+        .path
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Resumo de um grant, guardado a partir de [`AuditLevel::Standard`].
@@ -154,7 +199,17 @@ pub struct AuditRecord {
     pub violations: Vec<String>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<DecisionSummary>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub full_grant: Option<Grant>,
+    /// Recurso completo de uma decisão, a partir de `detailed`. Com `actor_detail`, basta para
+    /// reavaliar a decisão contra outra política.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource: Option<Resource>,
+    /// Rastro completo da decisão, em `forensic`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<Box<Explanation>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tuple: Option<Tuple>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -319,7 +374,10 @@ impl Auditor {
             grant: None,
             role: None,
             violations: Vec::new(),
+            decision: None,
             full_grant: None,
+            resource: None,
+            explanation: None,
             tuple: None,
             actor_detail: None,
             meta: Attributes::new(),
@@ -328,6 +386,88 @@ impl Auditor {
             prev_hash: None,
             hash: None,
         }
+    }
+
+    /// Decide e registra. No nível `forensic` usa [`Engine::explain`] e guarda o rastro; nos
+    /// outros, [`Engine::decide`]. A decisão volta mesmo se o registro falhar: quem chama
+    /// escolhe se nega o acesso nesse caso.
+    pub fn decide(
+        &self,
+        engine: &Engine,
+        ctx: &Context<'_>,
+        request: &Request<'_>,
+        meta: &Attributes,
+    ) -> (Decision, Result<AuditRecord, AuditError>) {
+        if self.level >= AuditLevel::Forensic {
+            let explanation = engine.explain(ctx, request);
+            let record = self.explained(&explanation, meta);
+            (explanation.decision, record)
+        } else {
+            let decision = engine.decide(ctx, request);
+            let record = self.decision(request, &decision, meta);
+            (decision, record)
+        }
+    }
+
+    /// Registra uma decisão já tomada. Em `forensic`, prefira [`Auditor::explained`].
+    pub fn decision(
+        &self,
+        request: &Request<'_>,
+        decision: &Decision,
+        meta: &Attributes,
+    ) -> Result<AuditRecord, AuditError> {
+        self.emit(self.decision_record(request.subject, request.permission, request.resource, decision, meta))
+    }
+
+    /// Registra uma decisão com o rastro completo.
+    pub fn explained(&self, explanation: &Explanation, meta: &Attributes) -> Result<AuditRecord, AuditError> {
+        let mut record = self.decision_record(
+            &explanation.subject,
+            &explanation.permission,
+            &explanation.resource,
+            &explanation.decision,
+            meta,
+        );
+        if self.level >= AuditLevel::Forensic {
+            record.explanation = Some(Box::new(explanation.clone()));
+        }
+        self.emit(record)
+    }
+
+    fn decision_record(
+        &self,
+        subject: &Subject,
+        permission: &str,
+        resource: &Resource,
+        decision: &Decision,
+        meta: &Attributes,
+    ) -> AuditRecord {
+        let outcome = if decision.is_allowed() {
+            AuditOutcome::Allowed
+        } else {
+            AuditOutcome::Denied
+        };
+        let path = path_text(resource);
+        let object = format!("{permission}@{path}");
+        let mut record = self.base(subject, AuditAction::Decision, object, outcome);
+        if self.level >= AuditLevel::Standard {
+            record.decision = Some(DecisionSummary {
+                permission: permission.to_string(),
+                resource: path,
+                reason: decision.reason.clone(),
+                matched: decision.matched.clone(),
+                warnings: if self.level >= AuditLevel::Detailed {
+                    decision.warnings.clone()
+                } else {
+                    Vec::new()
+                },
+            });
+        }
+        if self.level >= AuditLevel::Detailed {
+            record.resource = Some(resource.clone());
+        }
+        self.detail(&mut record, subject, meta);
+        record
     }
 
     fn detail(&self, record: &mut AuditRecord, actor: &Subject, meta: &Attributes) {
@@ -532,10 +672,108 @@ pub fn reference_record(level: AuditLevel) -> AuditRecord {
         .expect("registro de referência")
 }
 
+/// O registro de decisão de referência: sujeito com dois papéis, recurso com três degraus, três
+/// grants na fonte (um com condição de duas cláusulas, um de outra permissão, um fora do
+/// escopo) e três metadados.
+pub fn reference_decision_record(level: AuditLevel) -> AuditRecord {
+    use crate::catalog::{Catalog, PermissionDef};
+    use crate::condition::{Condition, Operand};
+
+    let org = "c9f0f895-fb98-4b91-8f1c-3b0b1e6f2a10";
+    let catalog = Catalog::builder()
+        .target_kinds(["project", "document"])
+        .broad_target("org")
+        .permission(PermissionDef::new("document.export").targets(["project", "document"]))
+        .permission(PermissionDef::new("document.edit").targets(["project", "document"]))
+        .build()
+        .expect("catálogo de referência");
+    let engine = Engine::builder(catalog).build().expect("motor de referência");
+    let grants = vec![
+        Grant::allow(
+            "0b8a1e2c-5f6d-4a3b-9c8d-7e6f5a4b3c2d",
+            SubjectMatcher::role("editor"),
+            "document.export",
+            TargetSelector::kind("project"),
+        )
+        .scoped(Anchor::new("org", org))
+        .when(Condition::all([
+            Condition::eq(Operand::attr("subject.plan"), Operand::lit("enterprise")),
+            Condition::lt(Operand::attr("env.hour"), Operand::lit(18)),
+        ])),
+        Grant::allow(
+            "1c9b2f3d-6a7e-4b4c-8d9e-8f7a6b5c4d3e",
+            SubjectMatcher::role("editor"),
+            "document.edit",
+            TargetSelector::kind("project"),
+        ),
+        Grant::deny(
+            "2d0c3a4e-7b8f-4c5d-9eaf-9a8b7c6d5e4f",
+            SubjectMatcher::Any,
+            "document.export",
+            TargetSelector::kind("org"),
+        )
+        .scoped(Anchor::new("org", "other")),
+    ];
+    let subject = Subject::user("8f14e45f-ceea-467a-9575-0cbd1e4e7c21")
+        .with_role_in("editor", Anchor::new("org", org))
+        .with_role("auditor")
+        .with_attr("plan", "enterprise");
+    let resource = Resource::new("document", "5e6f7a8b-9c0d-4e1f-a2b3-c4d5e6f7a8b9")
+        .within("project", "3a4b5c6d-7e8f-4a9b-8c0d-1e2f3a4b5c6d")
+        .within("org", org);
+    let mut env = Attributes::new();
+    env.insert("hour".into(), 10.into());
+    let mut meta = Attributes::new();
+    meta.insert("ip".into(), "203.0.113.42".into());
+    meta.insert("request_id".into(), "req-01HZX3K9QW8E7R6T5Y4U3I2O1P".into());
+    meta.insert("route".into(), "POST /documents/:id/export".into());
+
+    let auditor = Auditor::new(level, Arc::new(MemoryAuditLog::new()))
+        .with_clock(|| 1_763_700_000_000)
+        .resume_chain("a".repeat(64));
+    let ctx = Context::new(&grants).with_env(&env);
+    let request = Request::new(&subject, "document.export", &resource);
+    let (_, record) = auditor.decide(&engine, &ctx, &request, &meta);
+    record.expect("registro de referência")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::resource::ObjectRef;
+
+    #[test]
+    fn decision_records_by_level() {
+        let minimal = reference_decision_record(AuditLevel::Minimal);
+        assert_eq!(minimal.outcome, AuditOutcome::Allowed);
+        assert!(minimal.object.starts_with("document.export@document:"));
+        assert!(minimal.decision.is_none());
+        let standard = reference_decision_record(AuditLevel::Standard);
+        assert_eq!(standard.decision.as_ref().unwrap().matched.len(), 1);
+        let detailed = reference_decision_record(AuditLevel::Detailed);
+        assert!(detailed.resource.is_some() && detailed.actor_detail.is_some());
+        let forensic = reference_decision_record(AuditLevel::Forensic);
+        let explanation = forensic.explanation.as_ref().unwrap();
+        assert_eq!(explanation.grants.len(), 3);
+        assert!(forensic.hash.is_some());
+        let back: AuditRecord = serde_json::from_str(&serde_json::to_string(&forensic).unwrap()).unwrap();
+        assert_eq!(back, forensic);
+    }
+
+    #[test]
+    fn decision_estimates_match_reference_records() {
+        let report: Vec<(AuditLevel, u64, u64)> = AuditLevel::ALL
+            .into_iter()
+            .map(|level| {
+                let actual = serde_json::to_vec(&reference_decision_record(level)).unwrap().len() as u64;
+                (level, actual, level.typical_decision_bytes())
+            })
+            .collect();
+        let drifted = report
+            .iter()
+            .any(|(_, actual, typical)| actual.abs_diff(*typical) as f64 / *typical as f64 > 0.10);
+        assert!(!drifted, "medido x documentado: {report:?}");
+    }
 
     fn actor() -> Subject {
         Subject::user("alice").with_role("admin")

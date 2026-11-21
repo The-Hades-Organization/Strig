@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::grant::Effect;
 use crate::resource::Resource;
@@ -23,7 +23,7 @@ impl<'a> Request<'a> {
 }
 
 /// Por que a decisão saiu como saiu.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Reason {
     /// Um override decidiu antes dos grants.
@@ -41,15 +41,15 @@ pub enum Reason {
     UnknownPermission,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Decision {
     pub effect: Effect,
     pub reason: Reason,
     /// Ids de todos os grants que se aplicaram, na ordem da fonte.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub matched: Vec<String>,
     /// Problemas que não impediram a decisão (condição com atributo ausente, ReBAC sem store).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
 }
 

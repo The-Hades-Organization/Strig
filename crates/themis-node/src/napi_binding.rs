@@ -100,6 +100,11 @@ impl JsEngine {
     }
 
     #[napi]
+    pub fn explain(&self, ctx: &JsContext, request: Value) -> Result<Value> {
+        self.inner.explain(&ctx.inner, request).map_err(err)
+    }
+
+    #[napi]
     pub fn capabilities(&self, ctx: &JsContext, subject: Value, scope: Value) -> Result<Value> {
         self.inner.capabilities(&ctx.inner, subject, scope).map_err(err)
     }

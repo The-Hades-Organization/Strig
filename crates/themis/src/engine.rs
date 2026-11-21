@@ -7,6 +7,9 @@ use crate::attr::Attributes;
 use crate::catalog::Catalog;
 use crate::condition::{ConditionRegistry, EvalContext};
 use crate::decision::{Decision, Reason, Request};
+use crate::explain::{
+    ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, Verdict, trace_condition,
+};
 use crate::grant::{Effect, Grant, GrantSource, SubjectMatcher};
 use crate::overrides::Override;
 use crate::rbac::RoleGraph;
@@ -16,6 +19,19 @@ use crate::strategy::{Candidate, MostSpecific, Strategy};
 use crate::subject::Subject;
 
 static EMPTY_ENV: Attributes = Attributes::new();
+
+#[derive(Default)]
+struct Recorder {
+    overrides: Vec<OverrideStep>,
+    grants: Vec<GrantTrace>,
+}
+
+struct Judged {
+    verdict: Verdict,
+    rank: Option<usize>,
+    anchor: Option<Anchor>,
+    condition: Option<ConditionTrace>,
+}
 
 const DEFAULT_MAX_RELATION_DEPTH: usize = 32;
 
@@ -173,30 +189,86 @@ impl Engine {
     }
 
     pub fn decide(&self, ctx: &Context<'_>, request: &Request<'_>) -> Decision {
-        self.decide_inner(ctx, request, true)
+        self.decide_inner(ctx, request, true, None)
     }
 
     /// Decisão só pelos grants, sem overrides. Usada por overrides que dependem de permissão.
     pub fn decide_without_overrides(&self, ctx: &Context<'_>, request: &Request<'_>) -> Decision {
-        self.decide_inner(ctx, request, false)
+        self.decide_inner(ctx, request, false, None)
     }
 
-    fn decide_inner(&self, ctx: &Context<'_>, request: &Request<'_>, with_overrides: bool) -> Decision {
+    /// A mesma decisão de [`Engine::decide`], com o rastro de cada override e de cada grant
+    /// entregue pela fonte. Mais cara: avalia a árvore das condições e clona os grants.
+    pub fn explain(&self, ctx: &Context<'_>, request: &Request<'_>) -> Explanation {
+        let mut recorder = Recorder::default();
+        let decision = self.decide_inner(ctx, request, true, Some(&mut recorder));
+        if matches!(decision.reason, Reason::Override { .. }) {
+            ctx.grants.visit(request.subject, request.resource, &mut |grant| {
+                recorder.grants.push(GrantTrace {
+                    grant: grant.clone(),
+                    verdict: Verdict::NotReached,
+                    rank: None,
+                    anchor: None,
+                    condition: None,
+                });
+            });
+        }
+        Explanation {
+            subject: request.subject.clone(),
+            permission: request.permission.to_string(),
+            resource: request.resource.clone(),
+            effective: self
+                .catalog
+                .effective(request.permission)
+                .map(|set| set.iter().cloned().collect())
+                .unwrap_or_default(),
+            path: request.resource.anchors().map(|(_, a)| a.clone()).collect(),
+            roles: self
+                .roles
+                .expand(request.subject.roles_for(request.resource))
+                .into_iter()
+                .collect(),
+            overrides: recorder.overrides,
+            grants: recorder.grants,
+            strategy: self.strategy.name().to_string(),
+            decision,
+        }
+    }
+
+    fn decide_inner(
+        &self,
+        ctx: &Context<'_>,
+        request: &Request<'_>,
+        with_overrides: bool,
+        mut recorder: Option<&mut Recorder>,
+    ) -> Decision {
         let Some(effective) = self.catalog.effective(request.permission) else {
             return Decision::deny(Reason::UnknownPermission);
         };
 
         if with_overrides {
             for entry in &self.overrides {
+                let name = entry.inner.name().to_string();
                 if entry.except.iter().any(|key| effective.contains(key)) {
+                    if let Some(r) = recorder.as_deref_mut() {
+                        r.overrides.push(OverrideStep {
+                            name,
+                            outcome: OverrideOutcome::Excepted,
+                        });
+                    }
                     continue;
                 }
-                if let Some(effect) = entry.inner.evaluate(self, ctx, request) {
+                let outcome = entry.inner.evaluate(self, ctx, request);
+                if let Some(r) = recorder.as_deref_mut() {
+                    r.overrides.push(OverrideStep {
+                        name: name.clone(),
+                        outcome: outcome.into(),
+                    });
+                }
+                if let Some(effect) = outcome {
                     return Decision {
                         effect,
-                        reason: Reason::Override {
-                            name: entry.inner.name().to_string(),
-                        },
+                        reason: Reason::Override { name },
                         matched: Vec::new(),
                         warnings: Vec::new(),
                     };
@@ -205,7 +277,7 @@ impl Engine {
         }
 
         let mut warnings = Vec::new();
-        let candidates = self.collect(ctx, request, effective, &mut warnings);
+        let candidates = self.collect(ctx, request, effective, &mut warnings, recorder);
         let matched = candidates.iter().map(|c| c.grant.id.clone()).collect();
         match self.strategy.combine(&candidates) {
             Some(i) => {
@@ -239,6 +311,7 @@ impl Engine {
         request: &Request<'_>,
         effective: &BTreeSet<String>,
         warnings: &mut Vec<String>,
+        mut recorder: Option<&mut Recorder>,
     ) -> Vec<Candidate> {
         let roles = self.roles.expand(request.subject.roles_for(request.resource));
         let eval_ctx = EvalContext {
@@ -246,50 +319,110 @@ impl Engine {
             resource: request.resource,
             env: ctx.env,
         };
+        let tracing = recorder.is_some();
         let mut out = Vec::new();
         ctx.grants.visit(request.subject, request.resource, &mut |grant| {
-            if !effective.contains(&grant.permission) {
-                return;
+            let judged = self.judge(ctx, request, effective, &roles, &eval_ctx, grant, warnings, tracing);
+            if let (true, Some(rank)) = (judged.verdict.is_candidate(), judged.rank) {
+                out.push(Candidate {
+                    grant: grant.clone(),
+                    rank,
+                });
             }
-            if grant
-                .scope
-                .as_ref()
-                .is_some_and(|scope| !request.resource.contains(scope))
-            {
-                return;
+            if let Some(r) = recorder.as_deref_mut() {
+                r.grants.push(GrantTrace {
+                    grant: grant.clone(),
+                    verdict: judged.verdict,
+                    rank: judged.rank,
+                    anchor: judged.anchor,
+                    condition: judged.condition,
+                });
             }
-            let Some((rank, anchor)) = request.resource.locate(&grant.target) else {
-                return;
-            };
-            let fail_safe = grant.effect == Effect::Deny;
-            match self.subject_matches(ctx, request.subject, &roles, &grant.subject, anchor) {
+        });
+        out
+    }
+
+    /// Confere um grant na ordem: permissão, escopo, alvo, sujeito, condição.
+    #[allow(clippy::too_many_arguments)]
+    fn judge(
+        &self,
+        ctx: &Context<'_>,
+        request: &Request<'_>,
+        effective: &BTreeSet<String>,
+        roles: &BTreeSet<String>,
+        eval_ctx: &EvalContext<'_>,
+        grant: &Grant,
+        warnings: &mut Vec<String>,
+        tracing: bool,
+    ) -> Judged {
+        let out = |verdict| Judged {
+            verdict,
+            rank: None,
+            anchor: None,
+            condition: None,
+        };
+        if !effective.contains(&grant.permission) {
+            return out(Verdict::PermissionUnrelated);
+        }
+        if grant
+            .scope
+            .as_ref()
+            .is_some_and(|scope| !request.resource.contains(scope))
+        {
+            return out(Verdict::OutOfScope);
+        }
+        let Some((rank, anchor)) = request.resource.locate(&grant.target) else {
+            return out(Verdict::TargetNotOnPath);
+        };
+        let mut judged = Judged {
+            verdict: Verdict::Candidate,
+            rank: Some(rank),
+            anchor: Some(anchor.clone()),
+            condition: None,
+        };
+        let fail_safe = grant.effect == Effect::Deny;
+        let mut problem = None;
+        match self.subject_matches(ctx, request.subject, roles, &grant.subject, anchor) {
+            Ok(true) => {}
+            Ok(false) => {
+                judged.verdict = Verdict::SubjectMismatch;
+                return judged;
+            }
+            Err(error) => {
+                warnings.push(format!("grant {}: {error}", grant.id));
+                if !fail_safe {
+                    judged.verdict = Verdict::SubjectUnresolved { problem: error };
+                    return judged;
+                }
+                problem = Some(error);
+            }
+        }
+        if let Some(condition) = &grant.condition {
+            if tracing {
+                judged.condition = Some(trace_condition(condition, eval_ctx, &self.conditions));
+            }
+            match condition.evaluate(eval_ctx, &self.conditions) {
                 Ok(true) => {}
-                Ok(false) => return,
+                Ok(false) => {
+                    judged.verdict = Verdict::ConditionFalse;
+                    return judged;
+                }
                 Err(error) => {
                     warnings.push(format!("grant {}: {error}", grant.id));
                     if !fail_safe {
-                        return;
+                        judged.verdict = Verdict::ConditionUnresolved {
+                            problem: error.to_string(),
+                        };
+                        return judged;
                     }
+                    problem.get_or_insert(error.to_string());
                 }
             }
-            if let Some(condition) = &grant.condition {
-                match condition.evaluate(&eval_ctx, &self.conditions) {
-                    Ok(true) => {}
-                    Ok(false) => return,
-                    Err(error) => {
-                        warnings.push(format!("grant {}: {error}", grant.id));
-                        if !fail_safe {
-                            return;
-                        }
-                    }
-                }
-            }
-            out.push(Candidate {
-                grant: grant.clone(),
-                rank,
-            });
-        });
-        out
+        }
+        if let Some(problem) = problem {
+            judged.verdict = Verdict::CandidateFailSafe { problem };
+        }
+        judged
     }
 
     fn subject_matches(

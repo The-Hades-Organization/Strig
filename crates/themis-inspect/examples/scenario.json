@@ -1,0 +1,53 @@
+{
+  "spec": {
+    "catalog": {
+      "targetKinds": ["project", "doc_type", "document"],
+      "broadTargets": ["org"],
+      "permissions": [
+        {"key": "project.view", "targets": ["project"], "label": "Ver projeto"},
+        {"key": "project.edit", "targets": ["project"], "label": "Editar projeto"},
+        {"key": "project.delete", "targets": ["project"], "label": "Apagar projeto"},
+        {"key": "document.view", "targets": ["project", "document"], "impliedBy": ["project.view"]},
+        {"key": "document.export", "targets": ["project", "document"]},
+        {"key": "document.invoice.export", "targets": ["doc_type", "document"], "impliedBy": ["document.export"]}
+      ]
+    },
+    "roles": [{"role": "admin", "inherits": ["member"]}],
+    "relations": [
+      {"kind": "project", "relation": "editor", "rewrite": {"rewrite": "union", "of": [{"rewrite": "this"}, {"rewrite": "computed", "relation": "owner"}]}}
+    ],
+    "overrides": [{"kind": "resource_owner", "attr": "owner", "except": ["project.delete"]}]
+  },
+  "grants": [
+    {"id": "members-view", "subject": {"kind": "role", "id": "member"}, "permission": "project.view",
+     "target": {"kind": "org"}, "effect": "allow", "scope": {"kind": "org", "id": "acme"}},
+    {"id": "editors-edit", "subject": {"kind": "relation", "relation": "editor"}, "permission": "project.edit",
+     "target": {"kind": "project"}, "effect": "allow"},
+    {"id": "no-secret", "subject": {"kind": "any"}, "permission": "document.view",
+     "target": {"kind": "document", "id": "secret"}, "effect": "deny"},
+    {"id": "pro-export", "subject": {"kind": "role", "id": "member"}, "permission": "document.export",
+     "target": {"kind": "org"}, "effect": "allow", "scope": {"kind": "org", "id": "acme"},
+     "condition": {"op": "all", "of": [
+       {"op": "eq", "left": {"attr": "subject.plan"}, "right": "pro"},
+       {"op": "lt", "left": {"attr": "env.hour"}, "right": 18}
+     ]}},
+    {"id": "no-invoice-export", "subject": {"kind": "role", "id": "member"}, "permission": "document.invoice.export",
+     "target": {"kind": "doc_type", "id": "invoice"}, "effect": "deny"}
+  ],
+  "tuples": [
+    {"object": {"kind": "project", "id": "roadmap"}, "relation": "owner", "subject": {"object": {"kind": "user", "id": "ana"}}},
+    {"object": {"kind": "project", "id": "roadmap"}, "relation": "editor", "subject": {"object": {"kind": "user", "id": "beto"}}}
+  ],
+  "env": {"hour": 10},
+  "subjects": {
+    "ana": {"kind": "user", "id": "ana", "roles": [{"role": "admin", "scope": {"kind": "org", "id": "acme"}}], "principals": ["authenticated"], "attrs": {"plan": "pro"}},
+    "beto": {"kind": "user", "id": "beto", "roles": [{"role": "member", "scope": {"kind": "org", "id": "acme"}}], "principals": ["authenticated"], "attrs": {"plan": "free"}},
+    "carla": {"kind": "user", "id": "carla", "roles": [{"role": "member", "scope": {"kind": "org", "id": "acme"}}], "principals": ["authenticated"], "attrs": {"plan": "pro"}},
+    "visitante": {"kind": "user", "principals": ["anonymous"]}
+  },
+  "resources": {
+    "roadmap": {"path": [{"kind": "project", "id": "roadmap"}, {"kind": "org", "id": "acme"}], "attrs": {"owner": "ana"}},
+    "fatura-7": {"path": [{"kind": "document", "id": "inv-7"}, {"kind": "doc_type", "id": "invoice"}, {"kind": "project", "id": "roadmap"}, {"kind": "org", "id": "acme"}]},
+    "secret": {"path": [{"kind": "document", "id": "secret"}, {"kind": "project", "id": "roadmap"}, {"kind": "org", "id": "acme"}]}
+  }
+}

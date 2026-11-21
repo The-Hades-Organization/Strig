@@ -60,6 +60,10 @@ for (const backend of ['native', 'wasm']) {
     assert.equal(decision.reason.grant_id, 'g1');
     assert.equal(engine.check(ctx, { ...request, permission: 'project.edit' }), false);
     assert.equal(engine.capabilities(ctx, admin, p1).grants.length, 1);
+    const explained = engine.explain(ctx, request);
+    assert.equal(explained.decision.effect, 'allow');
+    assert.equal(explained.grants[0].verdict.kind, 'candidate');
+    assert.deepEqual(explained.roles, ['admin', 'member']);
     assert.throws(() => engine.validateGrant({ ...memberGrant, permission: 'nope' }), /desconhecida/);
     assert.throws(() => new Engine({ catalog: { targetKinds: [], permissions: [{ key: 'Bad', targets: [] }] } }), /inválid/);
 

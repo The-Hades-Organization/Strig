@@ -171,6 +171,13 @@ impl EngineHandle {
         Ok(self.engine.check(&ctx.context(), &request))
     }
 
+    /// A decisão com o rastro completo (`themis::Explanation`).
+    pub fn explain(&self, ctx: &ContextData, request: Value) -> BindingResult<Value> {
+        let input: RequestInput = parse("request", request)?;
+        let request = Request::new(&input.subject, &input.permission, &input.resource);
+        Ok(to_value(&self.engine.explain(&ctx.context(), &request)))
+    }
+
     pub fn capabilities(&self, ctx: &ContextData, subject: Value, scope: Value) -> BindingResult<Value> {
         let subject: Subject = parse("subject", subject)?;
         let scope: Resource = parse("scope", scope)?;

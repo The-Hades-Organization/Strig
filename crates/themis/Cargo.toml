@@ -14,11 +14,11 @@ publish.workspace = true
 [features]
 default = ["audit"]
 ## Trilha de auditoria das mudanças de permissão, com níveis de detalhe e cadeia de hashes.
-audit = ["dep:serde_json", "dep:sha2"]
+audit = ["dep:sha2"]
 
 [dependencies]
 serde.workspace = true
-serde_json = { workspace = true, optional = true }
+serde_json.workspace = true
 sha2 = { version = "0.10", optional = true }
 thiserror.workspace = true
 
