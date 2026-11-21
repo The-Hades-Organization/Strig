@@ -24,7 +24,7 @@ use crate::governance::{Mutation, Violation};
 use crate::grant::{Effect, Grant, SubjectMatcher, TargetSelector};
 use crate::rebac::Tuple;
 use crate::resource::{Anchor, Resource};
-use crate::subject::Subject;
+use crate::subject::{RoleAssignment, Subject};
 
 /// Quanto de cada mudança se registra. Cada nível inclui tudo do anterior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -171,10 +171,21 @@ impl From<&Grant> for GrantSummary {
 /// Atribuição de papel registrada.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoleChange {
+    /// Id do sujeito, ou o tipo dele quando anônimo.
     pub subject: String,
     pub role: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<Anchor>,
+}
+
+impl RoleChange {
+    fn of(subject: &Subject, role: &RoleAssignment) -> Self {
+        Self {
+            subject: subject.id.clone().unwrap_or_else(|| subject.kind.clone()),
+            role: role.role.clone(),
+            scope: role.scope.clone(),
+        }
+    }
 }
 
 /// Um registro da trilha. Os campos opcionais aparecem conforme o nível.
@@ -477,7 +488,8 @@ impl Auditor {
         }
     }
 
-    /// Registra uma mudança de grant decidida pela governança.
+    /// Registra uma mudança decidida pela governança. Mudança de papel sai como
+    /// `role_assign`/`role_revoke`, igual a [`Auditor::role_change`], com as violações.
     pub fn grant_mutation(
         &self,
         actor: &Subject,
@@ -486,6 +498,10 @@ impl Auditor {
         result: &Result<Vec<Grant>, Vec<Violation>>,
         meta: &Attributes,
     ) -> Result<AuditRecord, AuditError> {
+        let (outcome, violations) = match result {
+            Ok(_) => (AuditOutcome::Applied, &[][..]),
+            Err(violations) => (AuditOutcome::Rejected, violations.as_slice()),
+        };
         let (action, object, grant) = match mutation {
             Mutation::Add(grant) => (AuditAction::GrantAdd, grant.id.clone(), Some(grant)),
             Mutation::Remove { id } => (
@@ -493,23 +509,16 @@ impl Auditor {
                 id.clone(),
                 before.iter().find(|g| &g.id == id),
             ),
-        };
-        let outcome = match result {
-            Ok(_) => AuditOutcome::Applied,
-            Err(_) => AuditOutcome::Rejected,
+            Mutation::AssignRole { subject, role } | Mutation::RevokeRole { subject, role } => {
+                let assigned = matches!(mutation, Mutation::AssignRole { .. });
+                let change = RoleChange::of(subject, role);
+                return self.role_record(actor, assigned, &change, outcome, violations, meta);
+            }
         };
         let mut record = self.base(actor, action, object, outcome);
         if self.level >= AuditLevel::Standard {
             record.grant = grant.map(GrantSummary::from);
-            if let Err(violations) = result {
-                record.violations = violations
-                    .iter()
-                    .map(|v| match self.level {
-                        AuditLevel::Standard => v.invariant.clone(),
-                        _ => v.to_string(),
-                    })
-                    .collect();
-            }
+            record.violations = self.violation_texts(violations);
         }
         if self.level >= AuditLevel::Detailed {
             record.full_grant = grant.cloned();
@@ -556,6 +565,18 @@ impl Auditor {
         outcome: AuditOutcome,
         meta: &Attributes,
     ) -> Result<AuditRecord, AuditError> {
+        self.role_record(actor, assigned, change, outcome, &[], meta)
+    }
+
+    fn role_record(
+        &self,
+        actor: &Subject,
+        assigned: bool,
+        change: &RoleChange,
+        outcome: AuditOutcome,
+        violations: &[Violation],
+        meta: &Attributes,
+    ) -> Result<AuditRecord, AuditError> {
         let action = if assigned {
             AuditAction::RoleAssign
         } else {
@@ -564,9 +585,24 @@ impl Auditor {
         let mut record = self.base(actor, action, format!("{}@{}", change.role, change.subject), outcome);
         if self.level >= AuditLevel::Standard {
             record.role = Some(change.clone());
+            record.violations = self.violation_texts(violations);
         }
         self.detail(&mut record, actor, meta);
         self.emit(record)
+    }
+
+    /// Nomes dos invariantes em `standard`; nome e mensagem a partir de `detailed`.
+    fn violation_texts(&self, violations: &[Violation]) -> Vec<String> {
+        violations
+            .iter()
+            .map(|v| {
+                if self.level >= AuditLevel::Detailed {
+                    v.to_string()
+                } else {
+                    v.invariant.clone()
+                }
+            })
+            .collect()
     }
 
     fn emit(&self, mut record: AuditRecord) -> Result<AuditRecord, AuditError> {

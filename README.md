@@ -126,6 +126,14 @@ let next = governance.apply_with(&engine, &actor, &current, &Mutation::Add(grant
 // persist `next` only on Ok
 ```
 
+Assigning or revoking a role goes through the same invariants and is audited as `role_assign`/`role_revoke`; the grant set comes back unchanged and the subject to persist comes from `Mutation::subject_after`.
+
+```rust
+let change = Mutation::AssignRole { subject: bob, role: RoleAssignment { role: "editor".into(), scope: Some(org) } };
+governance.apply_with(&engine, &actor, &current, &change, None, &request_meta)?;
+let bob = change.subject_after().expect("role change"); // persist bob's roles
+```
+
 Add your own rule by implementing `Invariant`. The list can also come from JSON (`InvariantSpec`).
 
 ## Auditing

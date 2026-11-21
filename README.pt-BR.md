@@ -126,6 +126,14 @@ let next = governance.apply_with(&engine, &actor, &current, &Mutation::Add(grant
 // grava `next` só no Ok
 ```
 
+Atribuir ou revogar papel passa pelos mesmos invariantes e vai para a auditoria como `role_assign`/`role_revoke`; o conjunto de grants volta igual e o sujeito a gravar sai de `Mutation::subject_after`.
+
+```rust
+let change = Mutation::AssignRole { subject: bob, role: RoleAssignment { role: "editor".into(), scope: Some(org) } };
+governance.apply_with(&engine, &actor, &current, &change, None, &request_meta)?;
+let bob = change.subject_after().expect("mudança de papel"); // grava os papéis de bob
+```
+
 Regra própria entra implementando `Invariant`. A lista também pode vir de JSON (`InvariantSpec`).
 
 ## Auditoria

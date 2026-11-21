@@ -83,6 +83,26 @@ for (const backend of ['native', 'wasm']) {
     const ok = engine.apply({ actor: { kind: 'user', id: 'root' }, current: [], mutation: { add: memberGrant }, audit: { level: 'minimal' } });
     assert.equal(ok.ok, true);
     assert.equal(ok.grants.length, 1);
+
+    const bob = { kind: 'user', id: 'bob' };
+    const assigned = engine.apply({
+      actor: admin,
+      current: [memberGrant],
+      mutation: { assign_role: { subject: bob, role: { role: 'member' } } },
+      invariants: [{ kind: 'catalog_conformance' }, { kind: 'no_self_management' }],
+      audit: { level: 'standard' },
+    });
+    assert.equal(assigned.ok, true);
+    assert.deepEqual(assigned.subject.roles, [{ role: 'member' }]);
+    assert.equal(assigned.audit.action, 'role_assign');
+    const ownRevoke = engine.apply({
+      actor: admin,
+      current: [memberGrant],
+      mutation: { revoke_role: { subject: admin, role: { role: 'admin' } } },
+      invariants: [{ kind: 'no_self_management' }],
+    });
+    assert.equal(ownRevoke.ok, false);
+    assert.equal(ownRevoke.violations[0].invariant, 'no_self_management');
     assert.ok(auditEstimate('forensic', 1e6) > auditEstimate('minimal', 1e6));
   });
 }
