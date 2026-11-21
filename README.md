@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.svg" alt="Themis: who can do what, and why. RBAC, ABAC and ReBAC, one decision engine for Rust." width="100%">
+</p>
+
 # Themis
 
 [![CI](https://github.com/The-Hades-Organization/Themis/actions/workflows/ci.yml/badge.svg)](https://github.com/The-Hades-Organization/Themis/actions/workflows/ci.yml)

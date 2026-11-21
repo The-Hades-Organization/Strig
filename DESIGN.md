@@ -575,3 +575,13 @@ Mensagem centralizada em `mute` com 24 px de respiro, sempre dizendo como sair d
 - **Don't** usar âmbar como destaque decorativo; ele significa simulação ou avaliação impossível.
 - **Don't** espalhar cartões soltos com selos avulsos; o veredito vai numa caixa com cabeçalho e os grants na linha do tempo.
 - **Don't** escrever cor literal fora da paleta de tokens.
+
+## Marca do repositório (banner do README)
+
+O banner `assets/banner.svg` é a marca da biblioteca e não segue o estilo Primer do Themis Inspect: cada um tem identidade própria.
+
+- **Ideia:** a balança da Themis mostra como o motor decide. No degrau decisivo o `deny` vence, então o prato da negação fica mais baixo e é o único dourado.
+- **Cores:** bronze com pátina como fundo inteiro (`#1F5C51`; no tema escuro `#14302A`, claro o bastante para o cartão aparecer sobre o `#0D1117` do GitHub), tinta osso `#F1E7CF` para o nome, a frase e a marca, verde claro `#C6DCD1` (escuro `#9FC0B2`) para a linha técnica, e um único dourado `#E3B04B`, reservado ao prato que decide.
+- **Tipos:** nome em capitulares Marcellus (106 px, espaçamento de inscrição de 0,06 em); frase e linha técnica em Hanken Grotesk 500 e 400. As duas são OFL e vão em contorno no SVG, que assim não depende de fonte instalada.
+- **Formato:** SVG de 960×240 com raio de 16, autocontido, sem script nem referência externa. O tema escuro troca só o fundo e o verde claro; a marca fica idêntica nos dois.
+- **Regras:** o dourado só aparece no prato que decide; o travessão fica inclinado 9°, com o lado da negação para baixo; o texto do banner é em inglês.
