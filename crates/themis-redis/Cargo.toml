@@ -1,0 +1,21 @@
+[package]
+name = "themis-redis"
+description = "Transporte Redis pub/sub para o hub de mudanças da Themis."
+keywords = ["authorization", "redis", "pubsub", "realtime"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+themis-sync.workspace = true
+async-trait.workspace = true
+futures-util.workspace = true
+redis = { version = "0.27", default-features = false, features = ["aio", "tokio-comp", "connection-manager"] }
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+themis.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

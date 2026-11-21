@@ -1,0 +1,34 @@
+{
+  "name": "@the-hades-organization/themis",
+  "version": "0.2.0",
+  "description": "Motor de autorização Themis (RBAC, ABAC, ReBAC) para Node, Bun e navegador, com permissões em tempo real.",
+  "license": "MIT",
+  "type": "module",
+  "repository": "github:The-Hades-Organization/Themis",
+  "files": ["*.js", "*.d.ts", "native/", "wasm/"],
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "browser": "./browser.js",
+      "deno": "./browser.js",
+      "bun": "./node.js",
+      "node": "./node.js",
+      "default": "./browser.js"
+    },
+    "./client": { "types": "./client.d.ts", "default": "./client.js" },
+    "./server": { "types": "./server.d.ts", "default": "./server.js" },
+    "./protocol": { "types": "./protocol.d.ts", "default": "./protocol.js" }
+  },
+  "scripts": {
+    "build": "sh ../scripts/build.sh",
+    "test": "node test/run.mjs",
+    "test:bun": "bun test/run.mjs"
+  },
+  "devDependencies": {
+    "pg": "^8.13.0"
+  },
+  "engines": {
+    "node": ">=18.17",
+    "bun": ">=1.1"
+  }
+}

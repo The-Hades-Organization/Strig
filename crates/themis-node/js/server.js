@@ -1,0 +1,299 @@
+// Lado servidor em Node e Bun: hub de mudanças, sessões SSE/WebSocket e transportes Redis/Postgres.
+// Fala o mesmo protocolo do crate themis-sync, então instâncias em Rust e em JS trocam mudanças
+// pelo mesmo canal.
+import { changeAffects, encodeSse, sameAnchor } from './protocol.js';
+
+const GLOBAL_ANCHOR = { kind: 'global' };
+
+export function change(kind, scope, extra = {}) {
+  return { kind, scope, origin: '', seq: 0, at: 0, ...extra };
+}
+
+export class Hub {
+  /** @param {{ origin?: string, transport?: Transport }} [options] */
+  constructor(options = {}) {
+    this.origin = options.origin ?? Math.random().toString(16).slice(2).padEnd(16, '0').slice(0, 16);
+    this.transport = options.transport;
+    this.seq = 0;
+    this.listeners = new Set();
+  }
+
+  subscribe(listener) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  deliver(item) {
+    for (const listener of [...this.listeners]) {
+      try {
+        listener(item);
+      } catch {
+        // um assinante com defeito não derruba os outros
+      }
+    }
+  }
+
+  async publish(item) {
+    const stamped = { ...item, origin: this.origin, seq: ++this.seq, at: item.at || Date.now() };
+    this.deliver(stamped);
+    if (this.transport) await this.transport.publish(stamped);
+    return stamped;
+  }
+
+  /** Traz as mudanças das outras instâncias. Reconexão do transporte vira `resync`. */
+  async startRelay() {
+    if (!this.transport || this.stopRelay) return;
+    this.stopRelay = await this.transport.subscribe(
+      (item) => {
+        if (item.origin !== this.origin) this.deliver(item);
+      },
+      () => this.deliver(change('resync', GLOBAL_ANCHOR, { at: Date.now() })),
+    );
+  }
+
+  async close() {
+    await this.stopRelay?.();
+    this.stopRelay = undefined;
+  }
+}
+
+const sameScope = (a, b) => a.path.length === b.path.length && a.path.every((x, i) => sameAnchor(x, b.path[i]));
+
+/**
+ * Sessão de um cliente. `send` recebe cada mensagem do servidor (objeto). Para WebSocket, repasse
+ * o texto recebido em `handle`.
+ */
+export function openSession({ hub, subject, scopes = [], provider, heartbeatMs = 25_000, send }) {
+  const watched = [...scopes];
+  let closed = false;
+  let pending = [];
+  let scheduled = false;
+
+  const push = async (scope) => {
+    if (!provider || closed) return;
+    try {
+      send({ type: 'capabilities', scope, set: await provider(subject, scope) });
+    } catch (error) {
+      send({ type: 'error', message: String(error?.message ?? error) });
+    }
+  };
+  const pushAll = async () => {
+    for (const scope of watched) await push(scope);
+  };
+
+  const flush = async () => {
+    scheduled = false;
+    const batch = pending;
+    pending = [];
+    if (batch.some((c) => c.kind === 'resync')) {
+      send({ type: 'resync' });
+      return pushAll();
+    }
+    const affected = new Set();
+    for (const item of batch) {
+      const hits = watched.filter((scope) => changeAffects(item, subject.id ?? null, scope));
+      if (!hits.length) continue;
+      hits.forEach((scope) => affected.add(scope));
+      send({ type: 'change', change: item });
+    }
+    for (const scope of affected) await push(scope);
+  };
+
+  const unsubscribe = hub.subscribe((item) => {
+    pending.push(item);
+    if (!scheduled) {
+      scheduled = true;
+      queueMicrotask(flush);
+    }
+  });
+  const timer = heartbeatMs ? setInterval(() => send({ type: 'ping' }), heartbeatMs) : undefined;
+  timer?.unref?.();
+
+  send({ type: 'hello', origin: hub.origin, subject: subject.id });
+  const ready = pushAll();
+
+  return {
+    ready,
+    async handle(input) {
+      const message = typeof input === 'string' ? JSON.parse(input) : input;
+      if (message.type === 'watch') {
+        for (const scope of message.scopes) {
+          if (watched.some((s) => sameScope(s, scope))) continue;
+          watched.push(scope);
+          await push(scope);
+        }
+      } else if (message.type === 'unwatch') {
+        for (const scope of message.scopes) {
+          const at = watched.findIndex((s) => sameScope(s, scope));
+          if (at >= 0) watched.splice(at, 1);
+        }
+      } else if (message.type === 'refresh') {
+        await pushAll();
+      }
+    },
+    close() {
+      closed = true;
+      unsubscribe();
+      if (timer) clearInterval(timer);
+    },
+  };
+}
+
+const SSE_HEADERS = {
+  'content-type': 'text/event-stream',
+  'cache-control': 'no-cache',
+  connection: 'keep-alive',
+};
+
+/** `Response` de SSE (Bun.serve, Deno, Hono, qualquer runtime com Fetch API). */
+export function sseResponse(options) {
+  const encoder = new TextEncoder();
+  let session;
+  const body = new ReadableStream({
+    start(controller) {
+      session = openSession({
+        ...options,
+        send: (message) => {
+          try {
+            controller.enqueue(encoder.encode(encodeSse(message)));
+          } catch {
+            session?.close();
+          }
+        },
+      });
+    },
+    cancel() {
+      session?.close();
+    },
+  });
+  return new Response(body, { headers: SSE_HEADERS });
+}
+
+/** SSE sobre `http.ServerResponse` do Node. */
+export function pipeSse(res, options) {
+  res.writeHead(200, SSE_HEADERS);
+  const session = openSession({ ...options, send: (message) => res.write(encodeSse(message)) });
+  res.on('close', () => session.close());
+  return session;
+}
+
+/** Provider padrão: carrega os grants e filtra com `engine.capabilities`, como o `EngineProvider` do Rust. */
+export function engineProvider({ engine, Context, loadGrants }) {
+  return async (subject, scope) => {
+    const context = new Context({ grants: await loadGrants(subject, scope) });
+    return engine.capabilities(context, subject, scope);
+  };
+}
+
+/** Transporte em memória: hubs que recebem o mesmo objeto trocam mudanças. */
+export function memoryTransport() {
+  const subscribers = new Set();
+  return {
+    async publish(item) {
+      for (const fn of subscribers) queueMicrotask(() => fn(item));
+    },
+    async subscribe(onChange) {
+      subscribers.add(onChange);
+      return async () => subscribers.delete(onChange);
+    },
+  };
+}
+
+const parse = (text) => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Redis pub/sub. Serve para o `redis` (node-redis v4+) e para o `RedisClient` nativo do Bun, que
+ * têm a mesma assinatura: `publish(canal, texto)` e `subscribe(canal, (texto) => ...)`. O assinante
+ * precisa de uma conexão só dele.
+ */
+export function redisTransport({ publisher, subscriber, channel = 'themis:changes' }) {
+  return {
+    async publish(item) {
+      await publisher.publish(channel, JSON.stringify(item));
+    },
+    async subscribe(onChange, onReset) {
+      let dropped = false;
+      const onDrop = () => (dropped = true);
+      const onReady = () => {
+        if (dropped) onReset?.();
+        dropped = false;
+      };
+      subscriber.on?.('reconnecting', onDrop);
+      subscriber.on?.('ready', onReady);
+      await subscriber.subscribe(channel, (text) => {
+        const item = parse(text);
+        if (item) onChange(item);
+      });
+      return async () => {
+        subscriber.off?.('reconnecting', onDrop);
+        subscriber.off?.('ready', onReady);
+        await subscriber.unsubscribe(channel);
+      };
+    },
+  };
+}
+
+/** ioredis: `subscribe(canal)` e evento `message`. */
+export function ioredisTransport({ publisher, subscriber, channel = 'themis:changes' }) {
+  return {
+    async publish(item) {
+      await publisher.publish(channel, JSON.stringify(item));
+    },
+    async subscribe(onChange, onReset) {
+      const onMessage = (from, text) => {
+        if (from !== channel) return;
+        const item = parse(text);
+        if (item) onChange(item);
+      };
+      const onReconnect = () => onReset?.();
+      subscriber.on('message', onMessage);
+      subscriber.on('reconnecting', onReconnect);
+      await subscriber.subscribe(channel);
+      return async () => {
+        subscriber.off('message', onMessage);
+        subscriber.off('reconnecting', onReconnect);
+        await subscriber.unsubscribe(channel);
+      };
+    },
+  };
+}
+
+/**
+ * Postgres LISTEN/NOTIFY com o pacote `pg`. `client` publica (Pool ou Client); `listener` é um
+ * `Client` conectado e dedicado. Para avisar dentro da transação que grava o grant, chame
+ * `notify(tx, canal, mudança)` antes do COMMIT: o aviso só sai se a transação gravar.
+ */
+export function pgTransport({ client, listener, channel = 'themis_changes' }) {
+  const quoted = `"${channel.replaceAll('"', '""')}"`;
+  return {
+    async publish(item) {
+      await notify(client, channel, item);
+    },
+    async subscribe(onChange, onReset) {
+      const onNotification = (message) => {
+        if (message.channel !== channel) return;
+        const item = parse(message.payload);
+        if (item) onChange(item);
+      };
+      const onEnd = () => onReset?.();
+      listener.on('notification', onNotification);
+      listener.on('end', onEnd);
+      await listener.query(`LISTEN ${quoted}`);
+      return async () => {
+        listener.off('notification', onNotification);
+        listener.off('end', onEnd);
+        await listener.query(`UNLISTEN ${quoted}`).catch(() => {});
+      };
+    },
+  };
+}
+
+export async function notify(queryable, channel, item) {
+  await queryable.query('SELECT pg_notify($1, $2)', [channel, JSON.stringify(item)]);
+}

@@ -1,0 +1,32 @@
+[package]
+name = "themis-node"
+description = "Bindings JavaScript da Themis: módulo nativo (napi) para Node e Bun, WebAssembly para o navegador."
+keywords = ["authorization", "napi", "wasm", "nodejs", "bun"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+## Módulo nativo para Node e Bun (N-API).
+napi = ["dep:napi", "dep:napi-derive"]
+## WebAssembly para navegador, Deno e fallback do Node/Bun.
+wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys"]
+
+[dependencies]
+themis.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+napi = { version = "3", default-features = false, features = ["napi6", "serde-json"], optional = true }
+napi-derive = { version = "3", optional = true }
+wasm-bindgen = { version = "=0.2.130", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+js-sys = { version = "0.3", optional = true }
+
+[build-dependencies]
+napi-build = "2"

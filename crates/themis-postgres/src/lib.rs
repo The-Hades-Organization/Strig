@@ -1,0 +1,167 @@
+//! Transporte Postgres `LISTEN/NOTIFY` para o [`themis_sync::Hub`].
+//!
+//! ```no_run
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! use themis_sync::Hub;
+//! use themis_postgres::PgTransport;
+//!
+//! let hub = Hub::builder()
+//!     .transport(PgTransport::new("postgres://app@localhost/app", "themis_changes")?)
+//!     .build();
+//! let _relay = hub.spawn_relay();
+//! # Ok(()) }
+//! ```
+//!
+//! # Aviso na mesma transação da mudança
+//!
+//! `NOTIFY` só é entregue no commit. Gravar o grant e chamar [`notify`] na mesma transação
+//! garante que o aviso sai se, e só se, a mudança foi gravada. O aviso enviado assim não passa
+//! por [`themis_sync::Hub::publish`] e chega sem origem, então o relay entrega em todas as
+//! instâncias, inclusive na que gravou.
+//!
+//! TLS: [`PgTransport::with_tls`] aceita qualquer conector do `tokio-postgres`
+//! (`postgres-native-tls`, `tokio-postgres-rustls`).
+
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use futures_util::{StreamExt, stream};
+use themis_sync::{Change, ChangeStream, Transport, TransportError};
+use tokio::sync::{Mutex, mpsc};
+use tokio_postgres::tls::{MakeTlsConnect, TlsConnect};
+use tokio_postgres::{AsyncMessage, Client, Config, GenericClient, NoTls, Socket};
+use tokio_stream::wrappers::UnboundedReceiverStream;
+
+type Notifications = mpsc::UnboundedReceiver<Result<String, TransportError>>;
+type Connect = Arc<
+    dyn Fn() -> Pin<Box<dyn Future<Output = Result<(Client, Notifications), TransportError>> + Send>> + Send + Sync,
+>;
+
+fn connection(error: tokio_postgres::Error) -> TransportError {
+    TransportError::Connection(error.to_string())
+}
+
+/// Maior payload aceito pelo `pg_notify` com a configuração padrão do Postgres.
+pub const MAX_PAYLOAD: usize = 7999;
+
+pub struct PgTransport {
+    channel: String,
+    connect: Connect,
+    publisher: Mutex<Option<Client>>,
+}
+
+impl PgTransport {
+    /// Conexão sem TLS.
+    pub fn new(url: &str, channel: impl Into<String>) -> Result<Self, TransportError> {
+        Self::with_tls(url, channel, NoTls)
+    }
+
+    pub fn with_tls<T>(url: &str, channel: impl Into<String>, tls: T) -> Result<Self, TransportError>
+    where
+        T: MakeTlsConnect<Socket> + Clone + Send + Sync + 'static,
+        T::Stream: Send + 'static,
+        T::TlsConnect: Send,
+        <T::TlsConnect as TlsConnect<Socket>>::Future: Send,
+    {
+        let config: Config = url.parse().map_err(connection)?;
+        let connect: Connect = Arc::new(move || {
+            let config = config.clone();
+            let tls = tls.clone();
+            Box::pin(async move {
+                let (client, mut conn) = config.connect(tls).await.map_err(connection)?;
+                let (tx, rx) = mpsc::unbounded_channel();
+                tokio::spawn(async move {
+                    let mut messages = stream::poll_fn(move |cx| conn.poll_message(cx));
+                    while let Some(message) = messages.next().await {
+                        let item = match message {
+                            Ok(AsyncMessage::Notification(n)) => Ok(n.payload().to_string()),
+                            Ok(_) => continue,
+                            Err(e) => Err(connection(e)),
+                        };
+                        let failed = item.is_err();
+                        if tx.send(item).is_err() || failed {
+                            break;
+                        }
+                    }
+                });
+                Ok((client, rx))
+            })
+        });
+        Ok(Self {
+            channel: channel.into(),
+            connect,
+            publisher: Mutex::new(None),
+        })
+    }
+
+    pub fn channel(&self) -> &str {
+        &self.channel
+    }
+}
+
+/// Envia `change` no canal pelo cliente ou transação informados.
+pub async fn notify<C: GenericClient + Sync>(client: &C, channel: &str, change: &Change) -> Result<(), TransportError> {
+    let payload = change.to_json();
+    if payload.len() > MAX_PAYLOAD {
+        return Err(TransportError::Decode(format!(
+            "aviso com {} bytes passa do limite do pg_notify",
+            payload.len()
+        )));
+    }
+    client
+        .execute("SELECT pg_notify($1, $2)", &[&channel, &payload])
+        .await
+        .map(|_| ())
+        .map_err(connection)
+}
+
+fn quote_ident(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}
+
+#[async_trait]
+impl Transport for PgTransport {
+    fn name(&self) -> &str {
+        "postgres"
+    }
+
+    async fn publish(&self, change: &Change) -> Result<(), TransportError> {
+        let mut publisher = self.publisher.lock().await;
+        if publisher.as_ref().is_none_or(Client::is_closed) {
+            let (client, _notifications) = (self.connect)().await?;
+            *publisher = Some(client);
+        }
+        let client = publisher.as_ref().expect("cliente recém-conectado");
+        let result = notify(client, &self.channel, change).await;
+        if result.is_err() && client.is_closed() {
+            *publisher = None;
+        }
+        result
+    }
+
+    async fn subscribe(&self) -> Result<ChangeStream, TransportError> {
+        let (client, notifications) = (self.connect)().await?;
+        client
+            .batch_execute(&format!("LISTEN {}", quote_ident(&self.channel)))
+            .await
+            .map_err(connection)?;
+        let stream = UnboundedReceiverStream::new(notifications).map(move |item| {
+            let _keep_alive = &client;
+            item.and_then(|payload| Change::from_json(&payload).map_err(|e| TransportError::Decode(e.to_string())))
+        });
+        Ok(Box::pin(stream))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quotes_identifiers() {
+        assert_eq!(quote_ident("themis_changes"), "\"themis_changes\"");
+        assert_eq!(quote_ident("a\"b"), "\"a\"\"b\"");
+    }
+}

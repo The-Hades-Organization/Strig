@@ -1,0 +1,23 @@
+[package]
+name = "themis-sync"
+description = "Tempo real para a Themis: hub de mudanças de permissão, trait de transporte, sessões SSE/WebSocket e cache de capacidades."
+keywords = ["authorization", "realtime", "sse", "websocket", "permissions"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+themis.workspace = true
+async-trait.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }
+tokio-stream = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

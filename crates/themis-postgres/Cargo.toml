@@ -1,0 +1,22 @@
+[package]
+name = "themis-postgres"
+description = "Transporte Postgres LISTEN/NOTIFY para o hub de mudanças da Themis."
+keywords = ["authorization", "postgres", "notify", "realtime"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+themis-sync.workspace = true
+async-trait.workspace = true
+futures-util.workspace = true
+tokio = { workspace = true, features = ["sync", "rt"] }
+tokio-postgres = "0.7"
+tokio-stream = { workspace = true }
+
+[dev-dependencies]
+themis.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
