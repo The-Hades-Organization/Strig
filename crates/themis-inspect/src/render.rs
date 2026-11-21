@@ -10,6 +10,14 @@ use themis::{
 use crate::inspector::Matrix;
 use crate::trail::{ChainStatus, Replay};
 
+/// A palavra do efeito como no catálogo: `allow` ou `deny`.
+pub fn effect_word(effect: Effect) -> &'static str {
+    match effect {
+        Effect::Allow => "allow",
+        Effect::Deny => "deny",
+    }
+}
+
 pub fn effect(effect: Effect) -> &'static str {
     match effect {
         Effect::Allow => "PERMITIDO",
@@ -191,9 +199,12 @@ pub fn record_line(record: &AuditRecord) -> String {
 
 pub fn chain(status: &ChainStatus) -> String {
     match status {
-        ChainStatus::Absent => "sem registros forensic: cadeia não se aplica".into(),
-        ChainStatus::Intact { records } => format!("cadeia íntegra ({records} registros forensic)"),
-        ChainStatus::Broken(error) => format!("CADEIA QUEBRADA: {error}"),
+        ChainStatus::Absent => "nenhum registro no nível forensic: não há cadeia de hashes para conferir".into(),
+        ChainStatus::Intact { records } => match records {
+            1 => "cadeia de hashes íntegra: 1 registro no nível forensic".into(),
+            n => format!("cadeia de hashes íntegra: {n} registros no nível forensic"),
+        },
+        ChainStatus::Broken(error) => format!("cadeia de hashes QUEBRADA: {error}"),
     }
 }
 

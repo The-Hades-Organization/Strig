@@ -1,0 +1,689 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-21T22:08:41+00:00",
+  "title": "Design System: Themis Inspect",
+  "extensions": {
+    "colorMeta": {
+      "bg": {
+        "role": "neutral",
+        "displayName": "Branco Papel",
+        "canonical": "#FFFFFF",
+        "oklch": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#262626",
+          "#454545",
+          "#666666",
+          "#898989",
+          "#AEAEAE",
+          "#D1D1D1",
+          "#EEEEEE"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Cinza Cabeçalho",
+        "canonical": "#F6F8FA",
+        "oklch": "oklch(97.8% 0.003 247.9)",
+        "tonalRamp": [
+          "#0B0B0C",
+          "#252728",
+          "#444547",
+          "#646668",
+          "#87898B",
+          "#ADAEAF",
+          "#D0D1D2",
+          "#EEEEEF"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "surface2": {
+        "role": "neutral",
+        "displayName": "Cinza Hover",
+        "canonical": "#EFF2F5",
+        "oklch": "oklch(96.0% 0.005 247.9)",
+        "tonalRamp": [
+          "#0A0B0C",
+          "#252728",
+          "#434548",
+          "#646669",
+          "#87898C",
+          "#ACAEB0",
+          "#D0D1D2",
+          "#EEEEEF"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "selected": {
+        "role": "neutral",
+        "displayName": "Cinza Seleção",
+        "canonical": "#E7ECF0",
+        "oklch": "oklch(94.0% 0.008 241.7)",
+        "tonalRamp": [
+          "#0A0B0C",
+          "#242729",
+          "#424649",
+          "#62676A",
+          "#858A8D",
+          "#ABAEB1",
+          "#CFD1D3",
+          "#EEEEEF"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Borda",
+        "canonical": "#D1D9E0",
+        "oklch": "oklch(88.1% 0.013 244.3)",
+        "tonalRamp": [
+          "#090B0D",
+          "#23272B",
+          "#3F464C",
+          "#60676D",
+          "#838A91",
+          "#A9AFB3",
+          "#CED1D4",
+          "#EDEEEF"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "line2": {
+        "role": "neutral",
+        "displayName": "Divisória",
+        "canonical": "#DFE4E9",
+        "oklch": "oklch(91.6% 0.009 247.9)",
+        "tonalRamp": [
+          "#0A0B0D",
+          "#24272A",
+          "#41454A",
+          "#62676B",
+          "#858A8E",
+          "#ABAEB2",
+          "#CFD1D3",
+          "#EEEEEF"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Tinta",
+        "canonical": "#1F2328",
+        "oklch": "oklch(25.4% 0.011 254.0)",
+        "tonalRamp": [
+          "#0A0B0D",
+          "#24272B",
+          "#41454B",
+          "#62676C",
+          "#858A90",
+          "#ABAEB3",
+          "#CFD1D4",
+          "#EEEEEF"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "mute": {
+        "role": "neutral",
+        "displayName": "Tinta Secundária",
+        "canonical": "#59636E",
+        "oklch": "oklch(49.5% 0.022 250.8)",
+        "tonalRamp": [
+          "#080B0F",
+          "#21272E",
+          "#3D4650",
+          "#5D6772",
+          "#808A96",
+          "#A7AFB7",
+          "#CDD1D6",
+          "#EDEFF0"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "faint": {
+        "role": "neutral",
+        "displayName": "Tinta Apagada",
+        "canonical": "#818B98",
+        "oklch": "oklch(63.3% 0.023 255.0)",
+        "tonalRamp": [
+          "#090B0F",
+          "#21272F",
+          "#3D4651",
+          "#5D6773",
+          "#808A97",
+          "#A7AFB8",
+          "#CDD1D7",
+          "#EDEEF1"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Azul de Seleção",
+        "canonical": "#0969DA",
+        "oklch": "oklch(54.0% 0.191 257.5)",
+        "tonalRamp": [
+          "#000A22",
+          "#012454",
+          "#01418E",
+          "#0661CB",
+          "#3186F9",
+          "#79B0FD",
+          "#B6D3FE",
+          "#E5EFFE"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "accent_bg": {
+        "role": "primary",
+        "displayName": "Azul Lavado",
+        "canonical": "#DDF4FF",
+        "oklch": "oklch(95.4% 0.028 228.0)",
+        "tonalRamp": [
+          "#060C0F",
+          "#1B292F",
+          "#354851",
+          "#556A73",
+          "#788D97",
+          "#A2B1B8",
+          "#CAD3D7",
+          "#ECEFF0"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "accent_line": {
+        "role": "primary",
+        "displayName": "Borda Azul",
+        "canonical": "#B6E3FF",
+        "oklch": "oklch(89.3% 0.061 235.7)",
+        "tonalRamp": [
+          "#020D14",
+          "#0C2A3A",
+          "#204A61",
+          "#426C84",
+          "#658FA9",
+          "#95B3C6",
+          "#C3D4DF",
+          "#E9EFF3"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "accent_ink": {
+        "role": "primary",
+        "displayName": "Azul Tinta",
+        "canonical": "#0550AE",
+        "oklch": "oklch(45.1% 0.164 258.2)",
+        "tonalRamp": [
+          "#000A22",
+          "#002356",
+          "#04418E",
+          "#1E62C2",
+          "#4487EA",
+          "#80AFF6",
+          "#B7D3FC",
+          "#E5EFFE"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "accent_soft": {
+        "role": "primary",
+        "displayName": "Azul Névoa",
+        "canonical": "#F1F9FF",
+        "oklch": "oklch(97.8% 0.012 239.9)",
+        "tonalRamp": [
+          "#090B0D",
+          "#23272A",
+          "#40464B",
+          "#60676C",
+          "#838A90",
+          "#A9AFB3",
+          "#CED1D4",
+          "#EDEEEF"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "ok": {
+        "role": "secondary",
+        "displayName": "Verde Permitido",
+        "canonical": "#1A7F37",
+        "oklch": "oklch(52.4% 0.140 148.0)",
+        "tonalRamp": [
+          "#001002",
+          "#00300E",
+          "#075420",
+          "#127B33",
+          "#42A056",
+          "#82BF8B",
+          "#BADBBD",
+          "#E6F2E7"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "ok_bg": {
+        "role": "secondary",
+        "displayName": "Verde Permitido (fundo)",
+        "canonical": "#DAFBE1",
+        "oklch": "oklch(95.7% 0.049 151.6)",
+        "tonalRamp": [
+          "#050E07",
+          "#182C1D",
+          "#314D38",
+          "#516E58",
+          "#74927B",
+          "#9FB5A3",
+          "#C8D5CB",
+          "#EBF0EC"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "ok_line": {
+        "role": "secondary",
+        "displayName": "Verde Permitido (borda)",
+        "canonical": "#8DDB9F",
+        "oklch": "oklch(82.5% 0.114 150.6)",
+        "tonalRamp": [
+          "#001003",
+          "#023013",
+          "#055425",
+          "#297842",
+          "#509C64",
+          "#89BD94",
+          "#BDDAC2",
+          "#E7F2E9"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "no": {
+        "role": "secondary",
+        "displayName": "Vermelho Negado",
+        "canonical": "#CF222E",
+        "oklch": "oklch(55.2% 0.205 24.5)",
+        "tonalRamp": [
+          "#1F0001",
+          "#4F0107",
+          "#830A16",
+          "#C00421",
+          "#EB4346",
+          "#FC8780",
+          "#FDBFBA",
+          "#FFE9E6"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "no_bg": {
+        "role": "secondary",
+        "displayName": "Vermelho Negado (fundo)",
+        "canonical": "#FFEBE9",
+        "oklch": "oklch(95.5% 0.022 24.4)",
+        "tonalRamp": [
+          "#0F0A09",
+          "#2E2322",
+          "#50413F",
+          "#726160",
+          "#968483",
+          "#B8AAA9",
+          "#D7CFCE",
+          "#F0EEED"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "no_line": {
+        "role": "secondary",
+        "displayName": "Vermelho Negado (borda)",
+        "canonical": "#FFCECB",
+        "oklch": "oklch(89.3% 0.056 22.3)",
+        "tonalRamp": [
+          "#140707",
+          "#391E1D",
+          "#603937",
+          "#835957",
+          "#A97C7A",
+          "#C6A5A3",
+          "#DFCCCA",
+          "#F4ECEC"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "warn": {
+        "role": "tertiary",
+        "displayName": "Âmbar da Simulação",
+        "canonical": "#9A6700",
+        "oklch": "oklch(55.4% 0.117 75.0)",
+        "tonalRamp": [
+          "#130900",
+          "#362201",
+          "#5E3D01",
+          "#895C06",
+          "#B27E29",
+          "#CDA773",
+          "#E3CDB0",
+          "#F5EDE3"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "warn_bg": {
+        "role": "tertiary",
+        "displayName": "Âmbar da Simulação (fundo)",
+        "canonical": "#FFF8C5",
+        "oklch": "oklch(97.2% 0.066 101.0)",
+        "tonalRamp": [
+          "#0E0B01",
+          "#2C2706",
+          "#4D4617",
+          "#6E6739",
+          "#928B5C",
+          "#B4AF8E",
+          "#D4D2BF",
+          "#F0EFE8"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      },
+      "warn_line": {
+        "role": "tertiary",
+        "displayName": "Âmbar da Simulação (borda)",
+        "canonical": "#D4A72C",
+        "oklch": "oklch(75.0% 0.141 87.1)",
+        "tonalRamp": [
+          "#110A00",
+          "#322401",
+          "#564207",
+          "#7F6103",
+          "#AA8308",
+          "#C9AA62",
+          "#E1CFA8",
+          "#F4EEE0"
+        ],
+        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Pedido no cabeçalho do veredito (\"beto pede\")."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Títulos de seção fora de caixa."
+      },
+      "brand": {
+        "displayName": "Brand",
+        "purpose": "Nome \"Themis Inspect\" no cabeçalho."
+      },
+      "title-small": {
+        "displayName": "Title small",
+        "purpose": "Título de caixa, aba ativa, item selecionado, ação do registro, id do grant, selo cheio do veredito."
+      },
+      "body-medium": {
+        "displayName": "Body medium",
+        "purpose": "Texto de botão e valor dos fatos do veredito."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Base da janela inteira."
+      },
+      "body-small": {
+        "displayName": "Body small",
+        "purpose": "Destino textual dos grants, ator do registro, cabeçalho e detalhe da árvore da condição."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Texto dos selos em pílula."
+      },
+      "caption-strong": {
+        "displayName": "Caption strong",
+        "purpose": "Título das listas da barra lateral, cabeçalho da tabela, número do degrau."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Nome dos fatos, dicas, atalhos no rodapé, \"antes: sim\"."
+      },
+      "mono-headline": {
+        "displayName": "Mono headline",
+        "purpose": "Permissão dentro do pedido do veredito."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Identificadores do motor: permissões, recursos, âncoras, alvos, estratégia, expressões, arquivos."
+      },
+      "mono-small": {
+        "displayName": "Mono small",
+        "purpose": "JSON do registro e permissão sob cada grant da barra lateral."
+      },
+      "mono-time": {
+        "displayName": "Mono time",
+        "purpose": "Horário dos registros de auditoria."
+      },
+      "kbd": {
+        "displayName": "Kbd",
+        "purpose": "Teclas dentro do componente de atalho."
+      }
+    },
+    "shadows": [],
+    "motion": [],
+    "breakpoints": [],
+    "window": {
+      "defaultSize": "1360x860",
+      "minSize": "980x600",
+      "note": "App desktop gpui sem breakpoints; adaptação por flex-wrap."
+    },
+    "focus": {
+      "ring": "borda de 2 px reservada em transparente, accent na linha ativa quando o teclado está em uso e a janela focada; clique do mouse apaga",
+      "matrixChip": "borda de 1 px do próprio chip vira accent"
+    },
+    "states": {
+      "hover": "fundo surface2 (linhas, abas, botões, chips); célula da matriz troca a borda para accent",
+      "disabled": "opacidade 0.6 (grant desligado)",
+      "selected": "fundo selected + SemiBold"
+    },
+    "keyboard": [
+      {
+        "keys": "up / down",
+        "action": "escolhe na lista"
+      },
+      {
+        "keys": "tab / shift-tab",
+        "action": "troca de lista"
+      },
+      {
+        "keys": "space",
+        "action": "liga ou desliga o grant"
+      },
+      {
+        "keys": "ctrl|cmd-1/2/3",
+        "action": "abas Avaliação, Matriz, Auditoria"
+      },
+      {
+        "keys": "ctrl|cmd-r",
+        "action": "recarrega"
+      },
+      {
+        "keys": "ctrl|cmd-z",
+        "action": "desfaz a simulação"
+      }
+    ],
+    "icons": {
+      "source": "crates/themis-inspect/assets/icons",
+      "grid": "24",
+      "stroke": "2 (2.5 em check e x), round caps/joins",
+      "sizes": [
+        "12px",
+        "14px",
+        "16px"
+      ]
+    },
+    "fonts": {
+      "source": "crates/themis-inspect/assets/fonts",
+      "license": "OFL",
+      "files": [
+        "NotoSans-Regular",
+        "NotoSans-Medium",
+        "NotoSans-SemiBold",
+        "NotoSans-Italic",
+        "JetBrainsMono-Regular",
+        "JetBrainsMono-SemiBold"
+      ]
+    },
+    "literalsOutsideTokens": [
+      {
+        "where": "style_scrollbars",
+        "value": "#D1D9E0",
+        "duplicates": "line"
+      },
+      {
+        "where": "style_scrollbars",
+        "value": "#818B98",
+        "duplicates": "faint"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Selo permitido / negado",
+      "kind": "chip",
+      "refersTo": "label-allow",
+      "description": "Pílula de estado com ícone e palavra; o efeito nunca vai só na cor.",
+      "html": "<span class=\"ds-label ds-label-allow\"><svg viewBox=\"0 0 24 24\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12.5l4.5 4.5L19 7.5\"/></svg>allow</span> <span class=\"ds-label ds-label-deny\"><svg viewBox=\"0 0 24 24\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 6l12 12M18 6L6 18\"/></svg>deny</span> <span class=\"ds-label ds-label-accent\">degrau 3</span> <span class=\"ds-label ds-label-caution\">simulado</span>",
+      "css": ".ds-label{font-family:'Noto Sans',sans-serif;display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:9999px;border:1px solid;font-size:12px;font-weight:500;} .ds-label-allow{color:#1A7F37;background:#DAFBE1;border-color:#8DDB9F;} .ds-label-deny{color:#CF222E;background:#FFEBE9;border-color:#FFCECB;} .ds-label-accent{color:#0550AE;background:#DDF4FF;border-color:#B6E3FF;} .ds-label-caution{color:#9A6700;background:#FFF8C5;border-color:#D4A72C;}"
+    },
+    {
+      "name": "Botão neutro",
+      "kind": "button",
+      "refersTo": "button-neutral",
+      "description": "Ação do cabeçalho (Recarregar): contido, borda de 1 px, hover em surface2.",
+      "html": "<button class=\"ds-btn ds-btn-neutral\"><span class=\"ds-btn-icon\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20 11a8 8 0 1 0-2.3 5.7\"/><path d=\"M20 4v7h-7\"/></svg></span>Recarregar</button>",
+      "css": ".ds-btn{font-family:'Noto Sans',sans-serif;display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border-radius:6px;border:1px solid;font-size:14px;font-weight:500;cursor:pointer;} .ds-btn-neutral{background:#F6F8FA;color:#1F2328;border-color:#D1D9E0;} .ds-btn-neutral .ds-btn-icon{color:#59636E;display:inline-flex;} .ds-btn:hover{background:#EFF2F5;} .ds-btn:focus-visible{outline:2px solid #0969DA;outline-offset:1px;}"
+    },
+    {
+      "name": "Botão âmbar",
+      "kind": "button",
+      "refersTo": "button-caution",
+      "description": "Desfazer simulação; só aparece enquanto há simulação. Hover vai para surface2 como no código.",
+      "html": "<button class=\"ds-btn-caution\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 14L4 9l5-5\"/><path d=\"M4 9h10a6 6 0 0 1 0 12h-3\"/></svg>Desfazer simulação</button>",
+      "css": ".ds-btn-caution{font-family:'Noto Sans',sans-serif;display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border-radius:6px;border:1px solid #D4A72C;background:#FFF8C5;color:#9A6700;font-size:14px;font-weight:500;cursor:pointer;} .ds-btn-caution:hover{background:#EFF2F5;} .ds-btn-caution:focus-visible{outline:2px solid #0969DA;outline-offset:1px;}"
+    },
+    {
+      "name": "Abas do cabeçalho",
+      "kind": "nav",
+      "refersTo": "tab",
+      "description": "Ícone em mute, legenda em ink; ativa em SemiBold com sublinhado azul de 2 px.",
+      "html": "<nav class=\"ds-tabs\"><a class=\"ds-tab ds-tab-on\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3v18M8 21h8M5 7h14M5 7l-3 7a3 3 0 0 0 6 0zM19 7l-3 7a3 3 0 0 0 6 0z\"/></svg><span>Avaliação</span></a><a class=\"ds-tab\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"4\" y=\"4\" width=\"16\" height=\"16\" rx=\"2\"/><path d=\"M4 12h16M12 4v16\"/></svg><span>Matriz</span></a></nav>",
+      "css": ".ds-tabs{font-family:'Noto Sans',sans-serif;display:flex;gap:4px;height:56px;border-bottom:1px solid #D1D9E0;background:#FFFFFF;} .ds-tab{position:relative;display:flex;align-items:center;gap:8px;padding:0 10px;color:#59636E;cursor:pointer;font-size:14px;} .ds-tab span{color:#1F2328;padding:4px 8px;border-radius:6px;} .ds-tab:hover span{background:#EFF2F5;} .ds-tab-on span{font-weight:600;} .ds-tab-on::after{content:'';position:absolute;left:8px;right:8px;bottom:-1px;height:2px;border-radius:2px;background:#0969DA;}"
+    },
+    {
+      "name": "Linha de lista com anel de foco",
+      "kind": "custom",
+      "refersTo": "list-row",
+      "description": "Linha de 30 px da barra lateral; selecionada em selected + SemiBold + check azul; anel de 2 px em accent só com teclado.",
+      "html": "<div class=\"ds-list\"><div class=\"ds-row\">ana</div><div class=\"ds-row ds-row-on\" tabindex=\"0\">beto<span class=\"ds-row-check\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12.5l4.5 4.5L19 7.5\"/></svg></span></div><div class=\"ds-row ds-mono\">document.export</div></div>",
+      "css": ".ds-list{font-family:'Noto Sans',sans-serif;width:276px;padding:12px;background:#F6F8FA;font-size:14px;color:#1F2328;} .ds-row{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:6px;border:2px solid transparent;cursor:pointer;} .ds-row:hover{background:#EFF2F5;} .ds-row-on{background:#E7ECF0;font-weight:600;} .ds-row-check{margin-left:auto;color:#0969DA;display:inline-flex;} .ds-row:focus-visible{outline:none;border-color:#0969DA;} .ds-mono{font-family:'JetBrains Mono',monospace;font-size:12.5px;}"
+    },
+    {
+      "name": "Caixa com cabeçalho",
+      "kind": "card",
+      "refersTo": "box",
+      "description": "Contêiner padrão: cabeçalho surface de 44 px com título e subtítulo, corpo branco, borda 1 px, raio 6 px, sem sombra.",
+      "html": "<section class=\"ds-box\"><header class=\"ds-box-head\"><strong>Caminho do recurso</strong><span>degrau · âncora</span></header><div class=\"ds-box-body\">Corpo da caixa.</div></section>",
+      "css": ".ds-box{font-family:'Noto Sans',sans-serif;border:1px solid #D1D9E0;border-radius:6px;background:#FFFFFF;overflow:hidden;font-size:14px;color:#1F2328;} .ds-box-head{display:flex;align-items:baseline;gap:8px;min-height:44px;padding:12px 16px;box-sizing:border-box;background:#F6F8FA;border-bottom:1px solid #D1D9E0;} .ds-box-head strong{font-weight:600;} .ds-box-head span{color:#59636E;} .ds-box-body{padding:14px 16px;}"
+    },
+    {
+      "name": "Selo do veredito",
+      "kind": "custom",
+      "refersTo": "verdict-state-deny",
+      "description": "Pílula cheia de 32 px na cor do efeito, ícone e texto brancos, ao lado do pedido em 20 px.",
+      "html": "<div class=\"ds-verdict\"><span class=\"ds-state ds-state-deny\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 6l12 12M18 6L6 18\"/></svg>Negado</span><span class=\"ds-ask\">beto pede <code>document.export</code></span></div>",
+      "css": ".ds-verdict{font-family:'Noto Sans',sans-serif;display:flex;align-items:center;gap:12px;min-height:60px;padding:10px 16px;box-sizing:border-box;background:#F6F8FA;border:1px solid #D1D9E0;border-radius:6px;} .ds-state{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 14px 0 12px;border-radius:9999px;color:#FFFFFF;font-weight:600;font-size:14px;} .ds-state-deny{background:#CF222E;} .ds-state-allow{background:#1A7F37;} .ds-ask{font-size:20px;font-weight:600;color:#1F2328;} .ds-ask code{font-family:'JetBrains Mono',monospace;font-size:17px;}"
+    },
+    {
+      "name": "Nota informativa",
+      "kind": "custom",
+      "refersTo": "note-info",
+      "description": "Faixa com ícone na cor forte do tom e texto em ink; usada para quem teria permitido.",
+      "html": "<div class=\"ds-note ds-note-info\"><span class=\"ds-note-icon\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 11v5M12 8h.01\"/></svg></span><div>pro-export teria permitido no degrau 3, mas a condição falhou:<br><code>subject.plan (\"free\") = \"pro\"</code></div></div>",
+      "css": ".ds-note{font-family:'Noto Sans',sans-serif;display:flex;align-items:flex-start;gap:8px;padding:10px 14px;border-radius:6px;border:1px solid;color:#1F2328;font-size:14px;} .ds-note-info{background:#F1F9FF;border-color:#B6E3FF;} .ds-note-info .ds-note-icon{color:#0969DA;margin-top:2px;display:inline-flex;} .ds-note code{font-family:'JetBrains Mono',monospace;font-size:12.5px;}"
+    },
+    {
+      "name": "Caminho do recurso",
+      "kind": "chip",
+      "refersTo": "path-crumb",
+      "description": "Crumbs em pílula com número do degrau; o degrau decisivo vai em azul.",
+      "html": "<div class=\"ds-path\"><span class=\"ds-crumb\"><b>2</b>project:roadmap</span><span class=\"ds-arrow\"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12h14M13 6l6 6-6 6\"/></svg></span><span class=\"ds-crumb ds-crumb-hit\"><b>3</b>org:acme</span></div>",
+      "css": ".ds-path{display:flex;align-items:center;gap:6px;} .ds-arrow{color:#818B98;display:inline-flex;} .ds-crumb{font-family:'JetBrains Mono',monospace;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px 0 4px;border-radius:9999px;border:1px solid #D1D9E0;background:#FFFFFF;color:#1F2328;font-size:12.5px;} .ds-crumb b{font-family:'Noto Sans',sans-serif;display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;box-sizing:border-box;border-radius:9999px;background:#EFF2F5;font-size:12px;font-weight:600;} .ds-crumb-hit{border-color:#0969DA;background:#F1F9FF;color:#0550AE;} .ds-crumb-hit b{background:#0969DA;color:#FFFFFF;}"
+    },
+    {
+      "name": "Item da linha do tempo",
+      "kind": "custom",
+      "refersTo": "timeline-badge-explains",
+      "description": "Marcador circular de 32 px por destino sobre trilho de 2 px, número, identidade e selo de destino.",
+      "html": "<div class=\"ds-tl\"><div class=\"ds-tl-row\"><span class=\"ds-badge ds-badge-explains\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 6l12 12M18 6L6 18\"/></svg></span><span class=\"ds-tl-n\">4</span><span class=\"ds-tl-id\"><strong>pro-export</strong><span class=\"ds-label ds-label-allow\"><svg viewBox=\"0 0 24 24\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12.5l4.5 4.5L19 7.5\"/></svg>allow</span><code>document.export</code></span><span class=\"ds-label ds-label-false\"><svg viewBox=\"0 0 24 24\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 6l12 12M18 6L6 18\"/></svg>condição falsa</span></div></div>",
+      "css": ".ds-tl{font-family:'Noto Sans',sans-serif;position:relative;padding-left:4px;font-size:14px;color:#1F2328;} .ds-tl::before{content:'';position:absolute;left:19px;top:4px;bottom:4px;width:2px;background:#DFE4E9;} .ds-tl-row{position:relative;display:flex;align-items:center;gap:12px;padding:6px 0;} .ds-badge{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;box-sizing:border-box;border-radius:9999px;border:2px solid #FFFFFF;} .ds-badge-explains{background:#CF222E;color:#FFFFFF;} .ds-tl-n{width:16px;color:#59636E;} .ds-tl-id{flex:1;display:flex;align-items:center;gap:8px;} .ds-tl-id strong{font-weight:600;} .ds-tl-id code{font-family:'JetBrains Mono',monospace;font-size:12.5px;} .ds-label{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:9999px;border:1px solid;font-size:12px;font-weight:500;} .ds-label-allow{color:#1A7F37;background:#DAFBE1;border-color:#8DDB9F;} .ds-label-false{color:#CF222E;background:#FFFFFF;border-color:#CF222E;}"
+    },
+    {
+      "name": "Tecla de atalho",
+      "kind": "custom",
+      "refersTo": "kbd",
+      "description": "Dica de atalho no rodapé da barra lateral; modificador escrito como a plataforma escreve.",
+      "html": "<span class=\"ds-kbd\">Ctrl+1</span> <span class=\"ds-kbd\">Espaço</span>",
+      "css": ".ds-kbd{font-family:'JetBrains Mono',monospace;display:inline-block;padding:0 5px;border-radius:4px;border:1px solid #D1D9E0;background:#FFFFFF;color:#59636E;font-size:11px;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "A Revisão de Código",
+    "overview": "O Themis Inspect lê uma decisão de autorização do jeito que se lê um pull request no GitHub: o veredito fica numa caixa com cabeçalho cinza e um selo cheio, e os grants descem numa linha do tempo vertical em que cada destino tem o próprio ícone. A pessoa entra com uma dúvida (\"por que isto foi negado?\"), encontra a resposta no topo e desce até o grant que a explica, com a árvore da condição aberta logo abaixo dele.\n\nO acabamento segue a régua do GitHub Primer em modo claro: fundo branco, superfícies em cinza muito leve, bordas de 1 px, tinta quase preta e um único azul para seleção, foco e degrau decisivo. Verde e vermelho ficam reservados ao efeito (permitido, negado) e o amarelo à simulação e ao que não pôde ser avaliado. A densidade é de ferramenta de leitura: corpo em 14 px, linhas de 30 a 44 px, nada de cartões soltos nem selos espalhados.\n\nNão há sombra, animação ou gradiente. A profundidade vem do contraste entre o branco do conteúdo e o cinza dos cabeçalhos e barras laterais, sempre separados por uma borda. Identificadores do domínio (permissões, recursos, âncoras, expressões, horários, JSON, teclas) aparecem em monoespaçada; prosa, nomes de sujeitos e ids de grant em sans.",
+    "keyCharacteristics": [
+      "Caixas com cabeçalho cinza (#F6F8FA) e corpo branco, borda de 1 px e raio de 6 px.",
+      "Selos em pílula com ícone e palavra; o efeito nunca depende só da cor.",
+      "Um azul só (#0969DA) para seleção, foco por teclado, aba ativa e degrau decisivo.",
+      "Linha do tempo vertical de grants com marcador circular de 32 px por destino.",
+      "Zero sombras: profundidade por superfície e borda.",
+      "Teclado de primeira classe: setas, Tab, Espaço e atalhos de aba, com anel de foco que só aparece quando o teclado está em uso."
+    ],
+    "rules": [
+      {
+        "name": "A Regra do Azul Único",
+        "body": "O azul marca onde a pessoa está e o que decidiu (seleção, foco, aba ativa, degrau decisivo, candidato). Nunca representa efeito: permitido é verde, negado é vermelho.",
+        "section": "colors"
+      },
+      {
+        "name": "A Regra do Efeito com Ícone",
+        "body": "Todo verde ou vermelho de efeito vem com ícone (check ou x) e palavra. Célula da matriz, selo, marcador da linha do tempo e folha da árvore seguem isso; cor sozinha não carrega veredito.",
+        "section": "colors"
+      },
+      {
+        "name": "A Regra do Âmbar da Simulação",
+        "body": "Amarelo é o tom do que foi alterado pela simulação ou não pôde ser avaliado. Não serve para destaque genérico.",
+        "section": "colors"
+      },
+      {
+        "name": "A Regra do Mono para Identificadores",
+        "body": "Se o texto é algo que o motor reconhece por nome exato (permissão, recurso, âncora, estratégia, expressão, horário, nível, JSON, tecla), vai em JetBrains Mono. Nome de sujeito e id de grant ficam em sans.",
+        "section": "typography"
+      },
+      {
+        "name": "A Regra do Peso para Seleção",
+        "body": "Seleção sobe o peso para SemiBold (aba ativa, item escolhido) em vez de mudar a cor do texto.",
+        "section": "typography"
+      },
+      {
+        "name": "A Regra do Plano",
+        "body": "Nenhuma superfície flutua. Uma caixa se distingue pelo cabeçalho cinza e pela borda, nunca por sombra. Estado (hover, seleção, foco) muda fundo ou borda, não a elevação.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do usar a caixa com cabeçalho `surface` e corpo `bg`, borda de 1 px `line` e raio de 6 px para qualquer grupo novo de informação.",
+      "Do acompanhar todo verde ou vermelho de efeito com o ícone check ou x e a palavra.",
+      "Do reservar `accent` para seleção, foco por teclado, aba ativa, degrau decisivo e candidato.",
+      "Do escrever identificadores do motor em JetBrains Mono 12,5 px e prosa em Noto Sans 14 px.",
+      "Do reservar a borda de 2 px transparente em toda linha navegável por teclado, para o anel em `accent` não deslocar o layout.",
+      "Do mostrar o que a simulação mudou no lugar original, em âmbar e com o valor anterior (\"antes: sim\").",
+      "Do usar 60% de opacidade para grant desligado, sem tirá-lo da lista."
+    ],
+    "donts": [
+      "Don't usar sombra para separar superfícies; o sistema é plano.",
+      "Don't usar azul para indicar permitido ou negado.",
+      "Don't usar âmbar como destaque decorativo; ele significa simulação ou avaliação impossível.",
+      "Don't espalhar cartões soltos com selos avulsos; o veredito vai numa caixa com cabeçalho e os grants na linha do tempo.",
+      "Don't escrever cor literal fora da paleta de tokens."
+    ]
+  }
+}

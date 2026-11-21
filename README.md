@@ -218,19 +218,26 @@ Crate opcional, fora dos `default-members`: `cargo build -p themis-inspect`. A j
 
 ```sh
 themis-inspect --scenario cenario.json --audit trilha.jsonl     # janela
+themis-inspect --scenario cenario.json --subject beto --permission document.export --resource fatura-7 \
+               --disable pro-export --tab matriz                 # janela já numa seleção e aba
 themis-inspect explain --scenario cenario.json --subject beto --permission document.view --resource secret
 themis-inspect matrix  --scenario cenario.json --resource secret --disable no-secret --add grant.json
 themis-inspect audit   --audit trilha.jsonl --scenario cenario.json
 ```
 
-O cenário é um JSON com a política (`spec`, a mesma `EngineSpec`), os dados (`grants`, `tuples`, `env`) e os sujeitos e recursos a examinar, por nome. Exemplo em `crates/themis-inspect/examples/scenario.json`.
+O cenário é um JSON com a política (`spec`, a mesma `EngineSpec`), os dados (`grants`, `tuples`, `env`) e os sujeitos e recursos a examinar, por nome. Exemplo em `crates/themis-inspect/examples/scenario.json`, com uma trilha forensic de seis decisões em `examples/audit.jsonl`, gerada por:
+
+```sh
+cargo run -p themis-inspect --no-default-features --example trail -- \
+    crates/themis-inspect/examples/scenario.json > crates/themis-inspect/examples/audit.jsonl
+```
 
 - **Avaliação**: escolha sujeito, permissão e recurso e veja a decisão, o motivo, o caminho do recurso com o degrau decisivo, os papéis efetivos, cada override e o destino de cada grant (candidato, permissão não relacionada, fora do escopo, alvo fora do caminho, sujeito não casa, condição falsa ou não avaliável), com a árvore da condição e os valores resolvidos. A base é `Engine::explain`, disponível também em Rust e JS.
 - **Simulação**: ligue e desligue grants (ou acrescente pelo `--add`) e veja se o conjunto permitiria o acesso. Quando a decisão muda, o painel mostra também a decisão com os grants originais.
 - **Matriz**: cada permissão do catálogo para cada sujeito sobre um recurso, com as células que a simulação mudou marcadas. Clicar numa célula abre o rastro.
 - **Auditoria**: lê a trilha em JSON Lines, confere a cadeia de hashes dos registros `forensic`, mostra o rastro gravado e reavalia decisões `detailed` ou `forensic` contra a política atual, apontando as que mudariam.
 
-Os arquivos são relidos sozinhos quando mudam no disco.
+Os arquivos são relidos sozinhos quando mudam no disco. A janela embute as fontes Noto Sans e JetBrains Mono (licença OFL, em `crates/themis-inspect/assets/fonts`) e os próprios ícones, então tem a mesma aparência em qualquer máquina.
 
 ## Pontos de extensão
 

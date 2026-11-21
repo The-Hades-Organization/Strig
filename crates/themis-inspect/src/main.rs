@@ -6,6 +6,7 @@ use themis_inspect::{Inspector, Scenario, Trail, render};
 const USAGE: &str = "\
 uso:
   themis-inspect [--scenario CENARIO.json] [--audit TRILHA.jsonl]     abre a janela
+      [--subject S] [--permission P] [--resource R] [--disable ID]... [--tab avaliacao|matriz|auditoria]
   themis-inspect explain --scenario F --subject S --permission P --resource R
   themis-inspect matrix  --scenario F --resource R [--disable ID]... [--add GRANT.json]...
   themis-inspect audit   --audit F [--scenario F]                     lista, confere a cadeia e reavalia
@@ -22,6 +23,7 @@ struct Args {
     resource: Option<String>,
     disable: Vec<String>,
     add: Vec<PathBuf>,
+    tab: Option<String>,
 }
 
 fn parse() -> Result<Args, String> {
@@ -37,6 +39,7 @@ fn parse() -> Result<Args, String> {
             "--resource" => args.resource = Some(value()?),
             "--disable" => args.disable.push(value()?),
             "--add" => args.add.push(value()?.into()),
+            "--tab" => args.tab = Some(value()?),
             "-h" | "--help" => return Err(String::new()),
             command if args.command.is_none() && !command.starts_with('-') => args.command = Some(command.into()),
             other => return Err(format!("argumento desconhecido: {other}")),
@@ -103,7 +106,24 @@ fn run(args: Args) -> Result<(), String> {
 
 #[cfg(feature = "gui")]
 fn open_window(args: Args) -> Result<(), String> {
-    themis_inspect::gui::run(args.scenario, args.audit);
+    let tab = match args.tab.as_deref() {
+        None | Some("avaliacao") => themis_inspect::gui::Tab::Evaluate,
+        Some("matriz") => themis_inspect::gui::Tab::Matrix,
+        Some("auditoria") => themis_inspect::gui::Tab::Audit,
+        Some(other) => {
+            return Err(format!(
+                "aba desconhecida: {other} (use avaliacao, matriz ou auditoria)"
+            ));
+        }
+    };
+    let start = themis_inspect::gui::Start {
+        subject: args.subject,
+        permission: args.permission,
+        resource: args.resource,
+        disable: args.disable,
+        tab: args.tab.is_some().then_some(tab),
+    };
+    themis_inspect::gui::run(args.scenario, args.audit, start);
     Ok(())
 }
 

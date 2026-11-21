@@ -84,6 +84,11 @@ impl Inspector {
         &self.scenario
     }
 
+    /// As relações do cenário, para montar um `Context` igual ao que a avaliação usa.
+    pub fn tuples(&self) -> &InMemoryTuples {
+        &self.tuples
+    }
+
     pub fn engine(&self) -> &Engine {
         &self.engine
     }
