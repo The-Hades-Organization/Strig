@@ -1,12 +1,16 @@
 [package]
 name = "themis-node"
-description = "Bindings JavaScript da Themis: módulo nativo (napi) para Node e Bun, WebAssembly para o navegador."
+description = "JavaScript bindings for Themis: native module (N-API) for Node and Bun, WebAssembly for the browser."
 keywords = ["authorization", "napi", "wasm", "nodejs", "bun"]
+categories = ["authentication", "wasm"]
+readme = "../../README.md"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 publish.workspace = true
 
 [lib]

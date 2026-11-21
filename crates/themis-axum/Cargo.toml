@@ -1,12 +1,16 @@
 [package]
 name = "themis-axum"
-description = "Rotas SSE e WebSocket do axum para as sessões de tempo real da Themis."
+description = "axum SSE and WebSocket routes for the Themis real-time sessions."
 keywords = ["authorization", "axum", "sse", "websocket"]
+categories = ["authentication", "web-programming::http-server"]
+readme = "../../README.md"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 publish.workspace = true
 
 [dependencies]

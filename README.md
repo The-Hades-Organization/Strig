@@ -1,22 +1,30 @@
 # Themis
 
-Biblioteca de autorização em Rust. Um catálogo de permissões validado e um motor de decisão que combina RBAC, ABAC e ReBAC sobre os mesmos grants, com governança e auditoria das mudanças e propagação das mudanças em tempo real até o cliente.
+[![CI](https://github.com/The-Hades-Organization/Themis/actions/workflows/ci.yml/badge.svg)](https://github.com/The-Hades-Organization/Themis/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-orange.svg)
 
-O núcleo não faz IO, não depende de runtime assíncrono e compila para WebAssembly. Tempo real, transportes e bindings ficam em crates separados, cada um opcional.
+**English** · [Português (Brasil)](README.pt-BR.md)
+
+An authorization library for Rust. A validated permission catalog and a decision engine that combines RBAC, ABAC and ReBAC over the same grants, with governance and auditing of changes, and real-time propagation of those changes all the way to the client.
+
+The core does no IO, does not depend on an async runtime and compiles to WebAssembly. Real time, transports and bindings live in separate crates, each one optional.
+
+> **Status:** pre-1.0. The API can still change between minor versions. The crates and the npm package are not published yet; depend on them through git.
 
 ## Crates
 
-| Crate | Para que serve | Dependências relevantes |
+| Crate | What it is for | Notable dependencies |
 |---|---|---|
-| `themis` | Catálogo, motor de decisão, governança, auditoria (feature `audit`, ligada por padrão), spec em JSON | `serde`, `thiserror`; `sha2` e `serde_json` com `audit` |
-| `themis-sync` | Hub de mudanças, trait `Transport`, sessões SSE/WebSocket independentes de framework, cache de capacidades | `tokio` |
-| `themis-redis` | `Transport` sobre Redis pub/sub | `redis` |
-| `themis-postgres` | `Transport` sobre Postgres `LISTEN/NOTIFY`, com aviso dentro da transação | `tokio-postgres` |
-| `themis-axum` | Rotas SSE e WebSocket do axum sobre as sessões do `themis-sync` | `axum` |
-| `themis-inspect` | Visualizador: rastro de cada decisão, simulação de grants, matriz de acesso e leitura da auditoria. Janela gpui opcional (feature `gui`) e comandos de terminal | `gpui-pre`, `gpui-component` |
-| `themis-node` | Bindings JS: módulo nativo (N-API) para Node e Bun, WebAssembly para navegador, cliente e servidor de tempo real em JS | `napi` ou `wasm-bindgen` |
+| `themis` | Catalog, decision engine, governance, auditing (`audit` feature, on by default), JSON spec | `serde`, `thiserror`; `sha2` and `serde_json` with `audit` |
+| `themis-sync` | Change hub, `Transport` trait, framework-independent SSE/WebSocket sessions, capability cache | `tokio` |
+| `themis-redis` | `Transport` over Redis pub/sub | `redis` |
+| `themis-postgres` | `Transport` over Postgres `LISTEN/NOTIFY`, with the notice sent inside the transaction | `tokio-postgres` |
+| `themis-axum` | axum SSE and WebSocket routes over the `themis-sync` sessions | `axum` |
+| `themis-inspect` | Inspector: the trace of each decision, grant simulation, access matrix and audit trail reading. Optional gpui window (`gui` feature) and terminal commands | `gpui-pre`, `gpui-component` |
+| `themis-node` | JS bindings: native module (N-API) for Node and Bun, WebAssembly for the browser, real-time client and server in JS | `napi` or `wasm-bindgen` |
 
-Dependência de outro crate pelo git:
+Depending on it from another crate through git:
 
 ```toml
 [dependencies]
@@ -24,18 +32,18 @@ themis = { git = "https://github.com/The-Hades-Organization/Themis" }
 themis-sync = { git = "https://github.com/The-Hades-Organization/Themis" }
 ```
 
-## Conceitos
+## Concepts
 
-| Conceito | Tipo | Papel |
+| Concept | Type | Role |
 |---|---|---|
-| Catálogo | `Catalog`, `PermissionDef` | Chaves pontilhadas (`document.invoice.export`), alvos aceitos, `implied_by`, metadados livres (`meta`). Validado na construção: chave mal formada, duplicata, alvo não registrado, pai inexistente, ciclo e as regras da aplicação (`CatalogRule`). Exporta e importa JSON. |
-| Recurso | `Resource`, `Anchor` | Caminho do mais específico ao mais amplo (`document:7 → doc_type:invoice → project:42 → org:9`), `global` implícito no fim, mais atributos. |
-| Sujeito | `Subject` | Id, papéis (com escopo opcional), principais (`authenticated`, `anonymous` ou próprios), atributos. |
-| Grant | `Grant` | Sujeito (`User`, `Role`, `Principal`, `Relation`, `Any`), permissão, alvo, efeito, escopo e condição opcionais. |
-| Motor | `Engine` | Overrides, coleta dos grants aplicáveis, combinação por estratégia. Devolve `Decision` com motivo, grants casados e avisos. |
-| Governança | `Governance`, `Invariant` | Aplica uma mudança de grant só se todos os invariantes passarem, e registra a decisão na auditoria. |
+| Catalog | `Catalog`, `PermissionDef` | Dotted keys (`document.invoice.export`), accepted targets, `implied_by`, free-form metadata (`meta`). Validated on construction: malformed key, duplicate, unregistered target, missing parent, cycle, and the application's own rules (`CatalogRule`). Exports and imports JSON. |
+| Resource | `Resource`, `Anchor` | Path from the most specific to the broadest (`document:7 → doc_type:invoice → project:42 → org:9`), with an implicit `global` at the end, plus attributes. |
+| Subject | `Subject` | Id, roles (optionally scoped), principals (`authenticated`, `anonymous` or your own), attributes. |
+| Grant | `Grant` | Subject (`User`, `Role`, `Principal`, `Relation`, `Any`), permission, target, effect, optional scope and condition. |
+| Engine | `Engine` | Overrides, collection of the applicable grants, combination by strategy. Returns a `Decision` with the reason, the matched grants and warnings. |
+| Governance | `Governance`, `Invariant` | Applies a grant change only if every invariant passes, and records the outcome in the audit trail. |
 
-## Uso
+## Usage
 
 ```rust
 use themis::*;
@@ -68,38 +76,38 @@ let invoice = Resource::new("document", "d1")
     .within("org", "acme");
 
 let decision = engine.decide(&Context::new(&grants), &Request::new(&dave, "document.invoice.export", &invoice));
-assert!(!decision.is_allowed()); // g2 está num degrau mais específico que g1
+assert!(!decision.is_allowed()); // g2 sits on a more specific step than g1
 ```
 
-A mesma configuração pode vir de JSON, TOML ou YAML por `EngineSpec` (catálogo, herança de papéis, relações, estratégia, overrides). `EngineSpec::builder()` devolve o `EngineBuilder` para acrescentar em código o que não serializa, como funções de condição.
+The same configuration can come from JSON, TOML or YAML through `EngineSpec` (catalog, role inheritance, relations, strategy, overrides). `EngineSpec::builder()` returns the `EngineBuilder` so you can add in code what does not serialize, such as condition functions.
 
-Exemplos: `cargo run -p themis --example documents` (os três modelos juntos) e `cargo run -p themis-axum --example server` (servidor de tempo real).
+Examples: `cargo run -p themis --example documents` (the three models together) and `cargo run -p themis-axum --example server` (real-time server).
 
-## Como a decisão sai
+## How a decision is made
 
-1. Permissão fora do catálogo: nega (`Reason::UnknownPermission`).
-2. Overrides, em ordem. O primeiro que responder decide. `override_except` tira permissões (e as que elas concedem) do alcance de um override.
-3. Coleta: entra o grant cuja permissão é a pedida ou uma que a concede, cujo escopo está no caminho do recurso, cujo alvo casa um degrau do caminho, cujo sujeito casa e cuja condição é verdadeira.
-4. A estratégia escolhe o grant decisivo. Sem candidato, nega.
+1. Permission not in the catalog: deny (`Reason::UnknownPermission`).
+2. Overrides, in order. The first one that answers decides. `override_except` takes permissions (and the ones they imply) out of an override's reach.
+3. Collection: a grant is a candidate when its permission is the requested one or one that implies it, its scope is on the resource path, its target matches a step of the path, its subject matches and its condition is true.
+4. The strategy picks the deciding grant. With no candidate, deny.
 
-Condição ou relação que não pode ser avaliada (atributo ausente, motor sem `TupleStore`) não abre acesso: o `allow` é descartado e o `deny` é aplicado. O motivo vai em `Decision::warnings`.
+A condition or relation that cannot be evaluated (missing attribute, engine without a `TupleStore`) never opens access: the `allow` is dropped and the `deny` is applied. The reason goes into `Decision::warnings`.
 
-| Estratégia | Regra |
+| Strategy | Rule |
 |---|---|
-| `MostSpecific` (padrão) | O degrau mais específico com algum grant decide; nele, `deny` vence. |
-| `DenyOverrides` | Qualquer `deny` vence. |
-| `PermitOverrides` | Qualquer `allow` vence. |
-| `FirstApplicable` | O primeiro grant na ordem da fonte decide. |
+| `MostSpecific` (default) | The most specific step with any grant decides; on that step, `deny` wins. |
+| `DenyOverrides` | Any `deny` wins. |
+| `PermitOverrides` | Any `allow` wins. |
+| `FirstApplicable` | The first grant in source order decides. |
 
-## Os três modelos
+## The three models
 
-**RBAC.** `RoleGraph::builder().inherit("maintainer", "member")` dá ao `maintainer` os grants do `member`. `Subject::with_role_in(role, anchor)` limita o papel aos recursos sob aquele degrau.
+**RBAC.** `RoleGraph::builder().inherit("maintainer", "member")` gives `maintainer` the grants of `member`. `Subject::with_role_in(role, anchor)` limits the role to the resources under that step.
 
-**ABAC.** `Grant::when(condition)` com `Condition` serializável: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `is_in`, `exists`, `all`, `any`, `not` e `call`. Operandos leem `subject.*`, `resource.*` e `env.*`. Funções próprias entram por `ConditionRegistry::register` e são conferidas por `Engine::validate_grant`.
+**ABAC.** `Grant::when(condition)` with a serializable `Condition`: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `is_in`, `exists`, `all`, `any`, `not` and `call`. Operands read `subject.*`, `resource.*` and `env.*`. Your own functions are added with `ConditionRegistry::register` and checked by `Engine::validate_grant`.
 
-**ReBAC.** Tuplas `objeto#relação@sujeito` num `TupleStore` e regras por tipo em `RelationSchema` (`This`, `Computed`, `TupleToUserset`, `Union`, `Intersection`, `Exclusion`), no estilo Zanzibar. `user:*` vale para todo usuário. Um grant com `SubjectMatcher::relation("editor")` se aplica a quem tem `editor` sobre o degrau casado pelo alvo. A busca tem profundidade máxima (`max_relation_depth`, padrão 32) e corta ciclos.
+**ReBAC.** `object#relation@subject` tuples in a `TupleStore` and per-type rules in a `RelationSchema` (`This`, `Computed`, `TupleToUserset`, `Union`, `Intersection`, `Exclusion`), Zanzibar style. `user:*` stands for every user. A grant with `SubjectMatcher::relation("editor")` applies to whoever holds `editor` on the step matched by the target. The search has a maximum depth (`max_relation_depth`, 32 by default) and cuts cycles.
 
-## Governança
+## Governance
 
 ```rust
 let governance = Governance::new()
@@ -111,56 +119,56 @@ let governance = Governance::new()
     .audited(auditor);
 
 let next = governance.apply_with(&engine, &actor, &current, &Mutation::Add(grant), None, &request_meta)?;
-// grava `next` só no Ok
+// persist `next` only on Ok
 ```
 
-Regra própria entra implementando `Invariant`. A lista também pode vir de JSON (`InvariantSpec`).
+Add your own rule by implementing `Invariant`. The list can also come from JSON (`InvariantSpec`).
 
-## Auditoria
+## Auditing
 
-Com a feature `audit`, toda mudança que passa pela governança vira um `AuditRecord`, aplicada ou recusada. Tuplas ReBAC e atribuições de papel são registradas por `Auditor::tuple_change` e `Auditor::role_change`. Se o destino falhar ao gravar, a governança recusa a mudança com a violação `audit`: sem registro, sem mudança.
+With the `audit` feature, every change that goes through governance becomes an `AuditRecord`, whether applied or refused. ReBAC tuples and role assignments are recorded with `Auditor::tuple_change` and `Auditor::role_change`. If the sink fails to write, governance refuses the change with the `audit` violation: no record, no change.
 
 ```rust
 let auditor = Arc::new(Auditor::new(AuditLevel::Standard, Arc::new(JsonLinesAudit::new(file))));
 ```
 
-Destinos prontos: `MemoryAuditLog` e `JsonLinesAudit` (qualquer `io::Write`). Banco, fila ou SIEM entram implementando `AuditSink`.
+Built-in sinks: `MemoryAuditLog` and `JsonLinesAudit` (any `io::Write`). A database, queue or SIEM plugs in by implementing `AuditSink`.
 
-### Níveis e armazenamento
+### Levels and storage
 
-Cada nível inclui tudo do anterior. Os tamanhos são do registro de referência (`audit::reference_record`): grant com escopo e condição de duas cláusulas, ids UUID, ator com dois papéis e três metadados de requisição. São bytes de JSON compacto em JSON Lines, sem compressão e sem índice. O teste `estimates_match_reference_records` falha se o tamanho medido se afastar mais de 10% do documentado, e `cargo run -p themis --example audit_storage` mede de novo.
+Each level includes everything from the previous one. Sizes come from the reference record (`audit::reference_record`): a grant with a scope and a two-clause condition, UUID ids, an actor with two roles and three request metadata entries. They are compact JSON bytes in JSON Lines, without compression or indexes. The `estimates_match_reference_records` test fails if the measured size drifts more than 10% from the documented one, and `cargo run -p themis --example audit_storage` measures again.
 
-| Nível | O que guarda | Bytes por registro | Por 1 milhão de registros |
+| Level | What it keeps | Bytes per record | Per 1 million records |
 |---|---|---|---|
-| `minimal` | Quando, quem, ação, id do objeto, resultado | 175 | 175 MB (167 MiB) |
-| `standard` | Mais o resumo do grant (permissão, sujeito, alvo, efeito, escopo, se tem condição) e os nomes dos invariantes que recusaram | 388 | 388 MB (370 MiB) |
-| `detailed` | Mais o grant inteiro com a condição, o ator completo, as mensagens das violações e os metadados da requisição | 1.097 | 1,10 GB (1.046 MiB) |
-| `forensic` | Mais o digest SHA-256 do conjunto de grants antes e depois e a cadeia de hashes entre registros | 1.415 | 1,42 GB (1.349 MiB) |
+| `minimal` | When, who, action, object id, outcome | 175 | 175 MB (167 MiB) |
+| `standard` | Plus the grant summary (permission, subject, target, effect, scope, whether it has a condition) and the names of the invariants that refused | 388 | 388 MB (370 MiB) |
+| `detailed` | Plus the whole grant with its condition, the full actor, the violation messages and the request metadata | 1,097 | 1.10 GB (1,046 MiB) |
+| `forensic` | Plus the SHA-256 digest of the grant set before and after, and the hash chain between records | 1,415 | 1.42 GB (1,349 MiB) |
 
-Decisões de acesso também podem ser auditadas: `Auditor::decide(&engine, &ctx, &request, &meta)` decide e registra, e no nível `forensic` usa `Engine::explain` e guarda o rastro completo. Registro de referência: três grants na fonte (um com condição), recurso com três degraus, ids UUID e três metadados (`audit::reference_decision_record`, teste `decision_estimates_match_reference_records`).
+Access decisions can be audited too: `Auditor::decide(&engine, &ctx, &request, &meta)` decides and records, and at the `forensic` level it uses `Engine::explain` and keeps the full trace. Reference record: three grants in the source (one with a condition), a resource with three steps, UUID ids and three metadata entries (`audit::reference_decision_record`, test `decision_estimates_match_reference_records`).
 
-| Nível | O que guarda de uma decisão | Bytes por registro | Por 1 milhão de registros |
+| Level | What it keeps from a decision | Bytes per record | Per 1 million records |
 |---|---|---|---|
-| `minimal` | Quando, sujeito, `permissão@recurso`, permitido ou negado | 285 | 285 MB (272 MiB) |
-| `standard` | Mais o motivo (override, grant decisivo e degrau, ou nenhum grant) e os grants que casaram | 669 | 669 MB (638 MiB) |
-| `detailed` | Mais o sujeito e o recurso completos, os avisos e os metadados da requisição; dá para reavaliar a decisão depois | 1.239 | 1,24 GB (1.182 MiB) |
-| `forensic` | Mais o rastro completo (`Explanation`) e a cadeia de hashes | 3.582 | 3,58 GB (3.416 MiB) |
+| `minimal` | When, subject, `permission@resource`, allowed or denied | 285 | 285 MB (272 MiB) |
+| `standard` | Plus the reason (override, deciding grant and step, or no grant) and the grants that matched | 669 | 669 MB (638 MiB) |
+| `detailed` | Plus the full subject and resource, the warnings and the request metadata; enough to re-evaluate the decision later | 1,239 | 1.24 GB (1,182 MiB) |
+| `forensic` | Plus the full trace (`Explanation`) and the hash chain | 3,582 | 3.58 GB (3,416 MiB) |
 
-O rastro forense cresce com o número de grants que a fonte entrega por decisão. `AuditLevel::estimate_decision_bytes(n)` dá a projeção em código.
+The forensic trace grows with the number of grants the source returns per decision. `AuditLevel::estimate_decision_bytes(n)` gives the projection in code.
 
-`AuditLevel::estimate_bytes(n)` devolve a mesma projeção em código. Em banco, some o custo da linha (no Postgres, uns 28 bytes entre cabeçalho da tupla e ponteiro de item) e os índices que você criar. Condições longas ou metadados grandes aumentam `detailed` e `forensic` na mesma proporção.
+`AuditLevel::estimate_bytes(n)` returns the same projection for changes. In a database, add the row overhead (in Postgres, about 28 bytes between the tuple header and the item pointer) and the indexes you create. Long conditions or large metadata grow `detailed` and `forensic` proportionally.
 
-No nível `forensic`, cada registro carrega o hash do anterior. `audit::verify_chain` detecta registro editado ou removido. `Auditor::resume_chain` continua a cadeia depois de um reinício.
+At the `forensic` level, each record carries the hash of the previous one. `audit::verify_chain` detects an edited or removed record. `Auditor::resume_chain` continues the chain after a restart.
 
-## Tempo real
+## Real time
 
 ```text
-mudança de grant ──► Hub::publish ──► sessões locais (SSE/WebSocket) e CapabilityCache
-                          │
-                          └─► Transport (Redis, Postgres, próprio) ──► Hub das outras instâncias
+grant change ──► Hub::publish ──► local sessions (SSE/WebSocket) and CapabilityCache
+                      │
+                      └─► Transport (Redis, Postgres, your own) ──► Hub on the other instances
 ```
 
-O aviso (`Change`) diz o tipo da mudança e o degrau afetado, sem os grants. Quem recebe recarrega da fonte, então o aviso cabe em qualquer transporte. Uma sessão observa escopos e, com um `CapabilityProvider`, reenvia ao cliente as capacidades de cada escopo afetado. Mudanças que chegam juntas são recalculadas uma vez só. Quando o transporte cai e volta, ou um cliente fica para trás, o hub emite `Resync` e tudo é recarregado.
+The notice (`Change`) states the kind of change and the affected step, without the grants. Receivers reload from the source, so the notice fits any transport. A session watches scopes and, with a `CapabilityProvider`, pushes the capabilities of each affected scope back to the client. Changes that arrive together are recomputed once. When the transport drops and comes back, or a client falls behind, the hub emits `Resync` and everything is reloaded.
 
 ```rust
 let hub = Hub::builder()
@@ -172,34 +180,34 @@ let cache = Arc::new(CapabilityCache::new(Duration::from_secs(30), 10_000));
 hub.on_change(cache.clone());
 let provider = EngineProvider::new(engine, my_grant_loader).with_cache(cache);
 let realtime = themis_axum::Realtime::new(hub).with_provider(Arc::new(provider));
-// nas rotas: realtime.sse(subject, scopes) ou realtime.websocket(upgrade, subject, scopes)
+// in the routes: realtime.sse(subject, scopes) or realtime.websocket(upgrade, subject, scopes)
 ```
 
-Transportes:
+Transports:
 
-- **Redis** (`themis-redis`): pub/sub, publicação com reconexão automática.
-- **Postgres** (`themis-postgres`): `LISTEN/NOTIFY`. `themis_postgres::notify(&tx, canal, &change)` dentro da transação que grava o grant faz o aviso sair só no commit. TLS por `PgTransport::with_tls`.
-- **Próprio**: NATS, Kafka ou outro broker implementam `Transport` (`publish` e `subscribe`).
+- **Redis** (`themis-redis`): pub/sub, publishing with automatic reconnection.
+- **Postgres** (`themis-postgres`): `LISTEN/NOTIFY`. Calling `themis_postgres::notify(&tx, channel, &change)` inside the transaction that writes the grant makes the notice go out only on commit. TLS through `PgTransport::with_tls`.
+- **Your own**: NATS, Kafka or any other broker implements `Transport` (`publish` and `subscribe`).
 
-Protocolo com o cliente (JSON, igual em SSE e WebSocket): o servidor manda `hello`, `capabilities`, `change`, `resync`, `error` e `ping`; o cliente manda `watch`, `unwatch` e `refresh` (só WebSocket). Para usar outro framework HTTP, passe o stream de `Session::open` adiante e escreva cada mensagem com `ServerMessage::to_sse` ou `to_json`.
+Client protocol (JSON, identical over SSE and WebSocket): the server sends `hello`, `capabilities`, `change`, `resync`, `error` and `ping`; the client sends `watch`, `unwatch` and `refresh` (WebSocket only). To use another HTTP framework, forward the stream from `Session::open` and write each message with `ServerMessage::to_sse` or `to_json`.
 
-## JavaScript: Node, Bun e navegador
+## JavaScript: Node, Bun and the browser
 
-O pacote fica em `crates/themis-node/js`. `scripts/build.sh` gera o módulo nativo (`js/native/themis.<plataforma>-<arch>.node`) e o WebAssembly (`js/wasm/`).
+The package lives in `crates/themis-node/js`. `scripts/build.sh` builds the native module (`js/native/themis.<platform>-<arch>.node`) and the WebAssembly (`js/wasm/`).
 
 ```js
 import { load } from '@the-hades-organization/themis';
-const { Engine, Context } = await load(); // nativo em Node/Bun, wasm no navegador
+const { Engine, Context } = await load(); // native on Node/Bun, wasm in the browser
 
-const engine = new Engine(spec); // a mesma EngineSpec do servidor
+const engine = new Engine(spec); // the same EngineSpec as the server
 const ctx = new Context({ grants });
 engine.check(ctx, { subject, permission: 'document.view', resource });
 engine.apply({ actor, current, mutation: { add: grant }, invariants, audit: { level: 'standard' } });
 ```
 
-Em Node e Bun, `load()` tenta o módulo nativo e cai para o wasm. `THEMIS_BACKEND=native|wasm` força um dos dois.
+On Node and Bun, `load()` tries the native module and falls back to wasm. `THEMIS_BACKEND=native|wasm` forces one of them.
 
-**Frontend.** `PermissionClient` (`/client`) conecta por SSE ou WebSocket, guarda as capacidades de cada escopo e decide localmente com o mesmo motor. A decisão no cliente serve para a interface; o servidor continua decidindo em toda operação.
+**Frontend.** `PermissionClient` (`/client`) connects over SSE or WebSocket, keeps the capabilities of each scope and decides locally with the same engine. Client-side decisions are for the interface; the server still decides on every operation.
 
 ```js
 import { PermissionClient } from '@the-hades-organization/themis/client';
@@ -208,53 +216,53 @@ client.on('capabilities', () => render());
 client.can('document.edit', resource);
 ```
 
-**Backend em JS** (`/server`). `Hub`, `openSession`, `sseResponse` (Fetch API: Bun.serve, Hono, Deno), `pipeSse` (`http` do Node) e os transportes `redisTransport` (node-redis e o `RedisClient` do Bun), `ioredisTransport` e `pgTransport` (pacote `pg`). Os avisos têm o mesmo formato do `themis-sync`, então instâncias em Rust e em JS trocam mudanças pelo mesmo canal.
+**JS backend** (`/server`). `Hub`, `openSession`, `sseResponse` (Fetch API: Bun.serve, Hono, Deno), `pipeSse` (Node's `http`) and the `redisTransport` (node-redis and Bun's `RedisClient`), `ioredisTransport` and `pgTransport` (`pg` package) transports. Notices share the `themis-sync` format, so Rust and JS instances exchange changes over the same channel.
 
-Limites dos bindings: funções de condição próprias (`call`) e overrides próprios só existem em Rust. A spec em JSON cobre os overrides prontos (`resource_owner`, `permission_holder`).
+Binding limits: custom condition functions (`call`) and custom overrides exist only in Rust. The JSON spec covers the built-in overrides (`resource_owner`, `permission_holder`).
 
-## Visualizador (`themis-inspect`)
+## Inspector (`themis-inspect`)
 
-Crate opcional, fora dos `default-members`: `cargo build -p themis-inspect`. A janela usa gpui (`gpui-pre =0.3.11` e `gpui-component =0.9.0`); sem a feature `gui` (`--no-default-features`) sobram a biblioteca e os comandos de terminal.
+An optional crate, outside the `default-members`: `cargo build -p themis-inspect`. The window uses gpui (`gpui-pre =0.3.11` and `gpui-component =0.9.0`); without the `gui` feature (`--no-default-features`) you keep the library and the terminal commands.
 
 ```sh
-themis-inspect --scenario cenario.json --audit trilha.jsonl     # janela
-themis-inspect --scenario cenario.json --subject beto --permission document.export --resource fatura-7 \
-               --disable pro-export --tab matriz                 # janela já numa seleção e aba
-themis-inspect explain --scenario cenario.json --subject beto --permission document.view --resource secret
-themis-inspect matrix  --scenario cenario.json --resource secret --disable no-secret --add grant.json
-themis-inspect audit   --audit trilha.jsonl --scenario cenario.json
+themis-inspect --scenario scenario.json --audit trail.jsonl     # window
+themis-inspect --scenario scenario.json --subject beto --permission document.export --resource fatura-7 \
+               --disable pro-export --tab matriz                 # window opened on a selection and tab
+themis-inspect explain --scenario scenario.json --subject beto --permission document.view --resource secret
+themis-inspect matrix  --scenario scenario.json --resource secret --disable no-secret --add grant.json
+themis-inspect audit   --audit trail.jsonl --scenario scenario.json
 ```
 
-O cenário é um JSON com a política (`spec`, a mesma `EngineSpec`), os dados (`grants`, `tuples`, `env`) e os sujeitos e recursos a examinar, por nome. Exemplo em `crates/themis-inspect/examples/scenario.json`, com uma trilha forensic de seis decisões em `examples/audit.jsonl`, gerada por:
+The scenario is a JSON file with the policy (`spec`, the same `EngineSpec`), the data (`grants`, `tuples`, `env`) and the subjects and resources to examine, by name. There is an example in `crates/themis-inspect/examples/scenario.json`, with a forensic trail of six decisions in `examples/audit.jsonl`, generated by:
 
 ```sh
 cargo run -p themis-inspect --no-default-features --example trail -- \
     crates/themis-inspect/examples/scenario.json > crates/themis-inspect/examples/audit.jsonl
 ```
 
-- **Avaliação**: escolha sujeito, permissão e recurso e veja a decisão, o motivo, o caminho do recurso com o degrau decisivo, os papéis efetivos, cada override e o destino de cada grant (candidato, permissão não relacionada, fora do escopo, alvo fora do caminho, sujeito não casa, condição falsa ou não avaliável), com a árvore da condição e os valores resolvidos. A base é `Engine::explain`, disponível também em Rust e JS.
-- **Simulação**: ligue e desligue grants (ou acrescente pelo `--add`) e veja se o conjunto permitiria o acesso. Quando a decisão muda, o painel mostra também a decisão com os grants originais.
-- **Matriz**: cada permissão do catálogo para cada sujeito sobre um recurso, com as células que a simulação mudou marcadas. Clicar numa célula abre o rastro.
-- **Auditoria**: lê a trilha em JSON Lines, confere a cadeia de hashes dos registros `forensic`, mostra o rastro gravado e reavalia decisões `detailed` ou `forensic` contra a política atual, apontando as que mudariam.
+- **Evaluation** (`avaliacao`): pick a subject, permission and resource and see the decision, the reason, the resource path with the deciding step, the effective roles, each override and the fate of each grant (candidate, unrelated permission, out of scope, target off the path, subject does not match, condition false or not evaluable), with the condition tree and the resolved values. It is built on `Engine::explain`, also available from Rust and JS.
+- **Simulation**: turn grants on and off (or add some with `--add`) and see whether the set would allow the access. When the decision changes, the panel also shows the decision with the original grants.
+- **Matrix** (`matriz`): every catalog permission for every subject on a resource, with the cells the simulation changed marked. Clicking a cell opens its trace.
+- **Audit** (`auditoria`): reads the JSON Lines trail, checks the hash chain of the `forensic` records, shows the recorded trace and re-evaluates `detailed` or `forensic` decisions against the current policy, pointing out the ones that would change.
 
-Os arquivos são relidos sozinhos quando mudam no disco. A janela embute as fontes Noto Sans e JetBrains Mono (licença OFL, em `crates/themis-inspect/assets/fonts`) e os próprios ícones, então tem a mesma aparência em qualquer máquina.
+Files are reloaded on their own when they change on disk. The window embeds the Noto Sans and JetBrains Mono fonts (OFL license, in `crates/themis-inspect/assets/fonts`) and its own icons, so it looks the same on any machine. The interface text is in Brazilian Portuguese.
 
-## Pontos de extensão
+## Extension points
 
-| Trait | Para |
+| Trait | For |
 |---|---|
-| `GrantSource` | Ler grants de banco, cache ou mais de uma fonte (tuplas `(A, B)` encadeiam). |
-| `TupleStore` | Guardar tuplas ReBAC fora da memória. |
-| `Override` | Dono, superadmin, conta suspensa, janela de manutenção. `FnOverride` aceita closure. |
-| `Strategy` | Outra regra de combinação. |
-| `Invariant` | Outra regra de mudança de grant. |
-| `CatalogRule` | Validação própria do catálogo (`RequireMeta`, `FnRule`). |
-| `AuditSink` | Destino da trilha de auditoria. |
-| `Transport` | Meio entre instâncias para os avisos de mudança. |
-| `CapabilityProvider`, `GrantLoader` | Como uma sessão calcula as capacidades que envia. |
-| `ChangeSink` | Reação síncrona a cada mudança (cache, métrica). |
+| `GrantSource` | Reading grants from a database, a cache or more than one source (`(A, B)` tuples chain). |
+| `TupleStore` | Keeping ReBAC tuples outside memory. |
+| `Override` | Owner, superadmin, suspended account, maintenance window. `FnOverride` takes a closure. |
+| `Strategy` | Another combination rule. |
+| `Invariant` | Another grant change rule. |
+| `CatalogRule` | Your own catalog validation (`RequireMeta`, `FnRule`). |
+| `AuditSink` | Where the audit trail goes. |
+| `Transport` | The medium between instances for change notices. |
+| `CapabilityProvider`, `GrantLoader` | How a session computes the capabilities it sends. |
+| `ChangeSink` | A synchronous reaction to each change (cache, metric). |
 
-## Desenvolvimento
+## Development
 
 ```sh
 cargo test --workspace
@@ -263,14 +271,20 @@ cargo clippy -p themis-node --features napi -- -D warnings
 cargo clippy -p themis-node --features wasm --target wasm32-unknown-unknown -- -D warnings
 cargo fmt --all --check
 
-# transportes contra servidores reais (pulados sem as variáveis)
+# transports against real servers (skipped without the variables)
 THEMIS_REDIS_URL=redis://127.0.0.1:6379/ THEMIS_PG_URL=postgres://postgres:pw@127.0.0.1/postgres cargo test --workspace
 
-# JS: build e testes em Node e Bun
+# JS: build and tests on Node and Bun
 crates/themis-node/scripts/build.sh
 cd crates/themis-node/js && npm install && node test/run.mjs && bun test/run.mjs
 ```
 
-Os testes JS também aceitam `THEMIS_RUST_SERVER` (URL do example `server` do `themis-axum`) para testar o cliente contra o servidor Rust.
+The JS tests also accept `THEMIS_RUST_SERVER` (the URL of the `themis-axum` `server` example) to test the client against the Rust server.
 
-Licença MIT.
+The gpui window of `themis-inspect` needs the Wayland and X11 development libraries on Linux (for example `libxkbcommon-dev`, `libwayland-dev`, `libxcb1-dev`, `libvulkan-dev`).
+
+Source comments and the inspector interface are in Brazilian Portuguese; issues and pull requests are welcome in English or Portuguese. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[MIT](LICENSE). The fonts embedded in `themis-inspect` are under the SIL Open Font License 1.1 (see `crates/themis-inspect/assets/fonts`).

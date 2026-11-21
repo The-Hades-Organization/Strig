@@ -9,6 +9,8 @@ edition = "2024"
 rust-version = "1.88"
 license = "MIT"
 repository = "https://github.com/The-Hades-Organization/Themis"
+homepage = "https://github.com/The-Hades-Organization/Themis"
+authors = ["Hadson Ramalho"]
 publish = false
 
 [workspace.dependencies]

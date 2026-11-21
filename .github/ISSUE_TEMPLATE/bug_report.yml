@@ -1,0 +1,35 @@
+name: Bug report
+description: A decision, API or tool that does not behave as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems (access granted when it should not be) go through SECURITY.md, not here.
+        Issues are welcome in English or Portuguese.
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The smallest spec, grants and request that show the problem. A `themis-inspect` scenario is ideal.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: got
+    attributes:
+      label: What happened
+      description: The decision or output you got (the `themis-inspect explain` output helps).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.2.0 or a commit hash

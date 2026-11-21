@@ -1,12 +1,16 @@
 [package]
 name = "themis-inspect"
-description = "Visualizador de avaliações da Themis: rastro de cada decisão, simulação com outro conjunto de grants, matriz de acesso e leitura da auditoria. Interface em gpui, opcional."
+description = "Inspector for Themis decisions: trace of each decision, grant simulation, access matrix and audit trail reading. Optional gpui window."
 keywords = ["authorization", "permissions", "gpui", "audit", "inspector"]
+categories = ["authentication", "development-tools", "gui"]
+readme = "../../README.md"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 publish.workspace = true
 
 [features]

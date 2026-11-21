@@ -1,6 +1,6 @@
 [package]
 name = "themis"
-description = "Motor de autorização extensível: catálogo de permissões, RBAC, ABAC e ReBAC numa decisão só, com governança das mudanças."
+description = "Extensible authorization engine: permission catalog, RBAC, ABAC and ReBAC in one decision, with governance and auditing of changes."
 keywords = ["authorization", "rbac", "abac", "rebac", "permissions"]
 categories = ["authentication"]
 readme = "../../README.md"
@@ -9,6 +9,8 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 publish.workspace = true
 
 [features]

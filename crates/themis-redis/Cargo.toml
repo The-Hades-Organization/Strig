@@ -1,12 +1,16 @@
 [package]
 name = "themis-redis"
-description = "Transporte Redis pub/sub para o hub de mudanças da Themis."
+description = "Redis pub/sub transport for the Themis change hub."
 keywords = ["authorization", "redis", "pubsub", "realtime"]
+categories = ["authentication"]
+readme = "../../README.md"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 publish.workspace = true
 
 [dependencies]

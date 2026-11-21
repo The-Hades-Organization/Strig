@@ -1,12 +1,16 @@
 [package]
 name = "themis-postgres"
-description = "Transporte Postgres LISTEN/NOTIFY para o hub de mudanças da Themis."
+description = "Postgres LISTEN/NOTIFY transport for the Themis change hub."
 keywords = ["authorization", "postgres", "notify", "realtime"]
+categories = ["authentication", "database"]
+readme = "../../README.md"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 publish.workspace = true
 
 [dependencies]

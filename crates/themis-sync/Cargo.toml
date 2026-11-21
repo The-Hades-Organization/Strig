@@ -1,12 +1,16 @@
 [package]
 name = "themis-sync"
-description = "Tempo real para a Themis: hub de mudanças de permissão, trait de transporte, sessões SSE/WebSocket e cache de capacidades."
+description = "Real time for Themis: permission change hub, transport trait, SSE/WebSocket sessions and capability cache."
 keywords = ["authorization", "realtime", "sse", "websocket", "permissions"]
+categories = ["authentication", "asynchronous"]
+readme = "../../README.md"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 publish.workspace = true
 
 [dependencies]
