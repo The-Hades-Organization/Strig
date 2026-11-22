@@ -6527,7 +6527,7 @@ dependencies = [
 
 [[package]]
 name = "themis-auth"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -6537,7 +6537,7 @@ dependencies = [
 
 [[package]]
 name = "themis-axum"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "axum",
@@ -6554,7 +6554,7 @@ dependencies = [
 
 [[package]]
 name = "themis-inspect"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "gpui-component",
  "gpui-pre",
@@ -6567,7 +6567,7 @@ dependencies = [
 
 [[package]]
 name = "themis-node"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "js-sys",
  "napi",
@@ -6582,7 +6582,7 @@ dependencies = [
 
 [[package]]
 name = "themis-postgres"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -6595,7 +6595,7 @@ dependencies = [
 
 [[package]]
 name = "themis-redis"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -6607,7 +6607,7 @@ dependencies = [
 
 [[package]]
 name = "themis-sync"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "futures-util",
