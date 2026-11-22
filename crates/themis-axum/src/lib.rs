@@ -1,7 +1,9 @@
-//! Rotas SSE e WebSocket do axum sobre [`themis_sync::Session`].
+//! Axum SSE and WebSocket routes on top of [`themis_sync::Session`].
 //!
-//! A autenticação fica com a aplicação: o handler identifica o sujeito e chama
-//! [`Realtime::sse`] ou [`Realtime::websocket`].
+//! Authentication stays with the application: your handler identifies the subject and calls
+//! [`Realtime::sse`] or [`Realtime::websocket`].
+//!
+//! See the [repository README](https://github.com/The-Hades-Organization/Themis) for the full guide.
 //!
 //! ```no_run
 //! use axum::{Router, extract::{Query, State, WebSocketUpgrade}, routing::get, response::IntoResponse};
@@ -13,7 +15,7 @@
 //! struct Params { scope: String }
 //!
 //! async fn sse(State(rt): State<Realtime>, Query(p): Query<Params>) -> impl IntoResponse {
-//!     let subject = Subject::user("alice"); // venha do seu middleware de autenticação
+//!     let subject = Subject::user("alice"); // comes from your authentication middleware
 //!     rt.sse(subject, vec![scope_from_str(&p.scope)])
 //! }
 //!
@@ -36,7 +38,7 @@ use futures_util::{SinkExt, Stream, StreamExt};
 use themis::{Resource, Subject};
 use themis_sync::{CapabilityProvider, Hub, ServerMessage, Session, SessionOptions};
 
-/// Hub, provedor de capacidades e opções de sessão compartilhados pelas rotas.
+/// Hub, capability provider and session options shared by the routes.
 #[derive(Clone)]
 pub struct Realtime {
     hub: Hub,
@@ -53,7 +55,7 @@ impl Realtime {
         }
     }
 
-    /// Com provedor, a sessão envia as capacidades de cada escopo e as reenvia a cada mudança.
+    /// With a provider, the session sends the capabilities of each scope and resends them on every change.
     pub fn with_provider(mut self, provider: Arc<dyn CapabilityProvider>) -> Self {
         self.provider = Some(provider);
         self
@@ -68,7 +70,7 @@ impl Realtime {
         &self.hub
     }
 
-    /// Resposta `text/event-stream`. O SSE é só de ida: os escopos vêm na abertura.
+    /// `text/event-stream` response. SSE is one-way: the scopes are set when the connection opens.
     pub fn sse(
         &self,
         subject: Subject,
@@ -78,8 +80,8 @@ impl Realtime {
         Sse::new(stream.map(|message| Ok(to_event(&message))))
     }
 
-    /// Faz o upgrade e liga o socket à sessão. O cliente pode mandar `watch`, `unwatch` e
-    /// `refresh` depois de conectado.
+    /// Performs the upgrade and binds the socket to the session. Once connected, the client can send
+    /// `watch`, `unwatch` and `refresh`.
     pub fn websocket(&self, upgrade: WebSocketUpgrade, subject: Subject, scopes: Vec<Resource>) -> Response {
         let realtime = self.clone();
         upgrade

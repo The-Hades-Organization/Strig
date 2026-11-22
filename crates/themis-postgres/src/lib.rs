@@ -1,4 +1,6 @@
-//! Transporte Postgres `LISTEN/NOTIFY` para o [`themis_sync::Hub`].
+//! Postgres `LISTEN/NOTIFY` transport for the [`themis_sync::Hub`].
+//!
+//! See the [repository README](https://github.com/The-Hades-Organization/Themis) for the full guide.
 //!
 //! ```no_run
 //! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -12,14 +14,14 @@
 //! # Ok(()) }
 //! ```
 //!
-//! # Aviso na mesma transação da mudança
+//! # Notifying in the same transaction as the change
 //!
-//! `NOTIFY` só é entregue no commit. Gravar o grant e chamar [`notify`] na mesma transação
-//! garante que o aviso sai se, e só se, a mudança foi gravada. O aviso enviado assim não passa
-//! por [`themis_sync::Hub::publish`] e chega sem origem, então o relay entrega em todas as
-//! instâncias, inclusive na que gravou.
+//! `NOTIFY` is delivered only on commit. Writing the grant and calling [`notify`] in the same
+//! transaction guarantees that the notice goes out if, and only if, the change was written. A notice
+//! sent this way does not go through [`themis_sync::Hub::publish`] and arrives without an origin, so
+//! the relay delivers it on every instance, including the one that wrote it.
 //!
-//! TLS: [`PgTransport::with_tls`] aceita qualquer conector do `tokio-postgres`
+//! TLS: [`PgTransport::with_tls`] accepts any `tokio-postgres` connector
 //! (`postgres-native-tls`, `tokio-postgres-rustls`).
 
 use std::future::Future;
@@ -43,7 +45,7 @@ fn connection(error: tokio_postgres::Error) -> TransportError {
     TransportError::Connection(error.to_string())
 }
 
-/// Maior payload aceito pelo `pg_notify` com a configuração padrão do Postgres.
+/// Largest payload `pg_notify` accepts with the default Postgres configuration.
 pub const MAX_PAYLOAD: usize = 7999;
 
 pub struct PgTransport {
@@ -53,7 +55,7 @@ pub struct PgTransport {
 }
 
 impl PgTransport {
-    /// Conexão sem TLS.
+    /// Connection without TLS.
     pub fn new(url: &str, channel: impl Into<String>) -> Result<Self, TransportError> {
         Self::with_tls(url, channel, NoTls)
     }
@@ -101,7 +103,7 @@ impl PgTransport {
     }
 }
 
-/// Envia `change` no canal pelo cliente ou transação informados.
+/// Sends `change` on the channel through the given client or transaction.
 pub async fn notify<C: GenericClient + Sync>(client: &C, channel: &str, change: &Change) -> Result<(), TransportError> {
     let payload = change.to_json();
     if payload.len() > MAX_PAYLOAD {

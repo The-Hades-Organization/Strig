@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 use crate::attr::{Attributes, Value};
 use crate::resource::{Anchor, ObjectRef, Resource};
 
-/// Principal de todo usuário identificado.
+/// Principal of every identified user.
 pub const AUTHENTICATED: &str = "authenticated";
-/// Principal de quem chega sem identidade.
+/// Principal of whoever arrives without an identity.
 pub const ANONYMOUS: &str = "anonymous";
 
-/// Papel atribuído a um sujeito, opcionalmente restrito a um escopo (o papel numa organização
-/// vale só para recursos cujo caminho passa por ela).
+/// Role assigned to a subject, optionally restricted to a scope (a role in an organization
+/// holds only for resources whose path goes through it).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoleAssignment {
     pub role: String,
@@ -17,7 +17,7 @@ pub struct RoleAssignment {
     pub scope: Option<Anchor>,
 }
 
-/// Quem pede o acesso.
+/// Who requests the access.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Subject {
     pub kind: String,
@@ -32,12 +32,12 @@ pub struct Subject {
 }
 
 impl Subject {
-    /// Usuário identificado, com o principal [`AUTHENTICATED`].
+    /// Identified user, with the principal [`AUTHENTICATED`].
     pub fn user(id: impl Into<String>) -> Self {
         Self::of_kind("user", id).with_principal(AUTHENTICATED)
     }
 
-    /// Visitante sem identidade, com o principal [`ANONYMOUS`].
+    /// Visitor without an identity, with the principal [`ANONYMOUS`].
     pub fn anonymous() -> Self {
         Self {
             kind: "user".to_string(),
@@ -48,7 +48,7 @@ impl Subject {
         }
     }
 
-    /// Sujeito de outro tipo (conta de serviço, dispositivo), sem principal.
+    /// Subject of another kind (service account, device), with no principal.
     pub fn of_kind(kind: impl Into<String>, id: impl Into<String>) -> Self {
         Self {
             kind: kind.into(),
@@ -89,7 +89,7 @@ impl Subject {
         self.id.as_ref().map(|id| ObjectRef::new(self.kind.clone(), id.clone()))
     }
 
-    /// Papéis diretos que valem para o recurso: sem escopo, ou com escopo no caminho dele.
+    /// Direct roles that hold for the resource: unscoped, or with a scope in its path.
     pub fn roles_for<'a>(&'a self, resource: &'a Resource) -> impl Iterator<Item = &'a str> {
         self.roles
             .iter()

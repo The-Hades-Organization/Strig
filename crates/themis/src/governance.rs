@@ -15,7 +15,7 @@ use crate::rebac::TupleStore;
 use crate::resource::Resource;
 use crate::subject::{RoleAssignment, Subject};
 
-/// Mudança proposta no conjunto de grants ou nos papéis de um sujeito.
+/// Proposed change to the grant set or to a subject's roles.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[allow(clippy::large_enum_variant)]
@@ -24,13 +24,13 @@ pub enum Mutation {
     Remove {
         id: String,
     },
-    /// Dá `role` a `subject`. O conjunto de grants não muda; quem guarda os papéis do sujeito
-    /// grava [`Mutation::subject_after`].
+    /// Gives `role` to `subject`. The grant set does not change; whoever stores the subject's roles
+    /// writes [`Mutation::subject_after`].
     AssignRole {
         subject: Subject,
         role: RoleAssignment,
     },
-    /// Tira `role` de `subject`, comparando papel e escopo.
+    /// Takes `role` from `subject`, comparing role and scope.
     RevokeRole {
         subject: Subject,
         role: RoleAssignment,
@@ -38,8 +38,8 @@ pub enum Mutation {
 }
 
 impl Mutation {
-    /// Sujeito, atribuição e `true` para atribuir (`false` para revogar), se a mudança é de
-    /// papel.
+    /// Subject, assignment and `true` to assign (`false` to revoke), if the change is a
+    /// role change.
     pub fn role_change(&self) -> Option<(&Subject, &RoleAssignment, bool)> {
         match self {
             Mutation::AssignRole { subject, role } => Some((subject, role, true)),
@@ -48,8 +48,8 @@ impl Mutation {
         }
     }
 
-    /// O sujeito da mudança de papel com o papel acrescentado ou removido. `None` para mudança
-    /// de grant.
+    /// The subject of the role change with the role added or removed. `None` for a grant
+    /// change.
     pub fn subject_after(&self) -> Option<Subject> {
         let (subject, role, assigned) = self.role_change()?;
         Some(with_role_change(subject, role, assigned))
@@ -66,8 +66,8 @@ fn with_role_change(subject: &Subject, role: &RoleAssignment, assigned: bool) ->
     next
 }
 
-/// Mesmo sujeito: sujeitos são identificados pelo id, sem olhar o tipo, e só quando o id existe.
-/// O mesmo id com outro tipo conta como o mesmo sujeito, o lado seguro para autogestão e lockout.
+/// Same subject: subjects are identified by id, ignoring the kind, and only when the id exists.
+/// The same id with another kind counts as the same subject, the safe side for self-management and lockout.
 fn same_subject(a: &Subject, b: &Subject) -> bool {
     a.id.is_some() && a.id == b.id
 }
@@ -79,8 +79,8 @@ fn role_label(role: &RoleAssignment) -> String {
     }
 }
 
-/// O que um invariante enxerga: quem muda, o quê, e o conjunto antes e depois. Numa mudança de
-/// papel, `before` e `after` são o mesmo conjunto; o efeito aparece em
+/// What an invariant sees: who changes, what, and the set before and after. In a role
+/// change, `before` and `after` are the same set; the effect shows up in
 /// [`Proposal::subject_after`].
 pub struct Proposal<'a> {
     pub actor: &'a Subject,
@@ -91,7 +91,7 @@ pub struct Proposal<'a> {
 }
 
 impl<'a> Proposal<'a> {
-    /// O grant adicionado, ou o removido. `None` para mudança de papel.
+    /// The grant added, or the one removed. `None` for a role change.
     pub fn grant(&self) -> Option<&'a Grant> {
         match self.mutation {
             Mutation::Add(grant) => Some(grant),
@@ -100,8 +100,8 @@ impl<'a> Proposal<'a> {
         }
     }
 
-    /// `subject` como ficaria depois da mudança: com o papel aplicado, se for o sujeito da
-    /// mudança de papel (mesmo id); sem alteração nos outros casos.
+    /// `subject` as it would be after the change: with the role applied, if it is the subject of
+    /// the role change (same id); unchanged in the other cases.
     pub fn subject_after<'s>(&self, subject: &'s Subject) -> Cow<'s, Subject> {
         match self.mutation.role_change() {
             Some((target, role, assigned)) if same_subject(target, subject) => {
@@ -149,14 +149,14 @@ impl fmt::Display for Violation {
     }
 }
 
-/// Regra que toda mudança de grant ou de papel precisa respeitar.
+/// Rule that every grant or role change must respect.
 pub trait Invariant: Send + Sync {
     fn name(&self) -> &str;
     fn check(&self, engine: &Engine, proposal: &Proposal<'_>) -> Result<(), Violation>;
 }
 
-/// Aplica mudanças de grant e de papel só depois de passar por todos os invariantes e, com a
-/// feature `audit`, de registrar a decisão.
+/// Applies grant and role changes only after they pass every invariant and, with the
+/// `audit` feature, after recording the decision.
 #[derive(Default)]
 pub struct Governance {
     invariants: Vec<Box<dyn Invariant>>,
@@ -174,8 +174,8 @@ impl Governance {
         self
     }
 
-    /// Registra toda mudança, aplicada ou recusada. Se o registro falhar, a mudança é recusada
-    /// com a violação `audit`.
+    /// Records every change, applied or refused. If the record fails, the change is refused
+    /// with the `audit` violation.
     #[cfg(feature = "audit")]
     pub fn audited(mut self, auditor: Arc<Auditor>) -> Self {
         self.auditor = Some(auditor);
@@ -190,9 +190,9 @@ impl Governance {
         self.invariants.is_empty()
     }
 
-    /// Devolve o conjunto de grants depois da mudança, ou todas as violações. A persistência
-    /// fica com a aplicação, que grava só no `Ok`. Numa mudança de papel o conjunto volta igual
-    /// e o sujeito a gravar sai de [`Mutation::subject_after`].
+    /// Returns the grant set after the change, or all the violations. Persistence
+    /// is up to the application, which writes only on `Ok`. For a role change the set comes back unchanged
+    /// and the subject to write comes from [`Mutation::subject_after`].
     pub fn apply(
         &self,
         engine: &Engine,
@@ -204,8 +204,8 @@ impl Governance {
         self.apply_with(engine, actor, current, mutation, tuples, &Attributes::new())
     }
 
-    /// Como [`Governance::apply`], com metadados da requisição (ip, request id, motivo) que vão
-    /// para a auditoria a partir do nível `detailed`.
+    /// Like [`Governance::apply`], with request metadata (ip, request id, reason) that goes
+    /// to the audit from the `detailed` level upward.
     pub fn apply_with(
         &self,
         engine: &Engine,
@@ -298,10 +298,10 @@ fn check_role_mutation(subject: &Subject, role: &RoleAssignment, assigned: bool)
     Err(vec![Violation::new("mutation", message)])
 }
 
-/// O grant adicionado existe no catálogo e mira um alvo aceito pela permissão. O papel atribuído
-/// é conhecido (está no [`RoleGraph`](crate::RoleGraph) do motor ou em algum grant atual) e o
-/// escopo dele, se houver, usa um tipo do catálogo. Revogar passa sempre: tirar papel
-/// desconhecido é limpeza.
+/// The added grant exists in the catalog and targets a kind the permission accepts. The assigned
+/// role is known (it is in the engine's [`RoleGraph`](crate::RoleGraph) or in some current grant) and
+/// its scope, if any, uses a kind from the catalog. Revoking always passes: removing an
+/// unknown role is cleanup.
 pub struct CatalogConformance;
 
 impl CatalogConformance {
@@ -342,9 +342,9 @@ impl Invariant for CatalogConformance {
     }
 }
 
-/// Ninguém mexe em grant que vale para si: nem o próprio usuário, nem um papel que tem
-/// (direto ou herdado). Grants por principal e por relação ficam de fora. Também ninguém atribui
-/// nem revoga papel de si mesmo.
+/// Nobody changes a grant that applies to themselves: neither the user directly, nor a role they
+/// hold (direct or inherited). Grants by principal and by relation are left out. Nobody assigns
+/// or revokes a role of their own, either.
 pub struct NoSelfManagement;
 
 impl Invariant for NoSelfManagement {
@@ -386,7 +386,7 @@ impl Invariant for NoSelfManagement {
     }
 }
 
-/// O ator precisa ter `key` sobre `resource` antes da mudança.
+/// The actor must hold `key` on `resource` before the change.
 pub struct RequirePermission {
     key: String,
     resource: Resource,
@@ -416,10 +416,10 @@ impl Invariant for RequirePermission {
     }
 }
 
-/// Depois da mudança, cada permissão crítica continua com pelo menos um membro capaz de
-/// exercê-la sobre `resource`. Impede trancar um escopo para fora da própria gestão. Cada membro
-/// é avaliado como ficaria depois da mudança ([`Proposal::subject_after`]), então revogar o
-/// papel do último que exerce a permissão também é recusado.
+/// After the change, each critical permission still has at least one member able to
+/// exercise it on `resource`. Prevents locking a scope out of its own management. Each member
+/// is evaluated as they would be after the change ([`Proposal::subject_after`]), so revoking the
+/// role of the last one who exercises the permission is also refused.
 pub struct NoLockout {
     critical: Vec<String>,
     members: Vec<Subject>,
@@ -463,12 +463,12 @@ impl Invariant for NoLockout {
     }
 }
 
-/// `subject` nunca recebe `allow` em `permissions` nem em permissão que as conceda.
+/// `subject` never receives `allow` on `permissions` or on any permission that grants them.
 ///
-/// Em atribuição de papel, só vale quando `subject` é [`SubjectMatcher::User`] com o id do
-/// sujeito: recusa o papel se algum grant `allow` atual para ele, ou para um papel que ele herda,
-/// concede uma permissão proibida, sem olhar escopo. Os outros matchers (principal, `any`,
-/// papel, relação) não se aplicam a atribuição de papel.
+/// On a role assignment, it only applies when `subject` is [`SubjectMatcher::User`] with the
+/// subject's id: it refuses the role if any current `allow` grant for them, or for a role they inherit,
+/// grants a forbidden permission, regardless of scope. The other matchers (principal, `any`,
+/// role, relation) do not apply to role assignment.
 pub struct Forbid {
     subject: SubjectMatcher,
     permissions: Vec<String>,
