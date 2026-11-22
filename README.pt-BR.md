@@ -134,6 +134,8 @@ governance.apply_with(&engine, &actor, &current, &change, None, &request_meta)?;
 let bob = change.subject_after().expect("mudança de papel"); // grava os papéis de bob
 ```
 
+O `Forbid` vale para atribuição de papel só quando mira um usuário, e sem olhar escopo. A lib não impede que um ator com a permissão exigida dê a outro um papel mais forte que o dele; essa regra fica para um `Invariant` próprio.
+
 Regra própria entra implementando `Invariant`. A lista também pode vir de JSON (`InvariantSpec`).
 
 ## Auditoria

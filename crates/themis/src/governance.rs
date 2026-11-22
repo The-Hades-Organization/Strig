@@ -66,9 +66,10 @@ fn with_role_change(subject: &Subject, role: &RoleAssignment, assigned: bool) ->
     next
 }
 
-/// Mesmo sujeito identificado: mesmo tipo e mesmo id, com id presente.
+/// Mesmo sujeito: sujeitos são identificados pelo id, sem olhar o tipo, e só quando o id existe.
+/// O mesmo id com outro tipo conta como o mesmo sujeito, o lado seguro para autogestão e lockout.
 fn same_subject(a: &Subject, b: &Subject) -> bool {
-    a.id.is_some() && a.kind == b.kind && a.id == b.id
+    a.id.is_some() && a.id == b.id
 }
 
 fn role_label(role: &RoleAssignment) -> String {
@@ -100,7 +101,7 @@ impl<'a> Proposal<'a> {
     }
 
     /// `subject` como ficaria depois da mudança: com o papel aplicado, se for o sujeito da
-    /// mudança de papel (mesmo tipo e id); sem alteração nos outros casos.
+    /// mudança de papel (mesmo id); sem alteração nos outros casos.
     pub fn subject_after<'s>(&self, subject: &'s Subject) -> Cow<'s, Subject> {
         match self.mutation.role_change() {
             Some((target, role, assigned)) if same_subject(target, subject) => {

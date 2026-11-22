@@ -87,7 +87,7 @@ export interface ApplyInput {
 export interface ApplyResult {
   ok: boolean;
   grants?: Grant[];
-  /** Sujeito com o papel aplicado, numa mudança de papel aceita. */
+  /** Subject with the role applied, on an accepted role change. */
   subject?: Subject;
   violations?: Array<{ invariant: string; message: string }>;
   audit?: Record<string, unknown> | null;

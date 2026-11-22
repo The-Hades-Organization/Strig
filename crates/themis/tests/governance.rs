@@ -174,12 +174,107 @@ fn admin_assigns_role_to_another_user() {
     assert!(proposal.grant().is_none());
     assert_eq!(proposal.subject_after(&Subject::user("u1")).roles, [in_org("member")]);
     assert_eq!(proposal.subject_after(&admin()).roles, admin().roles);
-    assert!(
-        proposal
-            .subject_after(&Subject::of_kind("service", "u1"))
-            .roles
-            .is_empty()
+    assert_eq!(
+        proposal.subject_after(&Subject::of_kind("service", "u1")).roles,
+        [in_org("member")]
     );
+    assert!(proposal.subject_after(&Subject::user("u2")).roles.is_empty());
+}
+
+#[test]
+fn revoking_with_a_different_scope_is_rejected() {
+    let engine = engine();
+    let member = Subject::user("u1").with_role_in("member", org());
+    let unscoped = RoleAssignment {
+        role: "member".into(),
+        scope: None,
+    };
+    let violations = Governance::new()
+        .apply(
+            &engine,
+            &admin(),
+            &base_grants(),
+            &revoke(member.clone(), unscoped),
+            None,
+        )
+        .unwrap_err();
+    assert_eq!(invariants_of(&violations), ["mutation"]);
+    assert!(
+        Governance::new()
+            .apply(
+                &engine,
+                &admin(),
+                &base_grants(),
+                &revoke(member, in_org("member")),
+                None
+            )
+            .is_ok()
+    );
+}
+
+#[test]
+fn revoking_an_inherited_role_is_rejected() {
+    let engine = engine();
+    let gov = Governance::new();
+    let holder = Subject::user("u1").with_role_in("admin", org());
+    let violations = gov
+        .apply(
+            &engine,
+            &admin(),
+            &base_grants(),
+            &revoke(holder.clone(), in_org("viewer")),
+            None,
+        )
+        .unwrap_err();
+    assert_eq!(invariants_of(&violations), ["mutation"]);
+    assert!(
+        gov.apply(
+            &engine,
+            &admin(),
+            &base_grants(),
+            &revoke(holder, in_org("admin")),
+            None
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn same_id_with_another_kind_is_the_same_subject() {
+    let engine = engine();
+    let alias = Subject::of_kind("service", "admin");
+    let gov = governance(vec![admin()]);
+    let violations = gov
+        .apply(
+            &engine,
+            &admin(),
+            &base_grants(),
+            &assign(alias, in_org("member")),
+            None,
+        )
+        .unwrap_err();
+    assert!(invariants_of(&violations).contains(&"no_self_management"));
+
+    let other_admin = Subject::user("admin2").with_role_in("admin", org());
+    let alias = Subject::of_kind("service", "admin").with_role_in("admin", org());
+    let violations = gov
+        .apply(
+            &engine,
+            &other_admin,
+            &base_grants(),
+            &revoke(alias, in_org("admin")),
+            None,
+        )
+        .unwrap_err();
+    assert!(invariants_of(&violations).contains(&"no_lockout"));
+}
+
+#[test]
+fn no_lockout_does_not_refuse_an_assignment() {
+    let engine = engine();
+    let gov = governance(vec![admin()]);
+    let mutation = assign(Subject::user("u1"), in_org("member"));
+    assert!(gov.apply(&engine, &admin(), &base_grants(), &mutation, None).is_ok());
 }
 
 #[test]
@@ -366,7 +461,7 @@ mod audit {
         let applied = &records[0];
         assert_eq!(applied.action, AuditAction::RoleAssign);
         assert_eq!(applied.outcome, AuditOutcome::Applied);
-        assert_eq!(applied.object, "member@u1");
+        assert_eq!(applied.object, "member#org:o1@u1");
         let role = applied.role.as_ref().expect("resumo do papel");
         assert_eq!((role.subject.as_str(), role.role.as_str()), ("u1", "member"));
         assert_eq!(role.scope, Some(org()));
@@ -380,7 +475,7 @@ mod audit {
         let rejected = &records[1];
         assert_eq!(rejected.action, AuditAction::RoleRevoke);
         assert_eq!(rejected.outcome, AuditOutcome::Rejected);
-        assert_eq!(rejected.object, "admin@admin");
+        assert_eq!(rejected.object, "admin#org:o1@admin");
         assert_eq!(rejected.actor, "admin2");
         assert_eq!(rejected.violations.len(), 1);
         assert!(rejected.violations[0].starts_with("[no_lockout] "));
@@ -402,6 +497,108 @@ mod audit {
         let record = &log.records()[0];
         assert_eq!(record.violations, ["no_self_management"]);
         assert!(record.actor_detail.is_none());
+    }
+
+    #[test]
+    fn forensic_chain_mixes_grant_and_role_records_with_digests() {
+        let engine = engine();
+        let log = Arc::new(MemoryAuditLog::new());
+        let gov = governance(vec![admin()]).audited(Arc::new(Auditor::new(AuditLevel::Forensic, log.clone())));
+        let meta = Attributes::new();
+
+        let add = Mutation::Add(role_grant("m-edit", "member", "project.edit", true, at_org()));
+        gov.apply_with(&engine, &admin(), &base_grants(), &add, None, &meta)
+            .unwrap();
+        let holder = Subject::user("u1").with_role_in("viewer", org()).with_role("beta");
+        let applied = assign(holder.clone(), in_org("member"));
+        gov.apply_with(&engine, &admin(), &base_grants(), &applied, None, &meta)
+            .unwrap();
+        let refused = assign(admin(), in_org("member"));
+        gov.apply_with(&engine, &admin(), &base_grants(), &refused, None, &meta)
+            .unwrap_err();
+
+        let records = log.records();
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0].action, AuditAction::GrantAdd);
+        themis::audit::verify_chain(&records).expect("cadeia íntegra");
+
+        let role = &records[1];
+        assert_eq!(role.action, AuditAction::RoleAssign);
+        assert_eq!(role.object, "member#org:o1@u1");
+        let (before, after) = (role.before_digest.clone().unwrap(), role.after_digest.clone().unwrap());
+        assert_ne!(before, after);
+
+        let rejected = &records[2];
+        assert_eq!(rejected.outcome, AuditOutcome::Rejected);
+        assert_eq!(rejected.before_digest, rejected.after_digest);
+        assert!(rejected.before_digest.is_some());
+    }
+
+    #[test]
+    fn role_digest_ignores_order() {
+        let engine = engine();
+        let log = Arc::new(MemoryAuditLog::new());
+        let gov = governance(vec![admin()]).audited(Arc::new(Auditor::new(AuditLevel::Forensic, log.clone())));
+        let a = Subject::user("u1").with_role("beta").with_role_in("viewer", org());
+        let b = Subject::user("u1").with_role_in("viewer", org()).with_role("beta");
+        for subject in [a, b] {
+            gov.apply(
+                &engine,
+                &admin(),
+                &base_grants(),
+                &assign(subject, in_org("member")),
+                None,
+            )
+            .unwrap();
+        }
+        let records = log.records();
+        assert_eq!(records[0].before_digest, records[1].before_digest);
+        assert_eq!(records[0].after_digest, records[1].after_digest);
+    }
+
+    #[test]
+    fn rejected_role_record_by_level() {
+        let engine = engine();
+        for (level, expected) in [
+            (AuditLevel::Standard, "no_self_management"),
+            (
+                AuditLevel::Detailed,
+                "[no_self_management] não é permitido gerenciar os próprios papéis",
+            ),
+        ] {
+            let log = Arc::new(MemoryAuditLog::new());
+            let gov = governance(vec![admin()]).audited(Arc::new(Auditor::new(level, log.clone())));
+            gov.apply(
+                &engine,
+                &admin(),
+                &base_grants(),
+                &assign(admin(), in_org("member")),
+                None,
+            )
+            .unwrap_err();
+            let record = &log.records()[0];
+            assert_eq!(record.action, AuditAction::RoleAssign);
+            assert_eq!(record.outcome, AuditOutcome::Rejected);
+            assert_eq!(record.violations, [expected]);
+            assert!(record.before_digest.is_none());
+        }
+    }
+
+    #[test]
+    fn anonymous_role_subject_is_marked() {
+        let engine = engine();
+        let log = Arc::new(MemoryAuditLog::new());
+        let gov = Governance::new().audited(Arc::new(Auditor::new(AuditLevel::Standard, log.clone())));
+        gov.apply(
+            &engine,
+            &admin(),
+            &base_grants(),
+            &assign(Subject::anonymous(), in_org("member")),
+            None,
+        )
+        .unwrap_err();
+        let record = &log.records()[0];
+        assert_eq!(record.role.as_ref().unwrap().subject, "user:<anonymous>");
     }
 
     #[test]

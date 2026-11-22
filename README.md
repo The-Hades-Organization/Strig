@@ -134,6 +134,8 @@ governance.apply_with(&engine, &actor, &current, &change, None, &request_meta)?;
 let bob = change.subject_after().expect("role change"); // persist bob's roles
 ```
 
+`Forbid` applies to a role assignment only when it targets a user, and it ignores scope. The library does not stop an actor who holds the required permission from giving someone else a stronger role than their own; that rule belongs in an `Invariant` of your own.
+
 Add your own rule by implementing `Invariant`. The list can also come from JSON (`InvariantSpec`).
 
 ## Auditing
