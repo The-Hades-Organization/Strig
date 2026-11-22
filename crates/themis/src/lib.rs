@@ -1,25 +1,27 @@
-//! Themis: governança e decisões de autorização.
+//! Themis: governance and authorization decisions.
 //!
-//! Um único motor resolve três modelos de acesso sobre o mesmo catálogo de permissões:
+//! A single engine resolves three access models over the same permission catalog:
 //!
-//! - **RBAC**: papéis com herança ([`RoleGraph`]) e atribuição escopada a um recurso
+//! - **RBAC**: roles with inheritance ([`RoleGraph`]) and assignment scoped to a resource
 //!   ([`RoleAssignment`]).
-//! - **ABAC**: condições serializáveis sobre atributos do sujeito, do recurso e do ambiente
-//!   ([`Condition`]), com funções próprias registráveis ([`ConditionRegistry`]).
-//! - **ReBAC**: relações no estilo Zanzibar ([`RelationSchema`], [`TupleStore`]), usadas como
-//!   sujeito de um grant ([`SubjectMatcher::Relation`]).
+//! - **ABAC**: serializable conditions over attributes of the subject, the resource and the
+//!   environment ([`Condition`]), with custom functions you can register ([`ConditionRegistry`]).
+//! - **ReBAC**: Zanzibar-style relations ([`RelationSchema`], [`TupleStore`]), used as the
+//!   subject of a grant ([`SubjectMatcher::Relation`]).
 //!
-//! A decisão passa por três estágios: overrides ([`Override`]), coleta dos grants aplicáveis e
-//! combinação por uma [`Strategy`]. A estratégia padrão ([`MostSpecific`]) faz o alvo mais
-//! específico decidir e, nele, `deny` vencer `allow`.
+//! A decision goes through three stages: overrides ([`Override`]), collection of the applicable
+//! grants and combination by a [`Strategy`]. The default strategy ([`MostSpecific`]) lets the most
+//! specific target decide and, within it, `deny` beats `allow`.
 //!
-//! Mudanças de grant e de atribuição de papel passam por [`Governance`], que aplica invariantes
-//! (sem autogestão, sem deixar o escopo sem administrador, proibições) antes de a mudança ser
-//! persistida e, com a feature `audit`, registra cada decisão numa trilha de auditoria
+//! Grant changes and role assignments go through [`Governance`], which applies invariants
+//! (no self-management, no leaving a scope without an administrator, prohibitions) before the
+//! change is persisted and, with the `audit` feature, records each decision in an audit trail
 //! ([`audit`]).
 //!
-//! O crate não faz IO nem depende de runtime assíncrono, e compila para WebAssembly. Tempo
-//! real, cache e transportes ficam em `themis-sync` e nos adaptadores.
+//! The crate does no IO and does not depend on an async runtime, and it compiles to WebAssembly.
+//! Real time, caching and transports live in `themis-sync` and the adapters.
+//!
+//! See the [repository README](https://github.com/The-Hades-Organization/Themis) for the full guide.
 
 mod graph;
 

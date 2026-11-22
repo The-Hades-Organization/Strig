@@ -4,7 +4,7 @@ use crate::grant::Effect;
 use crate::resource::Resource;
 use crate::subject::Subject;
 
-/// Pergunta feita ao motor: `subject` pode `permission` sobre `resource`?
+/// Question put to the engine: can `subject` `permission` on `resource`?
 #[derive(Debug, Clone, Copy)]
 pub struct Request<'a> {
     pub subject: &'a Subject,
@@ -22,22 +22,22 @@ impl<'a> Request<'a> {
     }
 }
 
-/// Por que a decisão saiu como saiu.
+/// Why the decision came out the way it did.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Reason {
-    /// Um override decidiu antes dos grants.
+    /// An override decided before the grants.
     Override { name: String },
-    /// Um grant decidiu, escolhido pela estratégia.
+    /// A grant decided, chosen by the strategy.
     Grant {
         grant_id: String,
         permission: String,
         rank: usize,
         strategy: String,
     },
-    /// Nenhum grant se aplicou: default-deny.
+    /// No grant applied: default-deny.
     NoApplicableGrant,
-    /// A permissão pedida não está no catálogo.
+    /// The requested permission is not in the catalog.
     UnknownPermission,
 }
 
@@ -45,10 +45,10 @@ pub enum Reason {
 pub struct Decision {
     pub effect: Effect,
     pub reason: Reason,
-    /// Ids de todos os grants que se aplicaram, na ordem da fonte.
+    /// Ids of all the grants that applied, in source order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub matched: Vec<String>,
-    /// Problemas que não impediram a decisão (condição com atributo ausente, ReBAC sem store).
+    /// Problems that did not prevent the decision (condition with a missing attribute, ReBAC without a store).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
 }

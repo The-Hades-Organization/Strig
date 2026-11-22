@@ -7,22 +7,22 @@ use crate::attr::{Attributes, Value};
 use crate::graph;
 use crate::resource::GLOBAL;
 
-/// Definição de uma permissão atômica.
+/// Definition of an atomic permission.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionDef {
     pub key: String,
-    /// Tipos de alvo em que um grant desta permissão pode se ancorar, além dos amplos.
+    /// Target kinds a grant of this permission can anchor to, besides the broad ones.
     pub targets: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// Permissões mais gerais que concedem esta. Um grant numa delas vale aqui.
+    /// More general permissions that grant this one. A grant on any of them holds here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub implied_by: Vec<String>,
-    /// Metadados da aplicação (grupo de UI, nível de exibição, sensibilidade). O motor não os
-    /// lê; regras de catálogo ([`CatalogRule`]) podem exigi-los.
+    /// Application metadata (UI group, display level, sensitivity). The engine does not read it;
+    /// catalog rules ([`CatalogRule`]) can require it.
     #[serde(default, skip_serializing_if = "Attributes::is_empty")]
     pub meta: Attributes,
 }
@@ -91,7 +91,7 @@ pub enum CatalogError {
     Rule { rule: String, key: String, message: String },
 }
 
-/// Todos os erros de um catálogo, de uma vez.
+/// All the errors of a catalog, at once.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CatalogErrors(pub Vec<CatalogError>);
 
@@ -107,16 +107,16 @@ impl fmt::Display for CatalogErrors {
 
 impl std::error::Error for CatalogErrors {}
 
-/// Validação própria da aplicação sobre cada permissão, rodada em
-/// [`CatalogBuilder::build`] junto das validações estruturais.
+/// Application-specific validation over each permission, run in
+/// [`CatalogBuilder::build`] alongside the structural validations.
 pub trait CatalogRule {
     fn name(&self) -> &str;
-    /// Devolve a mensagem de erro, se `def` viola a regra.
+    /// Returns the error message if `def` violates the rule.
     fn check(&self, def: &PermissionDef) -> Option<String>;
 }
 
-/// Exige o metadado `meta` nas permissões cuja chave termina em `suffix` (todas, sem sufixo),
-/// opcionalmente restrito a uma lista de valores.
+/// Requires the metadata key `meta` on permissions whose key ends with `suffix` (all of them, with
+/// no suffix), optionally restricted to a list of values.
 #[derive(Debug, Clone)]
 pub struct RequireMeta {
     name: String,
@@ -170,7 +170,7 @@ impl CatalogRule for RequireMeta {
     }
 }
 
-/// Regra a partir de uma closure.
+/// Rule built from a closure.
 pub struct FnRule<F> {
     name: String,
     f: F,
@@ -192,7 +192,7 @@ impl<F: Fn(&PermissionDef) -> Option<String>> CatalogRule for FnRule<F> {
     }
 }
 
-/// Forma serializável do catálogo, para gerar tipos do frontend ou carregar de configuração.
+/// Serializable form of the catalog, to generate frontend types or load from configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogExport {
@@ -236,8 +236,8 @@ impl CatalogBuilder {
         self
     }
 
-    /// Tipo de alvo aceito por qualquer permissão, como a organização ou o tenant. `global`
-    /// já é amplo.
+    /// Target kind accepted by any permission, such as the organization or the tenant. `global`
+    /// is already broad.
     pub fn broad_target(mut self, kind: impl Into<String>) -> Self {
         self.broad_targets.push(kind.into());
         self
@@ -253,7 +253,7 @@ impl CatalogBuilder {
         self
     }
 
-    /// Acrescenta as permissões de um módulo de uma vez.
+    /// Adds the permissions of a module at once.
     pub fn permissions(mut self, defs: impl IntoIterator<Item = PermissionDef>) -> Self {
         self.defs.extend(defs);
         self
@@ -346,7 +346,7 @@ fn valid_key(key: &str) -> bool {
         })
 }
 
-/// Catálogo validado e imutável de permissões.
+/// Validated, immutable catalog of permissions.
 #[derive(Debug, Clone)]
 pub struct Catalog {
     defs: Vec<PermissionDef>,
@@ -362,7 +362,7 @@ impl Catalog {
         CatalogBuilder::default()
     }
 
-    /// Builder pré-carregado com um export, para acrescentar regras antes de validar.
+    /// Builder preloaded with an export, to add rules before validating.
     pub fn builder_from(export: CatalogExport) -> CatalogBuilder {
         let mut builder = Self::builder().target_kinds(export.target_kinds);
         for kind in export.broad_targets {
@@ -403,22 +403,22 @@ impl Catalog {
         self.defs.is_empty()
     }
 
-    /// A chave e todas as permissões que a concedem, transitivamente.
+    /// The key and every permission that grants it, transitively.
     pub fn effective(&self, key: &str) -> Option<&BTreeSet<String>> {
         self.effective.get(key)
     }
 
-    /// `general` concede `specific` (ou é a mesma chave).
+    /// `general` grants `specific` (or is the same key).
     pub fn implies(&self, general: &str, specific: &str) -> bool {
         self.effective(specific).is_some_and(|set| set.contains(general))
     }
 
-    /// Permissões concedidas diretamente por `key`.
+    /// Permissions granted directly by `key`.
     pub fn children(&self, key: &str) -> &[String] {
         self.children.get(key).map(Vec::as_slice).unwrap_or(&[])
     }
 
-    /// Todas as permissões concedidas por `key`, transitivamente, sem ela mesma.
+    /// All permissions granted by `key`, transitively, not including itself.
     pub fn descendants(&self, key: &str) -> BTreeSet<String> {
         let mut set = graph::reachable(key, &self.children);
         set.remove(key);
@@ -433,7 +433,7 @@ impl Catalog {
         self.broad_targets.contains(kind)
     }
 
-    /// Um grant de `key` pode se ancorar em `kind`.
+    /// A grant of `key` can anchor to `kind`.
     pub fn allows_target(&self, key: &str, kind: &str) -> bool {
         self.is_broad_target(kind) || self.get(key).is_some_and(|d| d.targets.iter().any(|t| t == kind))
     }

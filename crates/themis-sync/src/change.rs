@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use themis::{Anchor, Resource};
 
-/// O que mudou.
+/// What changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChangeKind {
@@ -9,34 +9,34 @@ pub enum ChangeKind {
     Tuples,
     Roles,
     Catalog,
-    /// Mudança da aplicação que também invalida permissões (plano do cliente, flag).
+    /// Application change that also invalidates permissions (customer plan, flag).
     Custom,
-    /// O nó perdeu mudanças (reconexão do transporte, assinante atrasado): tudo que estiver em
-    /// cache deve ser recarregado.
+    /// The node lost changes (transport reconnection, lagging subscriber): everything that is
+    /// cached must be reloaded.
     Resync,
 }
 
-/// Aviso de que as permissões sob `scope` mudaram. Não carrega os grants: quem recebe
-/// recarrega da fonte, então o aviso é pequeno e cabe em qualquer transporte (o `pg_notify`
-/// aceita até 8000 bytes).
+/// Notice that the permissions under `scope` changed. It does not carry the grants: whoever receives it
+/// reloads from the source, so the notice is small and fits any transport (`pg_notify`
+/// accepts up to 8000 bytes).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Change {
     pub kind: ChangeKind,
-    /// Degrau afetado. `global` afeta todos os recursos.
+    /// Affected step. `global` affects every resource.
     pub scope: Anchor,
-    /// Restringe o aviso a um sujeito (mudança de papel de uma pessoa).
+    /// Restricts the notice to one subject (a role change for one person).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject: Option<String>,
-    /// Id do objeto mudado (grant, tupla), informativo.
+    /// Id of the changed object (grant, tuple), informational.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    /// Nó que publicou. Preenchido pelo hub.
+    /// Node that published. Filled in by the hub.
     #[serde(default)]
     pub origin: String,
-    /// Sequência por origem. Preenchida pelo hub.
+    /// Per-origin sequence. Filled in by the hub.
     #[serde(default)]
     pub seq: u64,
-    /// Milissegundos desde a época Unix. Preenchido pelo hub.
+    /// Milliseconds since the Unix epoch. Filled in by the hub.
     #[serde(default)]
     pub at: u64,
 }
@@ -84,7 +84,7 @@ impl Change {
         self
     }
 
-    /// A mudança afeta as permissões de `subject` sobre `scope`?
+    /// Does the change affect `subject`'s permissions on `scope`?
     pub fn affects(&self, subject: Option<&str>, scope: &Resource) -> bool {
         if self.kind == ChangeKind::Resync {
             return true;

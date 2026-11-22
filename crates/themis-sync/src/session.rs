@@ -1,8 +1,8 @@
-//! Sessão de um cliente conectado, independente de framework HTTP.
+//! Session of a connected client, independent of the HTTP framework.
 //!
-//! [`Session::open`] devolve um stream de [`ServerMessage`] para escrever no SSE ou no
-//! WebSocket e um [`SessionControl`] para repassar as mensagens que o cliente manda (só no
-//! WebSocket). O adaptador do framework só faz a ponte; a lógica fica aqui.
+//! [`Session::open`] returns a stream of [`ServerMessage`]s to write to the SSE or the
+//! WebSocket, and a [`SessionControl`] to pass on the messages the client sends (WebSocket
+//! only). The framework adapter only bridges; the logic lives here.
 
 use std::future::pending;
 use std::sync::Arc;
@@ -21,9 +21,9 @@ use crate::provider::CapabilityProvider;
 
 #[derive(Debug, Clone)]
 pub struct SessionOptions {
-    /// Intervalo do `ping`. Mantém proxies e balanceadores sem fechar a conexão ociosa.
+    /// Interval of the `ping`. Keeps proxies and load balancers from closing an idle connection.
     pub heartbeat: Option<Duration>,
-    /// Mensagens enfileiradas para um cliente lento antes de a sessão esperar por ele.
+    /// Messages queued for a slow client before the session waits for it.
     pub buffer: usize,
 }
 
@@ -38,19 +38,19 @@ impl Default for SessionOptions {
 
 pub type SessionStream = ReceiverStream<ServerMessage>;
 
-/// Canal para as mensagens que o cliente envia.
+/// Channel for the messages the client sends.
 #[derive(Clone)]
 pub struct SessionControl {
     tx: mpsc::Sender<ClientMessage>,
 }
 
 impl SessionControl {
-    /// Devolve `false` se a sessão já terminou.
+    /// Returns `false` if the session has already ended.
     pub async fn send(&self, message: ClientMessage) -> bool {
         self.tx.send(message).await.is_ok()
     }
 
-    /// Repassa um quadro de texto do WebSocket. JSON inválido volta como erro e a sessão segue.
+    /// Passes on a WebSocket text frame. Invalid JSON comes back as an error and the session continues.
     pub async fn handle_text(&self, text: &str) -> Result<bool, serde_json::Error> {
         Ok(self.send(ClientMessage::from_json(text)?).await)
     }
@@ -59,9 +59,9 @@ impl SessionControl {
 pub struct Session;
 
 impl Session {
-    /// Abre a sessão de `subject` observando `scopes`. Sem `provider`, o cliente recebe só os
-    /// avisos de mudança e recarrega por conta própria. A sessão termina quando o stream é
-    /// descartado.
+    /// Opens the session of `subject` watching `scopes`. Without a `provider`, the client receives only the
+    /// change notices and reloads on its own. The session ends when the stream is
+    /// dropped.
     pub fn open(
         hub: &Hub,
         subject: Subject,
@@ -168,7 +168,7 @@ impl Worker {
         true
     }
 
-    /// Junta as mudanças já enfileiradas e recalcula cada escopo afetado uma vez só.
+    /// Gathers the changes already queued and recomputes each affected scope only once.
     async fn on_changes(&mut self, first: Option<Change>, changes: &mut broadcast::Receiver<Change>) -> bool {
         let mut batch: Vec<Change> = first.into_iter().collect();
         let mut lost = batch.is_empty();

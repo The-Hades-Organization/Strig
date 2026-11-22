@@ -1,6 +1,6 @@
-//! Rastro completo de uma decisão: por que cada grant entrou ou ficou de fora, o que cada
-//! override respondeu e como a estratégia escolheu. [`crate::Engine::explain`] devolve a mesma
-//! [`Decision`] de [`crate::Engine::decide`], mais o caminho até ela.
+//! Full trace of a decision: why each grant got in or stayed out, what each override answered
+//! and how the strategy chose. [`crate::Engine::explain`] returns the same [`Decision`] as
+//! [`crate::Engine::decide`], plus the path that led to it.
 
 use serde::{Deserialize, Serialize};
 
@@ -16,21 +16,21 @@ pub struct Explanation {
     pub subject: Subject,
     pub permission: String,
     pub resource: Resource,
-    /// A permissão pedida e as que a concedem. Vazio se a permissão não existe no catálogo.
+    /// The requested permission and the ones that grant it. Empty if the permission is not in the catalog.
     pub effective: Vec<String>,
-    /// Degraus do recurso com o `global` implícito no fim. A posição é o `rank`.
+    /// Steps of the resource with the implicit `global` at the end. The position is the `rank`.
     pub path: Vec<Anchor>,
-    /// Papéis do sujeito que valem para o recurso, já com os herdados.
+    /// Roles of the subject that hold for the resource, including inherited ones.
     pub roles: Vec<String>,
     pub overrides: Vec<OverrideStep>,
-    /// Todos os grants que a fonte entregou, na ordem dela.
+    /// All the grants the source delivered, in its order.
     pub grants: Vec<GrantTrace>,
     pub strategy: String,
     pub decision: Decision,
 }
 
 impl Explanation {
-    /// O grant que decidiu, se foi um grant.
+    /// The grant that decided, if a grant did.
     pub fn decisive(&self) -> Option<&GrantTrace> {
         match &self.decision.reason {
             crate::Reason::Grant { grant_id, .. } => self
@@ -55,9 +55,9 @@ pub struct OverrideStep {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OverrideOutcome {
-    /// A permissão está nas exceções do override; ele nem foi consultado.
+    /// The permission is in the override's exceptions; it was not even consulted.
     Excepted,
-    /// Consultado, não se pronunciou.
+    /// Consulted, did not rule.
     Abstained,
     Allowed,
     Denied,
@@ -73,33 +73,33 @@ impl From<Option<Effect>> for OverrideOutcome {
     }
 }
 
-/// O destino de um grant na coleta, na ordem em que o motor confere.
+/// The fate of a grant during collection, in the order the engine checks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Verdict {
-    /// Entrou como candidato.
+    /// Became a candidate.
     Candidate,
-    /// `deny` que entrou apesar de o sujeito ou a condição não poderem ser avaliados.
+    /// `deny` that became a candidate even though the subject or the condition could not be evaluated.
     CandidateFailSafe {
         problem: String,
     },
-    /// A permissão do grant não é a pedida nem a concede.
+    /// The grant's permission is not the requested one and does not grant it.
     PermissionUnrelated,
-    /// O escopo do grant não está no caminho do recurso.
+    /// The grant's scope is not in the resource path.
     OutOfScope,
-    /// O alvo do grant não casa nenhum degrau do caminho.
+    /// The grant's target matches no step of the path.
     TargetNotOnPath,
     SubjectMismatch,
-    /// `allow` descartado porque o sujeito não pôde ser avaliado (ReBAC sem tuplas, profundidade).
+    /// `allow` discarded because the subject could not be evaluated (ReBAC without tuples, depth).
     SubjectUnresolved {
         problem: String,
     },
     ConditionFalse,
-    /// `allow` descartado porque a condição não pôde ser avaliada.
+    /// `allow` discarded because the condition could not be evaluated.
     ConditionUnresolved {
         problem: String,
     },
-    /// Um override decidiu antes da coleta.
+    /// An override decided before collection.
     NotReached,
 }
 
@@ -113,7 +113,7 @@ impl Verdict {
 pub struct GrantTrace {
     pub grant: Grant,
     pub verdict: Verdict,
-    /// Posição do degrau casado pelo alvo (0 = mais específico).
+    /// Position of the step matched by the target (0 = most specific).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rank: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -128,11 +128,11 @@ pub enum TraceResult {
     True,
     False,
     Error(String),
-    /// Não avaliado: um irmão anterior já decidiu o `all`/`any`.
+    /// Not evaluated: an earlier sibling already decided the `all`/`any`.
     Skipped,
 }
 
-/// Avaliação de uma condição, nó a nó, com os valores resolvidos no rótulo.
+/// Evaluation of a condition, node by node, with the resolved values in the label.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConditionTrace {
     pub label: String,
@@ -175,7 +175,7 @@ fn mark_skipped(node: &mut ConditionTrace) {
     node.children.iter_mut().for_each(mark_skipped);
 }
 
-/// Avalia `condition` como o motor avalia (com curto-circuito) e devolve a árvore.
+/// Evaluates `condition` the way the engine does (with short-circuiting) and returns the tree.
 pub fn trace_condition(condition: &Condition, ctx: &EvalContext<'_>, registry: &ConditionRegistry) -> ConditionTrace {
     let binary = |op: &str, left: &Operand, right: &Operand| {
         format!("{} {op} {}", show_operand(ctx, left), show_operand(ctx, right))

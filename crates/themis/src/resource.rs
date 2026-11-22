@@ -6,12 +6,12 @@ use serde::{Deserialize, Serialize};
 use crate::attr::{Attributes, Value};
 use crate::grant::TargetSelector;
 
-/// Tipo de alvo implícito no fim de todo caminho de recurso.
+/// Implicit target kind at the end of every resource path.
 pub const GLOBAL: &str = "global";
 
 static GLOBAL_ANCHOR: LazyLock<Anchor> = LazyLock::new(Anchor::global);
 
-/// Objeto identificado, usado pelo ReBAC (`document:42`, `user:alice`).
+/// Identified object, used by ReBAC (`document:42`, `user:alice`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ObjectRef {
     pub kind: String,
@@ -33,10 +33,10 @@ impl fmt::Display for ObjectRef {
     }
 }
 
-/// Um degrau do caminho de especificidade de um recurso.
+/// One step of a resource's specificity path.
 ///
-/// `id` identifica a instância (`project:42`) ou uma faceta (`doc_type:invoice`). Sem `id`, o
-/// degrau representa o tipo inteiro, como o `global`.
+/// `id` identifies the instance (`project:42`) or a facet (`doc_type:invoice`). Without `id`, the
+/// step represents the whole kind, like `global`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Anchor {
     pub kind: String,
@@ -81,12 +81,12 @@ impl fmt::Display for Anchor {
     }
 }
 
-/// Recurso sob decisão.
+/// Resource under decision.
 ///
-/// `path` vai do degrau mais específico para o mais amplo, por exemplo
-/// `[document:7, doc_type:invoice, project:42, org:9]`. O `global` é implícito no fim. A posição
-/// no caminho é a especificidade usada pela estratégia de combinação: índice menor, alvo mais
-/// específico.
+/// `path` goes from the most specific step to the broadest, for example
+/// `[document:7, doc_type:invoice, project:42, org:9]`. The `global` is implicit at the end. The
+/// position in the path is the specificity used by the combination strategy: lower index, more
+/// specific target.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Resource {
     pub path: Vec<Anchor>,
@@ -102,12 +102,12 @@ impl Resource {
         }
     }
 
-    /// Recurso sem degrau próprio: só alvos `global` se aplicam.
+    /// Resource with no step of its own: only `global` targets apply.
     pub fn global() -> Self {
         Self::default()
     }
 
-    /// Acrescenta um degrau mais amplo ao fim do caminho.
+    /// Adds a broader step at the end of the path.
     pub fn within(mut self, kind: impl Into<String>, id: impl Into<String>) -> Self {
         self.path.push(Anchor::new(kind, id));
         self
@@ -118,7 +118,7 @@ impl Resource {
         self
     }
 
-    /// Degrau mais específico, que dá o tipo e o id do recurso.
+    /// Most specific step, which gives the resource's kind and id.
     pub fn primary(&self) -> Option<&Anchor> {
         self.path.first()
     }
@@ -127,13 +127,13 @@ impl Resource {
         anchor.is_global() || self.path.iter().any(|a| a == anchor)
     }
 
-    /// Primeiro degrau casado pelo seletor e sua posição. O `global` implícito fica na
-    /// posição `path.len()`.
+    /// First step matched by the selector and its position. The implicit `global` sits at
+    /// position `path.len()`.
     pub fn locate(&self, selector: &TargetSelector) -> Option<(usize, &Anchor)> {
         self.anchors().find(|(_, anchor)| selector.matches(anchor))
     }
 
-    /// Degraus do caminho com a posição de cada um, terminando no `global` implícito.
+    /// Steps of the path with the position of each, ending in the implicit `global`.
     pub fn anchors(&self) -> impl Iterator<Item = (usize, &Anchor)> {
         let explicit_global = self.path.iter().any(Anchor::is_global);
         let tail = (!explicit_global).then_some(&*GLOBAL_ANCHOR);

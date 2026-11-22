@@ -3,16 +3,16 @@ use crate::decision::Request;
 use crate::engine::{Context, Engine};
 use crate::grant::Effect;
 
-/// Decide antes dos grants. Serve para dono do recurso, superadmin, conta suspensa.
+/// Decides before the grants. Meant for the resource owner, superadmin, suspended account.
 ///
-/// O motor consulta os overrides em ordem e para no primeiro que devolver `Some`. Exceções
-/// por permissão são configuradas no [`crate::EngineBuilder::override_except`].
+/// The engine consults the overrides in order and stops at the first one that returns `Some`.
+/// Per-permission exceptions are configured in [`crate::EngineBuilder::override_except`].
 pub trait Override: Send + Sync {
     fn name(&self) -> &str;
     fn evaluate(&self, engine: &Engine, ctx: &Context<'_>, request: &Request<'_>) -> Option<Effect>;
 }
 
-/// Libera tudo para o sujeito cujo id está no atributo `attr` do recurso.
+/// Allows everything for the subject whose id is in the resource's `attr` attribute.
 #[derive(Debug, Clone)]
 pub struct ResourceOwner {
     attr: String,
@@ -38,8 +38,8 @@ impl Override for ResourceOwner {
     }
 }
 
-/// Libera tudo para quem tem `key` sobre o recurso (um `org.manage`, por exemplo). A checagem
-/// de `key` roda sem overrides, então não há recursão.
+/// Allows everything for whoever has `key` on the resource (an `org.manage`, for example). The
+/// check for `key` runs without overrides, so there is no recursion.
 #[derive(Debug, Clone)]
 pub struct PermissionHolder {
     key: String,
@@ -75,7 +75,7 @@ impl Override for PermissionHolder {
     }
 }
 
-/// Override a partir de uma closure.
+/// Override built from a closure.
 pub struct FnOverride<F> {
     name: String,
     f: F,
