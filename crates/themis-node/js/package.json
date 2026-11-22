@@ -1,10 +1,10 @@
 {
-  "name": "@the-hades-organization/themis",
-  "version": "0.2.0",
+  "name": "themis-auth",
+  "version": "0.3.0",
   "description": "Themis authorization engine (RBAC, ABAC, ReBAC) for Node, Bun and the browser, with real-time permissions.",
   "license": "MIT",
   "type": "module",
-  "repository": "github:The-Hades-Organization/Themis",
+  "repository": { "type": "git", "url": "git+https://github.com/The-Hades-Organization/Themis.git", "directory": "crates/themis-node/js" },
   "files": ["*.js", "*.d.ts", "native/", "wasm/"],
   "exports": {
     ".": {

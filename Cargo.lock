@@ -6518,8 +6518,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "themis"
-version = "0.2.0"
+name = "themis-auth"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -6529,7 +6529,7 @@ dependencies = [
 
 [[package]]
 name = "themis-axum"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -6537,7 +6537,7 @@ dependencies = [
  "http-body-util",
  "serde",
  "serde_json",
- "themis",
+ "themis-auth",
  "themis-sync",
  "tokio",
  "tokio-tungstenite 0.28.0",
@@ -6546,20 +6546,20 @@ dependencies = [
 
 [[package]]
 name = "themis-inspect"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "gpui-component",
  "gpui-pre",
  "gpui-pre-platform",
  "serde",
  "serde_json",
- "themis",
+ "themis-auth",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "themis-node"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "js-sys",
  "napi",
@@ -6568,17 +6568,17 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
- "themis",
+ "themis-auth",
  "wasm-bindgen",
 ]
 
 [[package]]
 name = "themis-postgres"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "futures-util",
- "themis",
+ "themis-auth",
  "themis-sync",
  "tokio",
  "tokio-postgres",
@@ -6587,25 +6587,25 @@ dependencies = [
 
 [[package]]
 name = "themis-redis"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "futures-util",
  "redis",
- "themis",
+ "themis-auth",
  "themis-sync",
  "tokio",
 ]
 
 [[package]]
 name = "themis-sync"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "futures-util",
  "serde",
  "serde_json",
- "themis",
+ "themis-auth",
  "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
