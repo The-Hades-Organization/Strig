@@ -4,7 +4,7 @@ members = ["crates/themis", "crates/themis-sync", "crates/themis-redis", "crates
 default-members = ["crates/themis", "crates/themis-sync", "crates/themis-redis", "crates/themis-postgres", "crates/themis-axum", "crates/themis-node"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -13,8 +13,8 @@ homepage = "https://github.com/The-Hades-Organization/Themis"
 authors = ["Hadson Ramalho"]
 
 [workspace.dependencies]
-themis = { path = "crates/themis", version = "0.3.0", package = "themis-auth" }
-themis-sync = { path = "crates/themis-sync", version = "0.3.0" }
+themis = { path = "crates/themis", version = "0.3.1", package = "themis-auth" }
+themis-sync = { path = "crates/themis-sync", version = "0.3.1" }
 async-trait = "0.1"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"] }

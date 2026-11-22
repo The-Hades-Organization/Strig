@@ -132,11 +132,22 @@ jobs:
         with:
           name: wasm
           path: crates/themis-node/js/wasm
+      - name: Add the README
+        run: |
+          blob="https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}"
+          cdn="https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ github.ref_name }}"
+          sed -e "s#src=\"assets/#src=\"$cdn/assets/#g" \
+              -e "s#](LICENSE)#]($blob/LICENSE)#g" \
+              -e "s#](README.pt-BR.md)#]($blob/README.pt-BR.md)#g" \
+              -e "s#](CONTRIBUTING.md)#]($blob/CONTRIBUTING.md)#g" \
+              README.md > crates/themis-node/js/README.md
       - name: Check the package contents
         working-directory: crates/themis-node/js
         run: |
           ls -l native wasm
           test "$(ls native | wc -l)" -eq 5
+          test -s README.md
+          if grep -nE '\]\((LICENSE|README\.pt-BR\.md|CONTRIBUTING\.md)\)|src="assets/' README.md; then exit 1; fi
           npm pack --dry-run
       - name: Publish
         working-directory: crates/themis-node/js
