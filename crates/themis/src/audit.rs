@@ -24,7 +24,7 @@ use crate::governance::{Mutation, Violation};
 use crate::grant::{Effect, Grant, SubjectMatcher, TargetSelector};
 use crate::rebac::Tuple;
 use crate::resource::{Anchor, Resource};
-use crate::subject::Subject;
+use crate::subject::{RoleAssignment, Subject};
 
 /// Quanto de cada mudança se registra. Cada nível inclui tudo do anterior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -171,10 +171,24 @@ impl From<&Grant> for GrantSummary {
 /// Atribuição de papel registrada.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoleChange {
+    /// Id do sujeito, ou `<tipo>:<anonymous>` quando não tem id.
     pub subject: String,
     pub role: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<Anchor>,
+}
+
+impl RoleChange {
+    fn of(subject: &Subject, role: &RoleAssignment) -> Self {
+        Self {
+            subject: subject
+                .id
+                .clone()
+                .unwrap_or_else(|| format!("{}:<anonymous>", subject.kind)),
+            role: role.role.clone(),
+            scope: role.scope.clone(),
+        }
+    }
 }
 
 /// Um registro da trilha. Os campos opcionais aparecem conforme o nível.
@@ -186,7 +200,8 @@ pub struct AuditRecord {
     /// Id do ator, ou o tipo dele quando anônimo.
     pub actor: String,
     pub action: AuditAction,
-    /// Id do grant, `objeto#relação@sujeito` da tupla, ou `papel@sujeito`.
+    /// Id do grant, `objeto#relação@sujeito` da tupla, ou `papel@sujeito` na mudança de papel,
+    /// com o escopo depois do papel quando houver (`papel#escopo@sujeito`).
     pub object: String,
     pub outcome: AuditOutcome,
 
@@ -217,8 +232,12 @@ pub struct AuditRecord {
     #[serde(default, skip_serializing_if = "Attributes::is_empty")]
     pub meta: Attributes,
 
+    /// Digest do conjunto de grants antes da mudança. Em mudança de papel, o digest dos papéis
+    /// do sujeito.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub before_digest: Option<String>,
+    /// Digest do conjunto de grants depois da mudança (igual ao anterior na recusa). Em mudança
+    /// de papel, o digest dos papéis do sujeito.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after_digest: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -477,7 +496,8 @@ impl Auditor {
         }
     }
 
-    /// Registra uma mudança de grant decidida pela governança.
+    /// Registra uma mudança decidida pela governança. Mudança de papel sai como
+    /// `role_assign`/`role_revoke`, igual a [`Auditor::role_change`], com as violações.
     pub fn grant_mutation(
         &self,
         actor: &Subject,
@@ -486,6 +506,10 @@ impl Auditor {
         result: &Result<Vec<Grant>, Vec<Violation>>,
         meta: &Attributes,
     ) -> Result<AuditRecord, AuditError> {
+        let (outcome, violations) = match result {
+            Ok(_) => (AuditOutcome::Applied, &[][..]),
+            Err(violations) => (AuditOutcome::Rejected, violations.as_slice()),
+        };
         let (action, object, grant) = match mutation {
             Mutation::Add(grant) => (AuditAction::GrantAdd, grant.id.clone(), Some(grant)),
             Mutation::Remove { id } => (
@@ -493,23 +517,25 @@ impl Auditor {
                 id.clone(),
                 before.iter().find(|g| &g.id == id),
             ),
-        };
-        let outcome = match result {
-            Ok(_) => AuditOutcome::Applied,
-            Err(_) => AuditOutcome::Rejected,
+            Mutation::AssignRole { subject, role } | Mutation::RevokeRole { subject, role } => {
+                let assigned = matches!(mutation, Mutation::AssignRole { .. });
+                let change = RoleChange::of(subject, role);
+                let before = role_set_digest(&subject.roles);
+                let after = match result {
+                    Ok(_) => {
+                        let roles = mutation.subject_after().map(|s| s.roles);
+                        role_set_digest(&roles.unwrap_or_default())
+                    }
+                    Err(_) => before.clone(),
+                };
+                let digests = Some((before, after));
+                return self.role_record(actor, assigned, &change, outcome, violations, digests, meta);
+            }
         };
         let mut record = self.base(actor, action, object, outcome);
         if self.level >= AuditLevel::Standard {
             record.grant = grant.map(GrantSummary::from);
-            if let Err(violations) = result {
-                record.violations = violations
-                    .iter()
-                    .map(|v| match self.level {
-                        AuditLevel::Standard => v.invariant.clone(),
-                        _ => v.to_string(),
-                    })
-                    .collect();
-            }
+            record.violations = self.violation_texts(violations);
         }
         if self.level >= AuditLevel::Detailed {
             record.full_grant = grant.cloned();
@@ -556,17 +582,56 @@ impl Auditor {
         outcome: AuditOutcome,
         meta: &Attributes,
     ) -> Result<AuditRecord, AuditError> {
+        self.role_record(actor, assigned, change, outcome, &[], None, meta)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn role_record(
+        &self,
+        actor: &Subject,
+        assigned: bool,
+        change: &RoleChange,
+        outcome: AuditOutcome,
+        violations: &[Violation],
+        digests: Option<(String, String)>,
+        meta: &Attributes,
+    ) -> Result<AuditRecord, AuditError> {
         let action = if assigned {
             AuditAction::RoleAssign
         } else {
             AuditAction::RoleRevoke
         };
-        let mut record = self.base(actor, action, format!("{}@{}", change.role, change.subject), outcome);
+        let object = match &change.scope {
+            Some(scope) => format!("{}#{scope}@{}", change.role, change.subject),
+            None => format!("{}@{}", change.role, change.subject),
+        };
+        let mut record = self.base(actor, action, object, outcome);
         if self.level >= AuditLevel::Standard {
             record.role = Some(change.clone());
+            record.violations = self.violation_texts(violations);
         }
         self.detail(&mut record, actor, meta);
+        if self.level >= AuditLevel::Forensic
+            && let Some((before, after)) = digests
+        {
+            record.before_digest = Some(before);
+            record.after_digest = Some(after);
+        }
         self.emit(record)
+    }
+
+    /// Nomes dos invariantes em `standard`; nome e mensagem a partir de `detailed`.
+    fn violation_texts(&self, violations: &[Violation]) -> Vec<String> {
+        violations
+            .iter()
+            .map(|v| {
+                if self.level >= AuditLevel::Detailed {
+                    v.to_string()
+                } else {
+                    v.invariant.clone()
+                }
+            })
+            .collect()
     }
 
     fn emit(&self, mut record: AuditRecord) -> Result<AuditRecord, AuditError> {
@@ -592,6 +657,21 @@ pub fn grant_set_digest(grants: &[Grant]) -> String {
     let mut lines: Vec<String> = grants
         .iter()
         .map(|g| serde_json::to_string(g).unwrap_or_default())
+        .collect();
+    lines.sort();
+    let mut hasher = Sha256::new();
+    for line in lines {
+        hasher.update(line.as_bytes());
+        hasher.update(b"\n");
+    }
+    hex(&hasher.finalize())
+}
+
+/// Digest SHA-256 dos papéis de um sujeito, independente da ordem.
+fn role_set_digest(roles: &[RoleAssignment]) -> String {
+    let mut lines: Vec<String> = roles
+        .iter()
+        .map(|r| serde_json::to_string(r).unwrap_or_default())
         .collect();
     lines.sort();
     let mut hasher = Sha256::new();

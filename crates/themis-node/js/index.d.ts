@@ -7,7 +7,7 @@ export type AuditLevel = 'minimal' | 'standard' | 'detailed' | 'forensic';
 export interface Subject {
   kind: string;
   id?: string;
-  roles?: Array<{ role: string; scope?: { kind: string; id?: string } }>;
+  roles?: RoleAssignment[];
   principals?: string[];
   attrs?: Record<string, unknown>;
 }
@@ -65,10 +65,19 @@ export interface DecisionRequest {
   resource: Resource;
 }
 
+export interface RoleAssignment {
+  role: string;
+  scope?: { kind: string; id?: string };
+}
+
 export interface ApplyInput {
   actor: Subject;
   current: Grant[];
-  mutation: { add: Grant } | { remove: { id: string } };
+  mutation:
+    | { add: Grant }
+    | { remove: { id: string } }
+    | { assign_role: { subject: Subject; role: RoleAssignment } }
+    | { revoke_role: { subject: Subject; role: RoleAssignment } };
   invariants?: unknown[];
   tuples?: unknown[];
   audit?: { level: AuditLevel; prevHash?: string };
@@ -78,6 +87,8 @@ export interface ApplyInput {
 export interface ApplyResult {
   ok: boolean;
   grants?: Grant[];
+  /** Subject with the role applied, on an accepted role change. */
+  subject?: Subject;
   violations?: Array<{ invariant: string; message: string }>;
   audit?: Record<string, unknown> | null;
 }

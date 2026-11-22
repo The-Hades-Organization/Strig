@@ -13,9 +13,10 @@
 //! combinação por uma [`Strategy`]. A estratégia padrão ([`MostSpecific`]) faz o alvo mais
 //! específico decidir e, nele, `deny` vencer `allow`.
 //!
-//! Mudanças de grant passam por [`Governance`], que aplica invariantes (sem autogestão, sem
-//! deixar o escopo sem administrador, proibições) antes de a mudança ser persistida e, com a
-//! feature `audit`, registra cada decisão numa trilha de auditoria ([`audit`]).
+//! Mudanças de grant e de atribuição de papel passam por [`Governance`], que aplica invariantes
+//! (sem autogestão, sem deixar o escopo sem administrador, proibições) antes de a mudança ser
+//! persistida e, com a feature `audit`, registra cada decisão numa trilha de auditoria
+//! ([`audit`]).
 //!
 //! O crate não faz IO nem depende de runtime assíncrono, e compila para WebAssembly. Tempo
 //! real, cache e transportes ficam em `themis-sync` e nos adaptadores.

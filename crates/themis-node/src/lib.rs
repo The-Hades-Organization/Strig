@@ -193,8 +193,9 @@ impl EngineHandle {
         to_value(&self.engine.catalog().export())
     }
 
-    /// Aplica uma mudança de grant pelos invariantes. Devolve
-    /// `{ ok, grants?, violations?, audit? }`; `audit` é o registro a gravar quando a entrada
+    /// Aplica uma mudança de grant ou de papel pelos invariantes. Devolve
+    /// `{ ok, grants?, subject?, violations?, audit? }`; `subject` é o sujeito com o papel
+    /// aplicado, numa mudança de papel aceita, e `audit` é o registro a gravar quando a entrada
     /// pede auditoria.
     pub fn apply(&self, input: Value, now_ms: u64) -> BindingResult<Value> {
         let input: ApplyInput = parse("apply", input)?;
@@ -222,7 +223,13 @@ impl EngineHandle {
         );
         let audit = log.drain().pop().map(|r| to_value(&r));
         Ok(match result {
-            Ok(grants) => json!({ "ok": true, "grants": grants, "audit": audit }),
+            Ok(grants) => {
+                let mut out = json!({ "ok": true, "grants": grants, "audit": audit });
+                if let Some(subject) = input.mutation.subject_after() {
+                    out["subject"] = to_value(&subject);
+                }
+                out
+            }
             Err(violations) => json!({ "ok": false, "violations": violations, "audit": audit }),
         })
     }
@@ -284,6 +291,44 @@ mod tests {
         assert_eq!(out["grants"].as_array().unwrap().len(), 2);
         assert_eq!(out["audit"]["at"], 1_700_000_000_000u64);
         assert!(out["audit"]["hash"].is_string());
+    }
+
+    #[test]
+    fn role_assignment_returns_the_new_subject() {
+        let engine = EngineHandle::new(spec()).unwrap();
+        let current = json!([{"id": "g", "subject": {"kind": "role", "id": "member"}, "permission": "project.view",
+                              "target": {"kind": "project"}, "effect": "allow"}]);
+        let input = |mutation: Value| {
+            json!({
+                "actor": {"kind": "user", "id": "admin"},
+                "current": current,
+                "mutation": mutation,
+                "invariants": [{"kind": "catalog_conformance"}, {"kind": "no_self_management"}],
+                "audit": {"level": "standard"}
+            })
+        };
+        let out = engine
+            .apply(
+                input(json!({"assign_role": {"subject": {"kind": "user", "id": "bob"}, "role": {"role": "member"}}})),
+                1,
+            )
+            .unwrap();
+        assert_eq!(out["ok"], true);
+        assert_eq!(out["subject"]["roles"], json!([{"role": "member"}]));
+        assert_eq!(out["grants"].as_array().unwrap().len(), 1);
+        assert_eq!(out["audit"]["action"], "role_assign");
+        assert_eq!(out["audit"]["role"]["subject"], "bob");
+
+        let out = engine
+            .apply(
+                input(json!({"revoke_role": {"subject": {"kind": "user", "id": "admin"}, "role": {"role": "member"}}})),
+                1,
+            )
+            .unwrap();
+        assert_eq!(out["ok"], false);
+        assert!(out.get("subject").is_none());
+        assert_eq!(out["audit"]["action"], "role_revoke");
+        assert_eq!(out["audit"]["violations"], json!(["mutation"]));
     }
 
     #[test]
