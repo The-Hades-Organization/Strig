@@ -14,13 +14,13 @@ Biblioteca de autorização em Rust. Um catálogo de permissões validado e um m
 
 O núcleo não faz IO, não depende de runtime assíncrono e compila para WebAssembly. Tempo real, transportes e bindings ficam em crates separados, cada um opcional.
 
-> **Estado:** antes da 1.0. A API ainda pode mudar entre versões menores. Os crates e o pacote npm ainda não foram publicados; use a dependência pelo git.
+> **Estado:** antes da 1.0. A API ainda pode mudar entre versões menores. As versões saem como `themis-auth` no crates.io e no npm. A biblioteca mantém o nome `themis`: `use themis::...`.
 
 ## Crates
 
 | Crate | Para que serve | Dependências relevantes |
 |---|---|---|
-| `themis` | Catálogo, motor de decisão, governança, auditoria (feature `audit`, ligada por padrão), spec em JSON | `serde`, `thiserror`; `sha2` e `serde_json` com `audit` |
+| `themis-auth` | Catálogo, motor de decisão, governança, auditoria (feature `audit`, ligada por padrão), spec em JSON | `serde`, `thiserror`; `sha2` e `serde_json` com `audit` |
 | `themis-sync` | Hub de mudanças, trait `Transport`, sessões SSE/WebSocket independentes de framework, cache de capacidades | `tokio` |
 | `themis-redis` | `Transport` sobre Redis pub/sub | `redis` |
 | `themis-postgres` | `Transport` sobre Postgres `LISTEN/NOTIFY`, com aviso dentro da transação | `tokio-postgres` |
@@ -28,12 +28,12 @@ O núcleo não faz IO, não depende de runtime assíncrono e compila para WebAss
 | `themis-inspect` | Visualizador: rastro de cada decisão, simulação de grants, matriz de acesso e leitura da auditoria. Janela gpui opcional (feature `gui`) e comandos de terminal | `gpui-pre`, `gpui-component` |
 | `themis-node` | Bindings JS: módulo nativo (N-API) para Node e Bun, WebAssembly para navegador, cliente e servidor de tempo real em JS | `napi` ou `wasm-bindgen` |
 
-Dependência de outro crate pelo git:
+Dependência a partir de outro crate:
 
 ```toml
 [dependencies]
-themis = { git = "https://github.com/The-Hades-Organization/Themis" }
-themis-sync = { git = "https://github.com/The-Hades-Organization/Themis" }
+themis = { package = "themis-auth", version = "0.3" }
+themis-sync = "0.3"
 ```
 
 ## Conceitos
@@ -207,10 +207,10 @@ Protocolo com o cliente (JSON, igual em SSE e WebSocket): o servidor manda `hell
 
 ## JavaScript: Node, Bun e navegador
 
-O pacote fica em `crates/themis-node/js`. `scripts/build.sh` gera o módulo nativo (`js/native/themis.<plataforma>-<arch>.node`) e o WebAssembly (`js/wasm/`).
+Instale com `npm install themis-auth`. O pacote fica em `crates/themis-node/js`. `scripts/build.sh` gera o módulo nativo (`js/native/themis.<plataforma>-<arch>.node`) e o WebAssembly (`js/wasm/`).
 
 ```js
-import { load } from '@the-hades-organization/themis';
+import { load } from 'themis-auth';
 const { Engine, Context } = await load(); // nativo em Node/Bun, wasm no navegador
 
 const engine = new Engine(spec); // a mesma EngineSpec do servidor
@@ -224,7 +224,7 @@ Em Node e Bun, `load()` tenta o módulo nativo e cai para o wasm. `THEMIS_BACKEN
 **Frontend.** `PermissionClient` (`/client`) conecta por SSE ou WebSocket, guarda as capacidades de cada escopo e decide localmente com o mesmo motor. A decisão no cliente serve para a interface; o servidor continua decidindo em toda operação.
 
 ```js
-import { PermissionClient } from '@the-hades-organization/themis/client';
+import { PermissionClient } from 'themis-auth/client';
 const client = new PermissionClient({ url: '/permissions/events', scopes, themis, engine }).connect();
 client.on('capabilities', () => render());
 client.can('document.edit', resource);
