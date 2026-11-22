@@ -7,6 +7,9 @@
 [![CI](https://github.com/The-Hades-Organization/Themis/actions/workflows/ci.yml/badge.svg)](https://github.com/The-Hades-Organization/Themis/actions/workflows/ci.yml)
 [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-blue.svg)](LICENSE)
 ![Rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-orange.svg)
+[![crates.io](https://img.shields.io/crates/v/themis-auth.svg)](https://crates.io/crates/themis-auth)
+[![docs.rs](https://img.shields.io/docsrs/themis-auth)](https://docs.rs/themis-auth)
+[![npm](https://img.shields.io/npm/v/themis-auth.svg)](https://www.npmjs.com/package/themis-auth)
 
 [English](README.md) · **Português (Brasil)**
 
@@ -14,7 +17,7 @@ Biblioteca de autorização em Rust. Um catálogo de permissões validado e um m
 
 O núcleo não faz IO, não depende de runtime assíncrono e compila para WebAssembly. Tempo real, transportes e bindings ficam em crates separados, cada um opcional.
 
-> **Estado:** antes da 1.0. A API ainda pode mudar entre versões menores. As versões saem como `themis-auth` no crates.io e no npm. A biblioteca mantém o nome `themis`: `use themis::...`.
+> **Estado:** antes da 1.0. A API ainda pode mudar entre versões menores. As versões saem como `themis-auth` no [crates.io](https://crates.io/crates/themis-auth) (documentação da API no [docs.rs](https://docs.rs/themis-auth)) e no [npm](https://www.npmjs.com/package/themis-auth). A biblioteca mantém o nome `themis`: `use themis::...`.
 
 ## Crates
 
