@@ -43,6 +43,11 @@ impl RoleGraph {
         RoleGraphBuilder::default()
     }
 
+    /// `role` aparece no grafo, como herdeiro ou como herdado.
+    pub fn contains(&self, role: &str) -> bool {
+        self.inherits.contains_key(role)
+    }
+
     /// Papéis diretos mais todos os herdados.
     pub fn expand<'a>(&self, roles: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> {
         let mut out = BTreeSet::new();
@@ -72,6 +77,7 @@ mod tests {
             ["admin", "editor", "viewer"]
         );
         assert_eq!(g.expand(["guest"]).into_iter().collect::<Vec<_>>(), ["guest"]);
+        assert!(g.contains("admin") && g.contains("viewer") && !g.contains("guest"));
     }
 
     #[test]
