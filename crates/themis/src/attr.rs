@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-/// Valor de atributo usado pelas condições ABAC.
+/// Attribute value used by ABAC conditions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Value {
@@ -15,12 +15,12 @@ pub enum Value {
     List(Vec<Value>),
 }
 
-/// Atributos nomeados de um sujeito, recurso ou ambiente.
+/// Named attributes of a subject, resource or environment.
 pub type Attributes = BTreeMap<String, Value>;
 
 impl Value {
-    /// Ordem entre valores comparáveis. Inteiro e real se comparam entre si; tipos diferentes
-    /// não têm ordem.
+    /// Ordering between comparable values. Integers and floats compare with each other; other mixed
+    /// types have no ordering.
     pub fn compare(&self, other: &Value) -> Option<Ordering> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Some(a.cmp(b)),
@@ -33,7 +33,7 @@ impl Value {
         }
     }
 
-    /// Igualdade que trata `Int(1)` e `Float(1.0)` como iguais.
+    /// Equality that treats `Int(1)` and `Float(1.0)` as equal.
     pub fn loosely_eq(&self, other: &Value) -> bool {
         match self.compare(other) {
             Some(ordering) => ordering == Ordering::Equal,

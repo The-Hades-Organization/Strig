@@ -1,12 +1,12 @@
-//! Trilha de auditoria das mudanças de permissão (feature `audit`).
+//! Audit trail of permission changes (feature `audit`).
 //!
-//! Cada mudança de grant, tupla ReBAC ou atribuição de papel vira um [`AuditRecord`], aceito
-//! ou recusado. O [`AuditLevel`] decide quanto de cada registro se guarda, e com isso o
-//! custo de armazenamento ([`AuditLevel::estimate_bytes`]). O destino é um [`AuditSink`]:
-//! memória, arquivo JSON Lines ou uma implementação própria (tabela, fila, SIEM).
+//! Every grant change, ReBAC tuple change or role assignment becomes an [`AuditRecord`], accepted
+//! or refused. The [`AuditLevel`] decides how much of each record is kept, and therefore the
+//! storage cost ([`AuditLevel::estimate_bytes`]). The destination is an [`AuditSink`]:
+//! memory, a JSON Lines file or your own implementation (table, queue, SIEM).
 //!
-//! No nível [`AuditLevel::Forensic`] os registros formam uma cadeia de hashes SHA-256: cada
-//! um carrega o hash do anterior, então apagar ou editar um registro quebra a verificação
+//! At the [`AuditLevel::Forensic`] level the records form a SHA-256 hash chain: each one carries
+//! the hash of the previous one, so deleting or editing a record breaks verification
 //! ([`verify_chain`]).
 
 use std::fmt;
@@ -26,19 +26,19 @@ use crate::rebac::Tuple;
 use crate::resource::{Anchor, Resource};
 use crate::subject::{RoleAssignment, Subject};
 
-/// Quanto de cada mudança se registra. Cada nível inclui tudo do anterior.
+/// How much of each change is recorded. Each level includes everything from the previous one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuditLevel {
-    /// Quem, quando, o quê (id do objeto) e se foi aplicado.
+    /// Who, when, what (object id) and whether it was applied.
     Minimal,
-    /// Mais o resumo da mudança (permissão, sujeito, alvo, efeito, escopo) e os nomes dos
-    /// invariantes que recusaram.
+    /// Plus a summary of the change (permission, subject, target, effect, scope) and the names of the
+    /// invariants that refused it.
     Standard,
-    /// Mais o objeto inteiro (grant com condição, tupla), o ator completo, as mensagens das
-    /// violações e os metadados da aplicação (ip, request id, motivo).
+    /// Plus the whole object (grant with condition, tuple), the full actor, the violation messages
+    /// and the application metadata (ip, request id, reason).
     Detailed,
-    /// Mais o digest do conjunto de grants antes e depois e a cadeia de hashes.
+    /// Plus the digest of the grant set before and after, and the hash chain.
     Forensic,
 }
 
@@ -50,10 +50,10 @@ impl AuditLevel {
         AuditLevel::Forensic,
     ];
 
-    /// Tamanho típico de um registro em JSON compacto, em bytes, medido sobre o registro de
-    /// referência de [`reference_record`] (grant com escopo e condição de duas cláusulas, ator
-    /// com dois papéis e três metadados). O teste `estimates_match_reference_records` mantém
-    /// estes números honestos.
+    /// Typical size of a record in compact JSON, in bytes, measured on the reference record of
+    /// [`reference_record`] (grant with a scope and a two-clause condition, actor with two roles and
+    /// three metadata entries). The test `estimates_match_reference_records` keeps these numbers
+    /// honest.
     pub const fn typical_record_bytes(self) -> u64 {
         match self {
             AuditLevel::Minimal => 174,
@@ -63,8 +63,8 @@ impl AuditLevel {
         }
     }
 
-    /// Como [`AuditLevel::typical_record_bytes`], para registros de decisão, medido sobre
-    /// [`reference_decision_record`] (três grants na fonte, um com condição).
+    /// Like [`AuditLevel::typical_record_bytes`], for decision records, measured on
+    /// [`reference_decision_record`] (three grants in the source, one with a condition).
     pub const fn typical_decision_bytes(self) -> u64 {
         match self {
             AuditLevel::Minimal => 284,
@@ -78,9 +78,9 @@ impl AuditLevel {
         (self.typical_decision_bytes() + 1) * records
     }
 
-    /// Estimativa de armazenamento para `records` registros em JSON Lines, sem compressão e sem
-    /// índice. Num banco, some o overhead por linha (no Postgres, uns 28 bytes entre cabeçalho de
-    /// tupla e ponteiro de item, mais os índices que você criar).
+    /// Storage estimate for `records` records in JSON Lines, with no compression and no index. In a
+    /// database, add the per-row overhead (in Postgres, about 28 bytes between the tuple header and the
+    /// item pointer, plus whatever indexes you create).
     pub const fn estimate_bytes(self, records: u64) -> u64 {
         (self.typical_record_bytes() + 1) * records
     }
@@ -106,7 +106,7 @@ pub enum AuditAction {
     TupleRemove,
     RoleAssign,
     RoleRevoke,
-    /// Uma decisão de acesso (`Engine::decide`), não uma mudança.
+    /// An access decision (`Engine::decide`), not a change.
     Decision,
 }
 
@@ -119,16 +119,16 @@ pub enum AuditOutcome {
     Denied,
 }
 
-/// Resumo de uma decisão, guardado a partir de [`AuditLevel::Standard`].
+/// Summary of a decision, kept from [`AuditLevel::Standard`] upward.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DecisionSummary {
     pub permission: String,
-    /// Caminho do recurso em texto (`document:d1/project:p1`).
+    /// Resource path as text (`document:d1/project:p1`).
     pub resource: String,
     pub reason: Reason,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub matched: Vec<String>,
-    /// A partir de `detailed`.
+    /// From `detailed` upward.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
 }
@@ -142,7 +142,7 @@ fn path_text(resource: &Resource) -> String {
         .join("/")
 }
 
-/// Resumo de um grant, guardado a partir de [`AuditLevel::Standard`].
+/// Summary of a grant, kept from [`AuditLevel::Standard`] upward.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GrantSummary {
     pub permission: String,
@@ -168,10 +168,10 @@ impl From<&Grant> for GrantSummary {
     }
 }
 
-/// Atribuição de papel registrada.
+/// Recorded role assignment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoleChange {
-    /// Id do sujeito, ou `<tipo>:<anonymous>` quando não tem id.
+    /// Subject id, or `<kind>:<anonymous>` when it has no id.
     pub subject: String,
     pub role: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -191,17 +191,17 @@ impl RoleChange {
     }
 }
 
-/// Um registro da trilha. Os campos opcionais aparecem conforme o nível.
+/// One record of the trail. The optional fields appear depending on the level.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AuditRecord {
-    /// Milissegundos desde a época Unix.
+    /// Milliseconds since the Unix epoch.
     pub at: u64,
     pub level: AuditLevel,
-    /// Id do ator, ou o tipo dele quando anônimo.
+    /// Actor id, or its kind when anonymous.
     pub actor: String,
     pub action: AuditAction,
-    /// Id do grant, `objeto#relação@sujeito` da tupla, ou `papel@sujeito` na mudança de papel,
-    /// com o escopo depois do papel quando houver (`papel#escopo@sujeito`).
+    /// Grant id, the tuple's `object#relation@subject`, or `role@subject` for a role change,
+    /// with the scope after the role when there is one (`role#scope@subject`).
     pub object: String,
     pub outcome: AuditOutcome,
 
@@ -209,7 +209,7 @@ pub struct AuditRecord {
     pub grant: Option<GrantSummary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<RoleChange>,
-    /// Nomes dos invariantes (standard) ou `nome: mensagem` (detailed em diante).
+    /// Names of the invariants (standard) or `name: message` (detailed and above).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub violations: Vec<String>,
 
@@ -218,11 +218,11 @@ pub struct AuditRecord {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub full_grant: Option<Grant>,
-    /// Recurso completo de uma decisão, a partir de `detailed`. Com `actor_detail`, basta para
-    /// reavaliar a decisão contra outra política.
+    /// Full resource of a decision, from `detailed` upward. With `actor_detail`, it is enough to
+    /// re-evaluate the decision against another policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resource: Option<Resource>,
-    /// Rastro completo da decisão, em `forensic`.
+    /// Full trace of the decision, at `forensic`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub explanation: Option<Box<Explanation>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -232,12 +232,12 @@ pub struct AuditRecord {
     #[serde(default, skip_serializing_if = "Attributes::is_empty")]
     pub meta: Attributes,
 
-    /// Digest do conjunto de grants antes da mudança. Em mudança de papel, o digest dos papéis
-    /// do sujeito.
+    /// Digest of the grant set before the change. For a role change, the digest of the subject's
+    /// roles.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub before_digest: Option<String>,
-    /// Digest do conjunto de grants depois da mudança (igual ao anterior na recusa). Em mudança
-    /// de papel, o digest dos papéis do sujeito.
+    /// Digest of the grant set after the change (equal to the previous one on a refusal). For a role
+    /// change, the digest of the subject's roles.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after_digest: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -256,8 +256,8 @@ pub enum AuditError {
     Json(#[from] serde_json::Error),
 }
 
-/// Destino dos registros. Uma implementação que não consegue gravar devolve erro, e a
-/// governança recusa a mudança: sem registro, sem mudança.
+/// Destination of the records. An implementation that cannot write returns an error, and
+/// governance refuses the change: no record, no change.
 pub trait AuditSink: Send + Sync {
     fn write(&self, record: &AuditRecord) -> Result<(), AuditError>;
 }
@@ -272,7 +272,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Registros em memória, para testes e para quem drena a trilha por conta própria.
+/// In-memory records, for tests and for callers who drain the trail themselves.
 #[derive(Debug, Default)]
 pub struct MemoryAuditLog {
     records: Mutex<Vec<AuditRecord>>,
@@ -299,7 +299,7 @@ impl AuditSink for MemoryAuditLog {
     }
 }
 
-/// Um registro JSON por linha num `Write` (arquivo, socket, stdout).
+/// One JSON record per line on a `Write` (file, socket, stdout).
 pub struct JsonLinesAudit<W> {
     out: Mutex<W>,
 }
@@ -335,13 +335,13 @@ fn system_clock() -> u64 {
         .unwrap_or(0)
 }
 
-/// Em `wasm32-unknown-unknown` não há relógio do sistema; use [`Auditor::with_clock`].
+/// `wasm32-unknown-unknown` has no system clock; use [`Auditor::with_clock`].
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 fn system_clock() -> u64 {
     0
 }
 
-/// Monta os registros no nível configurado e entrega ao sink.
+/// Builds the records at the configured level and hands them to the sink.
 pub struct Auditor {
     level: AuditLevel,
     sink: Arc<dyn AuditSink>,
@@ -372,7 +372,7 @@ impl Auditor {
         self
     }
 
-    /// Retoma uma cadeia forense a partir do hash do último registro já gravado.
+    /// Resumes a forensic chain from the hash of the last record already written.
     pub fn resume_chain(self, last_hash: impl Into<String>) -> Self {
         *lock(&self.last_hash) = Some(last_hash.into());
         self
@@ -407,9 +407,9 @@ impl Auditor {
         }
     }
 
-    /// Decide e registra. No nível `forensic` usa [`Engine::explain`] e guarda o rastro; nos
-    /// outros, [`Engine::decide`]. A decisão volta mesmo se o registro falhar: quem chama
-    /// escolhe se nega o acesso nesse caso.
+    /// Decides and records. At the `forensic` level it uses [`Engine::explain`] and keeps the trace; at
+    /// the other levels, [`Engine::decide`]. The decision is returned even if the record fails: the
+    /// caller chooses whether to deny access in that case.
     pub fn decide(
         &self,
         engine: &Engine,
@@ -428,7 +428,7 @@ impl Auditor {
         }
     }
 
-    /// Registra uma decisão já tomada. Em `forensic`, prefira [`Auditor::explained`].
+    /// Records a decision that was already made. At `forensic`, prefer [`Auditor::explained`].
     pub fn decision(
         &self,
         request: &Request<'_>,
@@ -438,7 +438,7 @@ impl Auditor {
         self.emit(self.decision_record(request.subject, request.permission, request.resource, decision, meta))
     }
 
-    /// Registra uma decisão com o rastro completo.
+    /// Records a decision with the full trace.
     pub fn explained(&self, explanation: &Explanation, meta: &Attributes) -> Result<AuditRecord, AuditError> {
         let mut record = self.decision_record(
             &explanation.subject,
@@ -496,8 +496,8 @@ impl Auditor {
         }
     }
 
-    /// Registra uma mudança decidida pela governança. Mudança de papel sai como
-    /// `role_assign`/`role_revoke`, igual a [`Auditor::role_change`], com as violações.
+    /// Records a change decided by governance. A role change is emitted as
+    /// `role_assign`/`role_revoke`, like [`Auditor::role_change`], with the violations.
     pub fn grant_mutation(
         &self,
         actor: &Subject,
@@ -551,7 +551,7 @@ impl Auditor {
         self.emit(record)
     }
 
-    /// Registra a gravação ou remoção de uma tupla ReBAC.
+    /// Records the writing or removal of a ReBAC tuple.
     pub fn tuple_change(
         &self,
         actor: &Subject,
@@ -573,7 +573,7 @@ impl Auditor {
         self.emit(record)
     }
 
-    /// Registra a atribuição ou revogação de um papel.
+    /// Records the assignment or revocation of a role.
     pub fn role_change(
         &self,
         actor: &Subject,
@@ -620,7 +620,7 @@ impl Auditor {
         self.emit(record)
     }
 
-    /// Nomes dos invariantes em `standard`; nome e mensagem a partir de `detailed`.
+    /// Names of the invariants at `standard`; name and message from `detailed` upward.
     fn violation_texts(&self, violations: &[Violation]) -> Vec<String> {
         violations
             .iter()
@@ -652,7 +652,7 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Digest SHA-256 de um conjunto de grants, independente da ordem.
+/// SHA-256 digest of a grant set, independent of order.
 pub fn grant_set_digest(grants: &[Grant]) -> String {
     let mut lines: Vec<String> = grants
         .iter()
@@ -667,7 +667,7 @@ pub fn grant_set_digest(grants: &[Grant]) -> String {
     hex(&hasher.finalize())
 }
 
-/// Digest SHA-256 dos papéis de um sujeito, independente da ordem.
+/// SHA-256 digest of a subject's roles, independent of order.
 fn role_set_digest(roles: &[RoleAssignment]) -> String {
     let mut lines: Vec<String> = roles
         .iter()
@@ -682,7 +682,7 @@ fn role_set_digest(roles: &[RoleAssignment]) -> String {
     hex(&hasher.finalize())
 }
 
-/// Hash de um registro: SHA-256 do JSON com `hash` vazio e `prev_hash` preenchido.
+/// Hash of a record: SHA-256 of the JSON with `hash` empty and `prev_hash` filled in.
 pub fn record_hash(record: &AuditRecord) -> Result<String, AuditError> {
     let mut unsigned = record.clone();
     unsigned.hash = None;
@@ -699,7 +699,7 @@ pub enum ChainError {
     Unchained { index: usize },
 }
 
-/// Confere uma sequência de registros forenses, na ordem em que foram gravados.
+/// Checks a sequence of forensic records, in the order they were written.
 pub fn verify_chain(records: &[AuditRecord]) -> Result<(), ChainError> {
     let mut previous: Option<&str> = None;
     for (index, record) in records.iter().enumerate() {
@@ -717,9 +717,9 @@ pub fn verify_chain(records: &[AuditRecord]) -> Result<(), ChainError> {
     Ok(())
 }
 
-/// O registro de referência usado nas estimativas de armazenamento: a mudança de grant mais
-/// comum (papel com escopo e condição curta), feita por um ator com dois papéis e três
-/// metadados de requisição.
+/// The reference record used in the storage estimates: the most common grant change (role with a
+/// scope and a short condition), made by an actor with two roles and three request metadata
+/// entries.
 pub fn reference_record(level: AuditLevel) -> AuditRecord {
     use crate::condition::{Condition, Operand};
 
@@ -752,9 +752,9 @@ pub fn reference_record(level: AuditLevel) -> AuditRecord {
         .expect("registro de referência")
 }
 
-/// O registro de decisão de referência: sujeito com dois papéis, recurso com três degraus, três
-/// grants na fonte (um com condição de duas cláusulas, um de outra permissão, um fora do
-/// escopo) e três metadados.
+/// The reference decision record: a subject with two roles, a resource with three steps, three
+/// grants in the source (one with a two-clause condition, one for another permission, one out of
+/// scope) and three metadata entries.
 pub fn reference_decision_record(level: AuditLevel) -> AuditRecord {
     use crate::catalog::{Catalog, PermissionDef};
     use crate::condition::{Condition, Operand};

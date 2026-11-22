@@ -18,24 +18,24 @@ pub enum TransportError {
 
 pub type ChangeStream = Pin<Box<dyn Stream<Item = Result<Change, TransportError>> + Send>>;
 
-/// Leva as mudanças entre instâncias da aplicação. Redis pub/sub, Postgres `LISTEN/NOTIFY`,
-/// NATS, Kafka ou um broker próprio entram implementando este trait.
+/// Carries changes between instances of the application. Redis pub/sub, Postgres `LISTEN/NOTIFY`,
+/// NATS, Kafka or a broker of your own plug in by implementing this trait.
 ///
-/// A entrega é "no máximo uma vez": o hub cobre perdas emitindo [`crate::ChangeKind::Resync`]
-/// quando o stream cai e volta.
+/// Delivery is "at most once": the hub covers losses by emitting [`crate::ChangeKind::Resync`]
+/// when the stream drops and comes back.
 #[async_trait]
 pub trait Transport: Send + Sync + 'static {
     fn name(&self) -> &str;
 
     async fn publish(&self, change: &Change) -> Result<(), TransportError>;
 
-    /// Abre um stream com as mudanças publicadas por qualquer instância, inclusive esta.
-    /// Termina, ou devolve erro, quando a conexão cai; o hub reabre.
+    /// Opens a stream with the changes published by any instance, including this one.
+    /// Ends, or returns an error, when the connection drops; the hub reopens it.
     async fn subscribe(&self) -> Result<ChangeStream, TransportError>;
 }
 
-/// Transporte em memória: clones compartilham o mesmo canal. Serve para testes e para
-/// rodar vários hubs no mesmo processo.
+/// In-memory transport: clones share the same channel. Useful for tests and for
+/// running several hubs in the same process.
 #[derive(Clone)]
 pub struct MemoryTransport {
     bus: broadcast::Sender<Change>,

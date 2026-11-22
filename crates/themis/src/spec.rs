@@ -1,9 +1,9 @@
-//! Configuração declarativa do motor e da governança, em JSON, TOML ou YAML.
+//! Declarative configuration of the engine and of governance, in JSON, TOML or YAML.
 //!
-//! Serve para carregar a política de um arquivo e para os bindings (`themis-node`), que não
-//! têm como passar closures Rust. Tudo que a spec monta pode ser estendido depois em código:
-//! [`EngineSpec::builder`] devolve o [`EngineBuilder`] para acrescentar funções de condição,
-//! overrides próprios ou outra estratégia.
+//! Use it to load the policy from a file and for the bindings (`themis-node`), which cannot
+//! pass Rust closures. Everything the spec builds can be extended later in code:
+//! [`EngineSpec::builder`] returns the [`EngineBuilder`] to add condition functions,
+//! custom overrides or another strategy.
 
 use serde::{Deserialize, Serialize};
 
@@ -34,8 +34,8 @@ pub struct EngineSpec {
     pub catalog: CatalogExport,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<RoleSpec>,
-    /// `None` desliga o ReBAC; `Some(vec![])` liga com toda relação valendo só as próprias
-    /// tuplas.
+    /// `None` turns ReBAC off; `Some(vec![])` turns it on with every relation holding only its own
+    /// tuples.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relations: Option<Vec<RelationSpec>>,
     #[serde(default)]
@@ -74,9 +74,9 @@ pub enum StrategySpec {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OverrideRule {
-    /// [`ResourceOwner`]: o id do sujeito está no atributo `attr` do recurso.
+    /// [`ResourceOwner`]: the subject's id is in the resource's `attr` attribute.
     ResourceOwner { attr: String },
-    /// [`PermissionHolder`]: o sujeito tem `permission` sobre o recurso.
+    /// [`PermissionHolder`]: the subject has `permission` on the resource.
     PermissionHolder { permission: String },
 }
 
@@ -84,7 +84,7 @@ pub enum OverrideRule {
 pub struct OverrideSpec {
     #[serde(flatten)]
     pub rule: OverrideRule,
-    /// Permissões (e as que elas concedem) fora do alcance deste override.
+    /// Permissions (and the ones they grant) outside the reach of this override.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub except: Vec<String>,
 }
@@ -131,7 +131,7 @@ impl EngineSpec {
     }
 }
 
-/// Invariantes de governança prontos, em forma declarativa.
+/// Ready-made governance invariants, in declarative form.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum InvariantSpec {

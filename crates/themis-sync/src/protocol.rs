@@ -1,8 +1,8 @@
-//! Mensagens trocadas com o cliente por SSE ou WebSocket, em JSON.
+//! Messages exchanged with the client over SSE or WebSocket, in JSON.
 //!
-//! Servidor → cliente ([`ServerMessage`]): `hello`, `capabilities`, `change`, `resync`,
-//! `error`, `ping`. Cliente → servidor ([`ClientMessage`], só WebSocket): `watch`, `unwatch`,
-//! `refresh`. No SSE o tipo vai também no campo `event:`.
+//! Server → client ([`ServerMessage`]): `hello`, `capabilities`, `change`, `resync`,
+//! `error`, `ping`. Client → server ([`ClientMessage`], WebSocket only): `watch`, `unwatch`,
+//! `refresh`. Over SSE the type is also sent in the `event:` field.
 
 use serde::{Deserialize, Serialize};
 use themis::{CapabilitySet, Resource};
@@ -17,16 +17,16 @@ pub enum ServerMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         subject: Option<String>,
     },
-    /// Grants atuais do sujeito para um escopo observado. Substitui o conjunto anterior.
+    /// Current grants of the subject for a watched scope. Replaces the previous set.
     Capabilities {
         scope: Resource,
         set: CapabilitySet,
     },
-    /// Uma mudança que afeta um escopo observado.
+    /// A change that affects a watched scope.
     Change {
         change: Change,
     },
-    /// O cliente perdeu mudanças: descarte o que tem e espere novos `capabilities`.
+    /// The client lost changes: discard what it has and wait for new `capabilities`.
     Resync,
     Error {
         message: String,
@@ -50,8 +50,8 @@ impl ServerMessage {
         serde_json::to_string(self).expect("ServerMessage sempre serializa")
     }
 
-    /// Quadro SSE completo (`event:`, `data:` e linha em branco), pronto para escrever no
-    /// corpo da resposta `text/event-stream`.
+    /// Complete SSE frame (`event:`, `data:` and a blank line), ready to write to the
+    /// body of the `text/event-stream` response.
     pub fn to_sse(&self) -> String {
         format!("event: {}\ndata: {}\n\n", self.event_name(), self.to_json())
     }
@@ -60,14 +60,14 @@ impl ServerMessage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    /// Passa a observar estes escopos e recebe as capacidades de cada um.
+    /// Starts watching these scopes and receives the capabilities of each.
     Watch {
         scopes: Vec<Resource>,
     },
     Unwatch {
         scopes: Vec<Resource>,
     },
-    /// Pede de novo as capacidades de todos os escopos observados.
+    /// Asks again for the capabilities of all the watched scopes.
     Refresh,
 }
 
@@ -77,8 +77,8 @@ impl ClientMessage {
     }
 }
 
-/// Escopo em forma de texto, para query string e URL de SSE: degraus do mais específico ao
-/// mais amplo separados por `/`, cada um `tipo:id` ou só `tipo`
+/// Scope as text, for query strings and SSE URLs: steps from the most specific to the
+/// broadest, separated by `/`, each one `kind:id` or just `kind`
 /// (`document:d1/project:p1/org:o1`).
 pub fn scope_to_string(scope: &Resource) -> String {
     scope.path.iter().map(ToString::to_string).collect::<Vec<_>>().join("/")

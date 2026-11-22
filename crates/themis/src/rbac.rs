@@ -8,7 +8,7 @@ pub enum RbacError {
     Cycle(Vec<String>),
 }
 
-/// Herança entre papéis: quem tem `admin` também tem tudo que `editor` tem.
+/// Inheritance between roles: whoever has `admin` also has everything `editor` has.
 #[derive(Debug, Clone, Default)]
 pub struct RoleGraph {
     inherits: BTreeMap<String, Vec<String>>,
@@ -20,7 +20,7 @@ pub struct RoleGraphBuilder {
 }
 
 impl RoleGraphBuilder {
-    /// `role` herda os grants de `parent`.
+    /// `role` inherits the grants of `parent`.
     pub fn inherit(mut self, role: impl Into<String>, parent: impl Into<String>) -> Self {
         let parent = parent.into();
         self.inherits.entry(parent.clone()).or_default();
@@ -43,12 +43,12 @@ impl RoleGraph {
         RoleGraphBuilder::default()
     }
 
-    /// `role` aparece no grafo, como herdeiro ou como herdado.
+    /// `role` appears in the graph, as heir or as inherited.
     pub fn contains(&self, role: &str) -> bool {
         self.inherits.contains_key(role)
     }
 
-    /// Papéis diretos mais todos os herdados.
+    /// Direct roles plus all the inherited ones.
     pub fn expand<'a>(&self, roles: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> {
         let mut out = BTreeSet::new();
         for role in roles {

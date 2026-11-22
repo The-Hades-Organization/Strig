@@ -7,13 +7,13 @@ use crate::cache::CapabilityCache;
 
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
-/// Calcula as capacidades que uma sessão envia ao cliente.
+/// Computes the capabilities a session sends to the client.
 #[async_trait]
 pub trait CapabilityProvider: Send + Sync + 'static {
     async fn capabilities(&self, subject: &Subject, scope: &Resource) -> Result<CapabilitySet, BoxError>;
 }
 
-/// Busca os grants candidatos de um sujeito num escopo (banco, serviço, arquivo).
+/// Fetches the candidate grants of a subject in a scope (database, service, file).
 #[async_trait]
 pub trait GrantLoader: Send + Sync + 'static {
     async fn load(&self, subject: &Subject, scope: &Resource) -> Result<Vec<Grant>, BoxError>;
@@ -26,8 +26,8 @@ impl GrantLoader for Vec<Grant> {
     }
 }
 
-/// [`CapabilityProvider`] padrão: carrega os grants pelo [`GrantLoader`], filtra pelo
-/// [`Engine::capabilities`] e guarda no [`CapabilityCache`], se houver.
+/// Default [`CapabilityProvider`]: loads the grants through the [`GrantLoader`], filters them with
+/// [`Engine::capabilities`] and stores the result in the [`CapabilityCache`], if there is one.
 pub struct EngineProvider<L> {
     engine: Arc<Engine>,
     loader: L,
@@ -43,7 +43,7 @@ impl<L: GrantLoader> EngineProvider<L> {
         }
     }
 
-    /// Lembre de registrar o mesmo cache no hub (`hub.on_change(cache.clone())`).
+    /// Remember to register the same cache on the hub (`hub.on_change(cache.clone())`).
     pub fn with_cache(mut self, cache: Arc<CapabilityCache>) -> Self {
         self.cache = Some(cache);
         self

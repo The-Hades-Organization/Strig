@@ -10,7 +10,7 @@ use tokio::task::JoinHandle;
 use crate::change::Change;
 use crate::transport::{Transport, TransportError};
 
-/// Recebe cada mudança entregue ao hub, de forma síncrona (invalidação de cache, métrica).
+/// Receives every change delivered to the hub, synchronously (cache invalidation, metrics).
 pub trait ChangeSink: Send + Sync {
     fn on_change(&self, change: &Change);
 }
@@ -29,11 +29,11 @@ struct Inner {
     sinks: RwLock<Vec<Arc<dyn ChangeSink>>>,
 }
 
-/// Ponto único de mudanças de permissão de uma instância.
+/// Single point for permission changes of an instance.
 ///
-/// `publish` entrega na hora aos assinantes locais (sessões SSE/WebSocket, caches) e manda
-/// pelo transporte para as outras instâncias. [`Hub::spawn_relay`] traz o que as outras
-/// publicam, descartando o eco do próprio nó.
+/// `publish` delivers immediately to the local subscribers (SSE/WebSocket sessions, caches) and sends
+/// through the transport to the other instances. [`Hub::spawn_relay`] brings in what the others
+/// publish, dropping the node's own echo.
 #[derive(Clone)]
 pub struct Hub {
     inner: Arc<Inner>,
@@ -46,13 +46,13 @@ pub struct HubBuilder {
 }
 
 impl HubBuilder {
-    /// Mudanças retidas para assinantes lentos antes de eles receberem `Resync`.
+    /// Changes retained for slow subscribers before they receive `Resync`.
     pub fn capacity(mut self, capacity: usize) -> Self {
         self.capacity = capacity.max(1);
         self
     }
 
-    /// Identificador do nó. Padrão: aleatório.
+    /// Node identifier. Default: random.
     pub fn origin(mut self, origin: impl Into<String>) -> Self {
         self.origin = Some(origin.into());
         self
@@ -103,7 +103,7 @@ impl Default for Hub {
 }
 
 impl Hub {
-    /// Hub só local, sem transporte.
+    /// Local-only hub, with no transport.
     pub fn new() -> Self {
         Self::default()
     }
@@ -124,8 +124,8 @@ impl Hub {
         self.inner.transport.as_deref().map(Transport::name)
     }
 
-    /// Carimba origem, sequência e hora, entrega localmente e publica no transporte. A entrega
-    /// local acontece mesmo se o transporte falhar; o erro volta para quem publicou.
+    /// Stamps origin, sequence and time, delivers locally and publishes on the transport. Local
+    /// delivery happens even if the transport fails; the error goes back to whoever published.
     pub async fn publish(&self, mut change: Change) -> Result<Change, TransportError> {
         change.origin = self.inner.origin.clone();
         change.seq = self.inner.seq.fetch_add(1, Ordering::Relaxed) + 1;
@@ -151,7 +151,7 @@ impl Hub {
             .push(sink);
     }
 
-    /// Entrega uma mudança só neste nó, sem transporte.
+    /// Delivers a change on this node only, without the transport.
     pub fn deliver(&self, change: &Change) {
         let sinks = self
             .inner
@@ -165,10 +165,10 @@ impl Hub {
         let _ = self.inner.local.send(change.clone());
     }
 
-    /// Escuta o transporte em segundo plano e entrega aqui o que as outras instâncias
-    /// publicam. Reconecta com backoff exponencial (100 ms até 5 s) e emite `Resync` a cada
-    /// reconexão, porque o que foi publicado no intervalo se perdeu. Sem transporte, não faz
-    /// nada. O relay para quando o [`RelayHandle`] é descartado.
+    /// Listens to the transport in the background and delivers here what the other instances
+    /// publish. Reconnects with exponential backoff (100 ms up to 5 s) and emits `Resync` on every
+    /// reconnection, because whatever was published in the gap is lost. With no transport, it does
+    /// nothing. The relay stops when the [`RelayHandle`] is dropped.
     pub fn spawn_relay(&self) -> RelayHandle {
         let hub = self.clone();
         let task = tokio::spawn(async move {
@@ -201,7 +201,7 @@ impl Hub {
     }
 }
 
-/// Mantém o relay vivo; descartar para parar.
+/// Keeps the relay alive; drop it to stop.
 pub struct RelayHandle {
     task: JoinHandle<()>,
 }
