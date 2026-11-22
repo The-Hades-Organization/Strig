@@ -85,7 +85,7 @@ assert!(!decision.is_allowed()); // g2 sits on a more specific step than g1
 
 The same configuration can come from JSON, TOML or YAML through `EngineSpec` (catalog, role inheritance, relations, strategy, overrides). `EngineSpec::builder()` returns the `EngineBuilder` so you can add in code what does not serialize, such as condition functions.
 
-Examples: `cargo run -p themis --example documents` (the three models together) and `cargo run -p themis-axum --example server` (real-time server).
+Examples: `cargo run -p themis-auth --example documents` (the three models together) and `cargo run -p themis-axum --example server` (real-time server).
 
 ## How a decision is made
 
@@ -150,7 +150,7 @@ Built-in sinks: `MemoryAuditLog` and `JsonLinesAudit` (any `io::Write`). A datab
 
 ### Levels and storage
 
-Each level includes everything from the previous one. Sizes come from the reference record (`audit::reference_record`): a grant with a scope and a two-clause condition, UUID ids, an actor with two roles and three request metadata entries. They are compact JSON bytes in JSON Lines, without compression or indexes. The `estimates_match_reference_records` test fails if the measured size drifts more than 10% from the documented one, and `cargo run -p themis --example audit_storage` measures again.
+Each level includes everything from the previous one. Sizes come from the reference record (`audit::reference_record`): a grant with a scope and a two-clause condition, UUID ids, an actor with two roles and three request metadata entries. They are compact JSON bytes in JSON Lines, without compression or indexes. The `estimates_match_reference_records` test fails if the measured size drifts more than 10% from the documented one, and `cargo run -p themis-auth --example audit_storage` measures again.
 
 | Level | What it keeps | Bytes per record | Per 1 million records |
 |---|---|---|---|

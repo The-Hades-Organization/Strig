@@ -1,7 +1,7 @@
 //! Tamanho medido do registro de referência em cada nível de auditoria e a projeção por
 //! milhão de registros.
 //!
-//! `cargo run -p themis --example audit_storage`
+//! `cargo run -p themis-auth --example audit_storage`
 
 use themis::AuditLevel;
 use themis::audit::reference_record;
