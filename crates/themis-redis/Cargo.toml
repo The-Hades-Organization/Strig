@@ -16,7 +16,7 @@ authors.workspace = true
 themis-sync.workspace = true
 async-trait.workspace = true
 futures-util.workspace = true
-redis = { version = "0.27", default-features = false, features = ["aio", "tokio-comp", "connection-manager"] }
+redis = { version = "1.8", default-features = false, features = ["aio", "tokio-comp", "connection-manager"] }
 tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
