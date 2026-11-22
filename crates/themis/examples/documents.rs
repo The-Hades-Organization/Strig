@@ -1,6 +1,6 @@
 //! RBAC, ABAC e ReBAC juntos sobre um domínio de documentos.
 //!
-//! `cargo run -p themis --example documents`
+//! `cargo run -p themis-auth --example documents`
 
 use themis::*;
 
