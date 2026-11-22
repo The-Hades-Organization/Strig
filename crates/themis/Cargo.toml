@@ -1,5 +1,5 @@
 [package]
-name = "themis"
+name = "themis-auth"
 description = "Extensible authorization engine: permission catalog, RBAC, ABAC and ReBAC in one decision, with governance and auditing of changes."
 keywords = ["authorization", "rbac", "abac", "rebac", "permissions"]
 categories = ["authentication"]
@@ -11,7 +11,9 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
-publish.workspace = true
+
+[lib]
+name = "themis"
 
 [features]
 default = ["audit"]
