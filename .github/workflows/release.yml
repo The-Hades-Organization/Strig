@@ -110,6 +110,68 @@ jobs:
           path: crates/themis-node/js/wasm/
           if-no-files-found: error
 
+  github-release:
+    name: GitHub release
+    needs: [native, wasm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: native-*
+          path: native
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: wasm
+          path: wasm
+      - name: Name the assets after the package and version
+        run: |
+          version="${TAG#v}"
+          mkdir dist
+          for f in native/themis.*.node; do
+            platform="$(basename "$f" .node)"
+            cp "$f" "dist/themis-auth-$version-${platform#themis.}.node"
+          done
+          tar czf "dist/themis-auth-$version-wasm.tar.gz" wasm
+          test "$(ls dist/*.node | wc -l)" -eq 5
+          (cd dist && sha256sum * > SHA256SUMS)
+          ls -l dist
+      - name: Take the notes from the CHANGELOG
+        run: |
+          version="${TAG#v}"
+          awk -v h="## [$version]" 'index($0, h) == 1 { on = 1; next } on && /^## / { exit } on' CHANGELOG.md > notes.md
+          test -s notes.md
+          cat >> notes.md <<EOF
+
+          ## Install
+
+          \`\`\`toml
+          themis = { package = "themis-auth", version = "$version" }
+          \`\`\`
+
+          \`\`\`sh
+          npm install themis-auth@$version
+          \`\`\`
+
+          The \`.node\` files are the N-API modules shipped in the npm package; \`SHA256SUMS\` lists their hashes.
+
+          [crates.io](https://crates.io/crates/themis-auth/$version) · [docs.rs](https://docs.rs/themis-auth/$version) · [npm](https://www.npmjs.com/package/themis-auth/v/$version)
+          EOF
+          cat notes.md
+      - name: Create the release or refresh its assets
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "$TAG" --notes-file notes.md --verify-tag
+          fi
+
   npm:
     name: npm
     needs: [native, wasm]
