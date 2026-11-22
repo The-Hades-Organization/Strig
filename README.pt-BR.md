@@ -85,7 +85,7 @@ assert!(!decision.is_allowed()); // g2 está num degrau mais específico que g1
 
 A mesma configuração pode vir de JSON, TOML ou YAML por `EngineSpec` (catálogo, herança de papéis, relações, estratégia, overrides). `EngineSpec::builder()` devolve o `EngineBuilder` para acrescentar em código o que não serializa, como funções de condição.
 
-Exemplos: `cargo run -p themis --example documents` (os três modelos juntos) e `cargo run -p themis-axum --example server` (servidor de tempo real).
+Exemplos: `cargo run -p themis-auth --example documents` (os três modelos juntos) e `cargo run -p themis-axum --example server` (servidor de tempo real).
 
 ## Como a decisão sai
 
@@ -150,7 +150,7 @@ Destinos prontos: `MemoryAuditLog` e `JsonLinesAudit` (qualquer `io::Write`). Ba
 
 ### Níveis e armazenamento
 
-Cada nível inclui tudo do anterior. Os tamanhos são do registro de referência (`audit::reference_record`): grant com escopo e condição de duas cláusulas, ids UUID, ator com dois papéis e três metadados de requisição. São bytes de JSON compacto em JSON Lines, sem compressão e sem índice. O teste `estimates_match_reference_records` falha se o tamanho medido se afastar mais de 10% do documentado, e `cargo run -p themis --example audit_storage` mede de novo.
+Cada nível inclui tudo do anterior. Os tamanhos são do registro de referência (`audit::reference_record`): grant com escopo e condição de duas cláusulas, ids UUID, ator com dois papéis e três metadados de requisição. São bytes de JSON compacto em JSON Lines, sem compressão e sem índice. O teste `estimates_match_reference_records` falha se o tamanho medido se afastar mais de 10% do documentado, e `cargo run -p themis-auth --example audit_storage` mede de novo.
 
 | Nível | O que guarda | Bytes por registro | Por 1 milhão de registros |
 |---|---|---|---|
