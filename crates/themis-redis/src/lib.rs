@@ -1,4 +1,6 @@
-//! Transporte Redis pub/sub para o [`themis_sync::Hub`].
+//! Redis pub/sub transport for the [`themis_sync::Hub`].
+//!
+//! See the [repository README](https://github.com/The-Hades-Organization/Themis) for the full guide.
 //!
 //! ```no_run
 //! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -12,8 +14,8 @@
 //! # Ok(()) }
 //! ```
 //!
-//! Publicação usa um `ConnectionManager`, que reconecta sozinho. Cada `subscribe` abre uma
-//! conexão pub/sub dedicada; quando ela cai, o stream termina e o hub reabre e emite
+//! Publishing uses a `ConnectionManager`, which reconnects on its own. Each `subscribe` opens a
+//! dedicated pub/sub connection; when it drops, the stream ends and the hub reopens it and emits
 //! `Resync`.
 
 use async_trait::async_trait;

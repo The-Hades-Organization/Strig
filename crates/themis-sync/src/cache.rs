@@ -1,7 +1,7 @@
-//! Cache com TTL e o cache de capacidades que se invalida pelo [`crate::Hub`].
+//! Cache with a TTL and the capability cache that is invalidated through the [`crate::Hub`].
 //!
-//! O cache é uma otimização: a aplicação continua revalidando no servidor em toda operação
-//! privilegiada.
+//! The cache is an optimization: the application still revalidates on the server on every
+//! privileged operation.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -57,7 +57,7 @@ impl<K: Eq + Hash + Clone, V: Clone> TtlCache<K, V> {
         self.lock().remove(key);
     }
 
-    /// Mantém só as entradas para as quais `keep` devolve `true`.
+    /// Keeps only the entries for which `keep` returns `true`.
     pub fn retain(&self, keep: impl Fn(&K, &V) -> bool) {
         self.lock().retain(|key, (value, _)| keep(key, value));
     }
@@ -75,8 +75,8 @@ impl<K: Eq + Hash + Clone, V: Clone> TtlCache<K, V> {
     }
 }
 
-/// [`CapabilitySet`] por sujeito e escopo. Registrado no hub com [`crate::Hub::on_change`],
-/// descarta as entradas que uma mudança afeta.
+/// [`CapabilitySet`] per subject and scope. Registered on the hub with [`crate::Hub::on_change`],
+/// it drops the entries a change affects.
 pub struct CapabilityCache {
     inner: TtlCache<String, (Option<String>, Resource, CapabilitySet)>,
 }

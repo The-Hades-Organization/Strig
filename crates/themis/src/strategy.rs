@@ -1,14 +1,14 @@
 use crate::grant::{Effect, Grant};
 
-/// Grant aplicável ao pedido, com a posição do degrau em que casou (0 = mais específico).
+/// Grant applicable to the request, with the position of the step where it matched (0 = most specific).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Candidate {
     pub grant: Grant,
     pub rank: usize,
 }
 
-/// Combina os grants aplicáveis numa decisão. Devolve o índice do candidato decisivo, ou
-/// `None` para cair no default-deny.
+/// Combines the applicable grants into a decision. Returns the index of the deciding candidate, or
+/// `None` to fall back to default-deny.
 pub trait Strategy: Send + Sync {
     fn name(&self) -> &'static str;
     fn combine(&self, candidates: &[Candidate]) -> Option<usize>;
@@ -18,8 +18,8 @@ fn first(candidates: &[Candidate], effect: Effect, filter: impl Fn(&Candidate) -
     candidates.iter().position(|c| c.grant.effect == effect && filter(c))
 }
 
-/// O degrau mais específico com algum grant decide; nele, `deny` vence `allow`. É o padrão do
-/// motor.
+/// The most specific step with any grant decides; within it, `deny` beats `allow`. This is the
+/// engine's default.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MostSpecific;
 
@@ -35,7 +35,7 @@ impl Strategy for MostSpecific {
     }
 }
 
-/// Qualquer `deny` vence, em qualquer degrau.
+/// Any `deny` wins, at any step.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DenyOverrides;
 
@@ -49,7 +49,7 @@ impl Strategy for DenyOverrides {
     }
 }
 
-/// Qualquer `allow` vence, em qualquer degrau.
+/// Any `allow` wins, at any step.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PermitOverrides;
 
@@ -63,7 +63,7 @@ impl Strategy for PermitOverrides {
     }
 }
 
-/// O primeiro grant aplicável, na ordem da fonte, decide.
+/// The first applicable grant, in source order, decides.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FirstApplicable;
 

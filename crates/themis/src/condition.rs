@@ -9,11 +9,11 @@ use crate::attr::{Attributes, Value};
 use crate::resource::Resource;
 use crate::subject::Subject;
 
-/// Lado de uma comparação: um atributo resolvido na hora ou um literal.
+/// One side of a comparison: an attribute resolved at decision time or a literal.
 ///
-/// Atributos usam o caminho `<raiz>.<nome>`, com raiz `subject`, `resource` ou `env`.
-/// `subject.id`, `subject.kind`, `resource.id` e `resource.kind` vêm da identidade; o resto,
-/// do mapa de atributos.
+/// Attributes use the path `<root>.<name>`, with root `subject`, `resource` or `env`.
+/// `subject.id`, `subject.kind`, `resource.id` and `resource.kind` come from the identity; the
+/// rest comes from the attribute map.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Operand {
@@ -31,7 +31,7 @@ impl Operand {
     }
 }
 
-/// Condição ABAC serializável, guardada junto do grant.
+/// Serializable ABAC condition, stored together with the grant.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Condition {
@@ -59,12 +59,12 @@ pub enum Condition {
         left: Operand,
         right: Operand,
     },
-    /// `item` pertence à lista `set`.
+    /// `item` belongs to the list `set`.
     In {
         item: Operand,
         set: Operand,
     },
-    /// O atributo existe.
+    /// The attribute exists.
     Exists {
         attr: String,
     },
@@ -77,7 +77,7 @@ pub enum Condition {
     Not {
         cond: Box<Condition>,
     },
-    /// Função registrada no [`ConditionRegistry`] do motor.
+    /// Function registered in the engine's [`ConditionRegistry`].
     Call {
         func: String,
         #[serde(default)]
@@ -142,7 +142,7 @@ impl Condition {
         }
     }
 
-    /// Nomes das funções usadas, para validar contra o registro antes de gravar o grant.
+    /// Names of the functions used, to validate against the registry before writing the grant.
     pub fn functions(&self) -> Vec<&str> {
         let mut out = Vec::new();
         self.collect_functions(&mut out);
@@ -218,7 +218,7 @@ pub enum ConditionError {
     Function(String),
 }
 
-/// O que uma condição enxerga durante a decisão.
+/// What a condition sees during the decision.
 #[derive(Clone, Copy)]
 pub struct EvalContext<'a> {
     pub subject: &'a Subject,
@@ -269,7 +269,7 @@ impl EvalContext<'_> {
 
 pub type ConditionFn = Arc<dyn Fn(&[Value]) -> Result<bool, ConditionError> + Send + Sync>;
 
-/// Funções que as condições podem chamar por nome. Ponto de extensão do ABAC.
+/// Functions that conditions can call by name. ABAC extension point.
 #[derive(Clone, Default)]
 pub struct ConditionRegistry {
     fns: HashMap<String, ConditionFn>,

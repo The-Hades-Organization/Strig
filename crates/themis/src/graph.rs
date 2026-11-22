@@ -6,7 +6,7 @@ enum Mark {
     Done,
 }
 
-/// Devolve o primeiro ciclo encontrado, com o nó inicial repetido no fim.
+/// Returns the first cycle found, with the starting node repeated at the end.
 pub(crate) fn find_cycle(edges: &BTreeMap<String, Vec<String>>) -> Option<Vec<String>> {
     let mut marks: HashMap<&str, Mark> = HashMap::new();
     let mut stack: Vec<&str> = Vec::new();
@@ -48,7 +48,7 @@ fn visit<'a>(
     None
 }
 
-/// Fecho transitivo a partir de `start`, incluindo o próprio `start`.
+/// Transitive closure from `start`, including `start` itself.
 pub(crate) fn reachable(start: &str, edges: &BTreeMap<String, Vec<String>>) -> BTreeSet<String> {
     let mut seen = BTreeSet::new();
     let mut stack = vec![start.to_string()];

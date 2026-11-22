@@ -35,8 +35,8 @@ struct Judged {
 
 const DEFAULT_MAX_RELATION_DEPTH: usize = 32;
 
-/// Dados de uma decisão: grants, tuplas ReBAC e atributos de ambiente. O [`Engine`] guarda só
-/// configuração; os dados chegam por chamada.
+/// Data of a decision: grants, ReBAC tuples and environment attributes. The [`Engine`] only holds
+/// configuration; the data arrives with each call.
 #[derive(Clone, Copy)]
 pub struct Context<'a> {
     pub grants: &'a dyn GrantSource,
@@ -91,7 +91,7 @@ struct OverrideEntry {
     except: Vec<String>,
 }
 
-/// Motor de decisão. Imutável e compartilhável entre threads depois de construído.
+/// Decision engine. Immutable and shareable between threads once built.
 pub struct Engine {
     catalog: Arc<Catalog>,
     roles: RoleGraph,
@@ -131,8 +131,8 @@ impl EngineBuilder {
         self.override_except(rule, std::iter::empty::<String>())
     }
 
-    /// Override que não vale para as permissões listadas nem para as que elas concedem
-    /// (o administrador da organização não apaga projeto de outro dono, por exemplo).
+    /// Override that does not apply to the listed permissions or to the ones they grant
+    /// (for example, the organization administrator does not delete another owner's project).
     pub fn override_except<I, S>(mut self, rule: impl Override + 'static, except: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -192,13 +192,13 @@ impl Engine {
         self.decide_inner(ctx, request, true, None)
     }
 
-    /// Decisão só pelos grants, sem overrides. Usada por overrides que dependem de permissão.
+    /// Decision by the grants only, without overrides. Used by overrides that depend on a permission.
     pub fn decide_without_overrides(&self, ctx: &Context<'_>, request: &Request<'_>) -> Decision {
         self.decide_inner(ctx, request, false, None)
     }
 
-    /// A mesma decisão de [`Engine::decide`], com o rastro de cada override e de cada grant
-    /// entregue pela fonte. Mais cara: avalia a árvore das condições e clona os grants.
+    /// The same decision as [`Engine::decide`], with the trace of each override and of each grant
+    /// delivered by the source. More expensive: it evaluates the condition tree and clones the grants.
     pub fn explain(&self, ctx: &Context<'_>, request: &Request<'_>) -> Explanation {
         let mut recorder = Recorder::default();
         let decision = self.decide_inner(ctx, request, true, Some(&mut recorder));
@@ -303,8 +303,8 @@ impl Engine {
         }
     }
 
-    /// Grants que se aplicam ao pedido. Na dúvida (condição ou relação que não pôde ser
-    /// avaliada), um `deny` se aplica e um `allow` não: o erro nunca abre acesso.
+    /// Grants that apply to the request. When in doubt (a condition or relation that could not be
+    /// evaluated), a `deny` applies and an `allow` does not: an error never opens access.
     fn collect(
         &self,
         ctx: &Context<'_>,
@@ -342,7 +342,7 @@ impl Engine {
         out
     }
 
-    /// Confere um grant na ordem: permissão, escopo, alvo, sujeito, condição.
+    /// Checks a grant in order: permission, scope, target, subject, condition.
     #[allow(clippy::too_many_arguments)]
     fn judge(
         &self,
@@ -451,7 +451,7 @@ impl Engine {
         }
     }
 
-    /// Confere um grant contra o catálogo e a configuração do motor antes de gravá-lo.
+    /// Checks a grant against the catalog and the engine configuration before writing it.
     pub fn validate_grant(&self, grant: &Grant) -> Result<(), GrantError> {
         if grant.id.trim().is_empty() {
             return Err(GrantError::EmptyId);
@@ -479,9 +479,9 @@ impl Engine {
         Ok(())
     }
 
-    /// Pré-carrega, numa ida à fonte, os grants que podem valer para `subject` dentro de
-    /// `scope`. O resultado é ele mesmo uma [`GrantSource`] para decisões repetidas (uma
-    /// conexão WebSocket, uma página com muitos botões) e serializa para o frontend.
+    /// Preloads, in one trip to the source, the grants that may hold for `subject` within
+    /// `scope`. The result is itself a [`GrantSource`] for repeated decisions (a WebSocket
+    /// connection, a page with many buttons) and serializes for the frontend.
     pub fn capabilities(&self, ctx: &Context<'_>, subject: &Subject, scope: &Resource) -> CapabilitySet {
         let roles = self.roles.expand(subject.roles_for(scope));
         let mut grants = Vec::new();
@@ -503,7 +503,7 @@ impl Engine {
     }
 }
 
-/// Grants pré-carregados de um sujeito.
+/// Preloaded grants of a subject.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CapabilitySet {
     pub subject: Subject,

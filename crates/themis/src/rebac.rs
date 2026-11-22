@@ -5,16 +5,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::resource::ObjectRef;
 
-/// Id curinga: a tupla `document:42#viewer@user:*` vale para todo sujeito do tipo `user`.
+/// Wildcard id: the tuple `document:42#viewer@user:*` holds for every subject of kind `user`.
 pub const WILDCARD: &str = "*";
 
-/// Quem está do lado direito de uma tupla.
+/// Who is on the right-hand side of a tuple.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TupleSubject {
-    /// Um objeto direto (`user:alice`, `user:*`).
+    /// A direct object (`user:alice`, `user:*`).
     Object(ObjectRef),
-    /// Todos que têm `relation` sobre `object` (`group:9#member`).
+    /// Everyone who has `relation` on `object` (`group:9#member`).
     Userset(ObjectRef, String),
 }
 
@@ -27,7 +27,7 @@ impl fmt::Display for TupleSubject {
     }
 }
 
-/// Fato de relação: `object#relation@subject`.
+/// Relation fact: `object#relation@subject`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Tuple {
     pub object: ObjectRef,
@@ -64,7 +64,7 @@ impl Tuple {
     }
 }
 
-/// Armazenamento das tuplas. Uma implementação em banco consulta por `(object, relation)`.
+/// Storage of the tuples. A database implementation queries by `(object, relation)`.
 pub trait TupleStore {
     fn visit(&self, object: &ObjectRef, relation: &str, visitor: &mut dyn FnMut(&TupleSubject));
 }
@@ -85,7 +85,7 @@ impl InMemoryTuples {
         Self::default()
     }
 
-    /// Devolve `false` se a tupla já existia.
+    /// Returns `false` if the tuple already existed.
     pub fn insert(&mut self, tuple: Tuple) -> bool {
         let entry = self.map.entry((tuple.object, tuple.relation)).or_default();
         if entry.contains(&tuple.subject) {
@@ -134,17 +134,17 @@ impl TupleStore for InMemoryTuples {
     }
 }
 
-/// Como uma relação se deriva de outras (userset rewrite do Zanzibar).
+/// How a relation is derived from others (Zanzibar's userset rewrite).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "rewrite", rename_all = "snake_case")]
 pub enum Rewrite {
-    /// Só as tuplas gravadas para a própria relação.
+    /// Only the tuples written for the relation itself.
     This,
-    /// Outra relação do mesmo objeto (`editor` implica `viewer`).
+    /// Another relation on the same object (`editor` implies `viewer`).
     Computed {
         relation: String,
     },
-    /// Segue `tupleset` até o objeto pai e checa `computed` lá (`parent->member`).
+    /// Follows `tupleset` to the parent object and checks `computed` there (`parent->member`).
     TupleToUserset {
         tupleset: String,
         computed: String,
@@ -203,7 +203,7 @@ pub enum RebacError {
     DepthExceeded(usize),
 }
 
-/// Regras de derivação por `(tipo de objeto, relação)`. Relação sem regra vale [`Rewrite::This`].
+/// Derivation rules by `(object kind, relation)`. A relation with no rule is [`Rewrite::This`].
 #[derive(Debug, Clone, Default)]
 pub struct RelationSchema {
     rules: HashMap<(String, String), Rewrite>,
@@ -225,7 +225,7 @@ impl RelationSchema {
             .unwrap_or(&THIS)
     }
 
-    /// `subject` tem `relation` sobre `object`?
+    /// Does `subject` have `relation` on `object`?
     pub fn check(
         &self,
         store: &dyn TupleStore,

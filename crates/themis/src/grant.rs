@@ -11,19 +11,19 @@ pub enum Effect {
     Deny,
 }
 
-/// A quem um grant se aplica.
+/// Whom a grant applies to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SubjectMatcher {
-    /// Um sujeito pelo id.
+    /// A subject by id.
     User { id: String },
-    /// Quem tem o papel, direto ou herdado pelo [`crate::RoleGraph`].
+    /// Whoever has the role, directly or inherited through the [`crate::RoleGraph`].
     Role { id: String },
-    /// Quem carrega o principal (`authenticated`, `anonymous` ou um próprio).
+    /// Whoever carries the principal (`authenticated`, `anonymous` or a custom one).
     Principal { name: String },
-    /// Quem tem a relação ReBAC sobre o degrau casado pelo alvo do grant.
+    /// Whoever has the ReBAC relation on the step matched by the grant's target.
     Relation { relation: String },
-    /// Qualquer sujeito.
+    /// Any subject.
     Any,
 }
 
@@ -47,7 +47,7 @@ impl SubjectMatcher {
     }
 }
 
-/// Onde um grant se ancora no caminho do recurso. Sem `id`, casa qualquer instância do tipo.
+/// Where a grant is anchored in the resource path. Without `id`, it matches any instance of the kind.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TargetSelector {
     pub kind: String,
@@ -88,7 +88,7 @@ impl From<&Anchor> for TargetSelector {
     }
 }
 
-/// Concessão ou negação de uma permissão do catálogo.
+/// Grant or denial of a catalog permission.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Grant {
@@ -97,11 +97,11 @@ pub struct Grant {
     pub permission: String,
     pub target: TargetSelector,
     pub effect: Effect,
-    /// Restringe o grant a recursos cujo caminho passa por este degrau (o time dono, por
-    /// exemplo).
+    /// Restricts the grant to resources whose path goes through this step (the owning team, for
+    /// example).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<Anchor>,
-    /// Condição ABAC; o grant só se aplica quando ela é verdadeira.
+    /// ABAC condition; the grant only applies when it is true.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<Condition>,
 }
@@ -154,11 +154,11 @@ impl Grant {
     }
 }
 
-/// Origem dos grants consultados numa decisão.
+/// Source of the grants consulted in a decision.
 ///
-/// A implementação pode entregar grants a mais (o motor filtra por permissão, alvo, escopo,
-/// sujeito e condição); entregar a menos muda a decisão. Uma fonte apoiada em banco usa
-/// `subject` e `resource` para montar a consulta.
+/// The implementation may deliver extra grants (the engine filters by permission, target, scope,
+/// subject and condition); delivering fewer changes the decision. A database-backed source uses
+/// `subject` and `resource` to build the query.
 pub trait GrantSource {
     fn visit(&self, subject: &Subject, resource: &Resource, visitor: &mut dyn FnMut(&Grant));
 }
@@ -181,7 +181,7 @@ impl<T: GrantSource + ?Sized> GrantSource for &T {
     }
 }
 
-/// Encadeia duas fontes, como grants do banco mais uma linha de base sintética.
+/// Chains two sources, such as database grants plus a synthetic baseline row.
 impl<A: GrantSource, B: GrantSource> GrantSource for (A, B) {
     fn visit(&self, subject: &Subject, resource: &Resource, visitor: &mut dyn FnMut(&Grant)) {
         self.0.visit(subject, resource, visitor);
