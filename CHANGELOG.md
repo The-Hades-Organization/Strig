@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-22
+
+### Added
+
+- npm: the `themis-auth` package now ships the README, with images and links pointing to the repository.
+
+### Changed
+
+- Dependencies: `sha2` 0.11, `redis` 1.8 (`themis-redis`, tested against a real Redis 7) and `tokio-tungstenite` 0.29 (`themis-axum`).
+
 ## [0.3.0] - 2026-11-21
 
 ### Added
@@ -29,6 +39,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - `themis-node`: JavaScript bindings (N-API for Node and Bun, WebAssembly for the browser), real-time client and server in JS.
 - `themis-inspect`: inspector with evaluation trace, grant simulation, access matrix and audit trail reading, as terminal commands and an optional gpui window.
 
-[Unreleased]: https://github.com/The-Hades-Organization/Themis/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/The-Hades-Organization/Themis/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/The-Hades-Organization/Themis/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/The-Hades-Organization/Themis/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/The-Hades-Organization/Themis/releases/tag/v0.2.0
