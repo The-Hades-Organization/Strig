@@ -8,7 +8,7 @@ use std::future::pending;
 use std::sync::Arc;
 use std::time::Duration;
 
-use themis::{CapabilitySet, Resource, Subject};
+use themis::{Resource, Subject};
 use tokio::sync::broadcast::error::{RecvError, TryRecvError};
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{Instant, Interval, interval_at};
@@ -149,12 +149,12 @@ impl Worker {
         let Some(provider) = &self.provider else {
             return true;
         };
-        let message = match provider.capabilities(&self.subject, scope).await {
-            Ok(set) => {
-                self.schedule_expiry(provider.as_ref(), &set);
+        let message = match provider.evaluate(&self.subject, scope).await {
+            Ok(evaluation) => {
+                self.schedule_expiry(provider.as_ref(), evaluation.next_boundary);
                 ServerMessage::Capabilities {
                     scope: scope.clone(),
-                    set,
+                    set: evaluation.set,
                 }
             }
             Err(error) => ServerMessage::Error {
@@ -164,13 +164,14 @@ impl Worker {
         self.send(message).await
     }
 
-    /// Asks the hub for a notice at the next moment a grant or role in `set` starts or stops being in
-    /// force. It comes back through the broadcast like any change and triggers a new push.
-    fn schedule_expiry(&self, provider: &dyn CapabilityProvider, set: &CapabilitySet) {
-        let now = provider.now_ms();
-        if let Some(boundary) = set.next_boundary(now) {
+    /// Asks the hub for a notice at `next_boundary`, the next moment a grant or role in force for
+    /// this subject starts or stops. It comes back through the broadcast like any change and
+    /// triggers a new push. The wait counts from the provider's current instant, so a boundary that
+    /// passed while the grants were loading fires at once.
+    fn schedule_expiry(&self, provider: &dyn CapabilityProvider, next_boundary: Option<u64>) {
+        if let Some(boundary) = next_boundary {
             self.hub
-                .schedule_expiry(boundary, now, Change::expiry(self.subject.id.clone()));
+                .schedule_expiry(boundary, provider.now_ms(), Change::expiry(self.subject.id.clone()));
         }
     }
 
@@ -249,14 +250,17 @@ mod tests {
     use futures_util::StreamExt;
     use themis::{Anchor, Catalog, Engine, Grant, PermissionDef, SubjectMatcher, TargetSelector};
 
-    fn provider(grants: Vec<Grant>) -> Arc<dyn CapabilityProvider> {
-        let catalog = Catalog::builder()
+    fn view_catalog() -> Catalog {
+        Catalog::builder()
             .target_kinds(["project"])
             .broad_target("org")
             .permission(PermissionDef::new("project.view").targets(["project"]))
             .build()
-            .unwrap();
-        let engine = Arc::new(Engine::builder(catalog).build().unwrap());
+            .unwrap()
+    }
+
+    fn provider(grants: Vec<Grant>) -> Arc<dyn CapabilityProvider> {
+        let engine = Arc::new(Engine::builder(view_catalog()).build().unwrap());
         Arc::new(EngineProvider::new(engine, grants))
     }
 
@@ -343,13 +347,7 @@ mod tests {
             )
             .valid_until(START + 500),
         ];
-        let catalog = Catalog::builder()
-            .target_kinds(["project"])
-            .broad_target("org")
-            .permission(PermissionDef::new("project.view").targets(["project"]))
-            .build()
-            .unwrap();
-        let engine = Arc::new(Engine::builder(catalog).build().unwrap());
+        let engine = Arc::new(Engine::builder(view_catalog()).build().unwrap());
         let provider = Arc::new(EngineProvider::new(engine, grants).with_clock(clock));
 
         let hub = Hub::new();
@@ -374,6 +372,44 @@ mod tests {
         }
         match next(&mut stream).await {
             ServerMessage::Capabilities { set, .. } => assert!(set.grants.is_empty()),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_grant_that_starts_later_reaches_the_session_at_its_start() {
+        const START: u64 = 10_000;
+        let started = Instant::now();
+        let clock = move || START + started.elapsed().as_millis() as u64;
+        let grants = vec![
+            Grant::allow(
+                "g",
+                SubjectMatcher::user("alice"),
+                "project.view",
+                TargetSelector::kind("project"),
+            )
+            .valid_from(START + 500),
+        ];
+        let provider = Arc::new(
+            EngineProvider::new(Arc::new(Engine::builder(view_catalog()).build().unwrap()), grants).with_clock(clock),
+        );
+
+        let hub = Hub::new();
+        let options = SessionOptions {
+            heartbeat: None,
+            buffer: 8,
+        };
+        let scope = Resource::new("project", "p1");
+        let (_control, mut stream) = Session::open(&hub, Subject::user("alice"), vec![scope], Some(provider), options);
+
+        assert!(matches!(next(&mut stream).await, ServerMessage::Hello { .. }));
+        match next(&mut stream).await {
+            ServerMessage::Capabilities { set, .. } => assert!(set.grants.is_empty(), "not started yet"),
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(next(&mut stream).await, ServerMessage::Change { .. }));
+        match next(&mut stream).await {
+            ServerMessage::Capabilities { set, .. } => assert_eq!(set.grants.len(), 1),
             other => panic!("{other:?}"),
         }
     }

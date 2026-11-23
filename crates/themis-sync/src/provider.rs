@@ -13,11 +13,36 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 pub trait CapabilityProvider: Send + Sync + 'static {
     async fn capabilities(&self, subject: &Subject, scope: &Resource) -> Result<CapabilitySet, BoxError>;
 
+    /// Like [`CapabilityProvider::capabilities`], plus the instant the set was evaluated at and the
+    /// next moment a grant or role assignment starts or stops being in force. Sessions schedule the
+    /// expiry notice from it. The default derives the boundary from the returned set, which misses
+    /// grants that start later; a provider that knows its candidate grants should override it.
+    async fn evaluate(&self, subject: &Subject, scope: &Resource) -> Result<Evaluation, BoxError> {
+        let evaluated_at = self.now_ms();
+        let set = self.capabilities(subject, scope).await?;
+        let next_boundary = set.next_boundary(evaluated_at);
+        Ok(Evaluation {
+            set,
+            evaluated_at,
+            next_boundary,
+        })
+    }
+
     /// The instant, in milliseconds since the Unix epoch, that `capabilities` evaluates validity
     /// windows at. Sessions use it to schedule the expiry notice. Defaults to the system clock.
     fn now_ms(&self) -> u64 {
         now_ms()
     }
+}
+
+/// Capabilities with the validity information a session needs to schedule its next recompute.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Evaluation {
+    pub set: CapabilitySet,
+    /// Instant the set was evaluated at, milliseconds since the Unix epoch.
+    pub evaluated_at: u64,
+    /// Next instant after `evaluated_at` at which the set goes stale; `None` when it never does.
+    pub next_boundary: Option<u64>,
 }
 
 /// Source of the current instant, in milliseconds since the Unix epoch.
@@ -72,16 +97,32 @@ impl<L: GrantLoader> EngineProvider<L> {
 #[async_trait]
 impl<L: GrantLoader> CapabilityProvider for EngineProvider<L> {
     async fn capabilities(&self, subject: &Subject, scope: &Resource) -> Result<CapabilitySet, BoxError> {
-        if let Some(cached) = self.cache.as_ref().and_then(|c| c.get(subject, scope)) {
-            return Ok(cached);
-        }
+        Ok(self.evaluate(subject, scope).await?.set)
+    }
+
+    async fn evaluate(&self, subject: &Subject, scope: &Resource) -> Result<Evaluation, BoxError> {
         let now = (self.clock)();
+        if let Some((set, next_boundary)) = self.cache.as_ref().and_then(|c| c.get_with_boundary(subject, scope)) {
+            return Ok(Evaluation {
+                set,
+                evaluated_at: now,
+                next_boundary,
+            });
+        }
         let grants = self.loader.load(subject, scope).await?;
         let set = self.engine.capabilities(&Context::new(&grants).at(now), subject, scope);
+        // From the candidates, not from the set: a grant that starts later is not in the set yet.
+        let next_boundary = themis::next_boundary(now, &grants, &subject.roles);
         if let Some(cache) = &self.cache {
-            cache.insert_at(subject, scope, set.clone(), now);
+            // Measured when the entry is stored, not when it was evaluated: the TTL counts from the
+            // insert, so time spent loading must come off the lifetime.
+            cache.insert_with_boundary(subject, scope, set.clone(), next_boundary, (self.clock)());
         }
-        Ok(set)
+        Ok(Evaluation {
+            set,
+            evaluated_at: now,
+            next_boundary,
+        })
     }
 
     fn now_ms(&self) -> u64 {
