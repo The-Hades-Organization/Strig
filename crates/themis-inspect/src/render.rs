@@ -58,6 +58,7 @@ pub fn verdict(verdict: &Verdict) -> String {
         Verdict::Candidate => "candidato".into(),
         Verdict::CandidateFailSafe { problem } => format!("candidato por segurança (deny com erro: {problem})"),
         Verdict::PermissionUnrelated => "permissão não relacionada".into(),
+        Verdict::OutsideWindow => "fora da janela de validade".into(),
         Verdict::OutOfScope => "escopo fora do caminho do recurso".into(),
         Verdict::TargetNotOnPath => "alvo não casa nenhum degrau".into(),
         Verdict::SubjectMismatch => "sujeito não casa".into(),

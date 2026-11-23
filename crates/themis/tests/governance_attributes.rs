@@ -40,10 +40,7 @@ fn role_grant(id: &str, role: &str, key: &str) -> Grant {
 }
 
 fn role(name: &str) -> RoleAssignment {
-    RoleAssignment {
-        role: name.into(),
-        scope: None,
-    }
+    RoleAssignment::new(name)
 }
 
 fn invariant_of(result: Result<Vec<Grant>, Vec<themis::Violation>>) -> String {
@@ -207,10 +204,7 @@ fn no_escalation_does_not_reach_the_role_in_another_scope() {
     ];
     let assign = Mutation::AssignRole {
         subject: Subject::user("ana"),
-        role: RoleAssignment {
-            role: "editors".into(),
-            scope: Some(Anchor::new("org", "o2")),
-        },
+        role: RoleAssignment::in_scope("editors", Anchor::new("org", "o2")),
     };
     assert_eq!(
         invariant_of(governance.apply(&engine, &Subject::user("lead"), &grants, &assign, None)),
@@ -296,6 +290,7 @@ fn no_lockout_without_reserve_still_refuses_without_suggestion() {
     assert!(violations[0].suggestion.is_none());
 }
 
+#[cfg(feature = "audit")]
 #[test]
 fn audit_records_the_refusal_with_the_suggestion() {
     use std::sync::Arc;
@@ -406,6 +401,7 @@ fn no_lockout_accounts_for_the_change_when_it_touches_the_reserve() {
     assert!(violations[0].suggestion.is_none());
 }
 
+#[cfg(feature = "audit")]
 #[test]
 fn the_suggestion_exposes_only_the_id_and_the_role() {
     use std::sync::Arc;

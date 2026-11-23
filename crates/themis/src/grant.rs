@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::condition::Condition;
 use crate::resource::{Anchor, GLOBAL, Resource};
 use crate::subject::Subject;
+use crate::validity::{Validity, ValidityError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -104,6 +105,12 @@ pub struct Grant {
     /// ABAC condition; the grant only applies when it is true.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<Condition>,
+    /// Start of the validity window, in milliseconds since the Unix epoch (inclusive).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_from: Option<u64>,
+    /// End of the validity window, in milliseconds since the Unix epoch (exclusive).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_until: Option<u64>,
 }
 
 impl Grant {
@@ -122,6 +129,8 @@ impl Grant {
             effect,
             scope: None,
             condition: None,
+            valid_from: None,
+            valid_until: None,
         }
     }
 
@@ -151,6 +160,46 @@ impl Grant {
     pub fn when(mut self, condition: Condition) -> Self {
         self.condition = Some(condition);
         self
+    }
+
+    /// The grant only exists from `from` on (milliseconds since the Unix epoch, inclusive).
+    pub fn valid_from(mut self, from: u64) -> Self {
+        self.valid_from = Some(from);
+        self
+    }
+
+    /// The grant stops existing at `until` (milliseconds since the Unix epoch, exclusive).
+    pub fn valid_until(mut self, until: u64) -> Self {
+        self.valid_until = Some(until);
+        self
+    }
+
+    /// The grant exists in `[from, until)`. An inverted window is refused by
+    /// [`crate::Engine::validate_grant`]; [`Grant::try_valid_between`] refuses it right here.
+    pub fn valid_between(self, from: u64, until: u64) -> Self {
+        self.valid_from(from).valid_until(until)
+    }
+
+    /// Like [`Grant::valid_between`], refusing a window that ends before it starts.
+    ///
+    /// # Errors
+    /// [`ValidityError::Inverted`] when `until` is not after `from`.
+    pub fn try_valid_between(self, from: u64, until: u64) -> Result<Self, ValidityError> {
+        Validity::between(from, until).map(|_| self.valid_between(from, until))
+    }
+
+    /// The validity window of the grant.
+    pub fn validity(&self) -> Validity {
+        Validity {
+            valid_from: self.valid_from,
+            valid_until: self.valid_until,
+        }
+    }
+
+    /// Is the grant in force at `now`? Without an instant, a grant with a window holds only if it
+    /// is a `deny` (fail closed).
+    pub fn in_force(&self, now: Option<u64>) -> bool {
+        self.validity().in_force(now, self.effect == Effect::Deny)
     }
 }
 

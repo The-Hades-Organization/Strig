@@ -74,6 +74,18 @@ fn same_subject(a: &Subject, b: &Subject) -> bool {
     a.id.is_some() && a.id == b.id
 }
 
+/// The role assignments of `subject` that a rule guarding a change must count at `now`: the ones that
+/// have not ended and have a well-formed window. An assignment that starts later still counts, because
+/// the rule protects against what the holder will have, not only what they have at this instant;
+/// without an instant nothing is known to have ended. Compare with the engine, where only what is in
+/// force decides.
+fn standing_roles(subject: &Subject, now: Option<u64>) -> impl Iterator<Item = &RoleAssignment> {
+    subject
+        .roles
+        .iter()
+        .filter(move |r| r.check_window().is_ok() && !r.validity().has_ended(now))
+}
+
 fn role_label(role: &RoleAssignment) -> String {
     match &role.scope {
         Some(scope) => format!("{} em {scope}", role.role),
@@ -90,6 +102,10 @@ pub struct Proposal<'a> {
     pub before: &'a [Grant],
     pub after: &'a [Grant],
     pub tuples: Option<&'a dyn TupleStore>,
+    /// The instant the change is judged at, in milliseconds since the Unix epoch; see
+    /// [`Governance::at`]. Without it, grants and roles with a validity window fail closed, as in
+    /// [`Engine::decide`].
+    pub now: Option<u64>,
 }
 
 impl<'a> Proposal<'a> {
@@ -123,8 +139,12 @@ impl<'a> Proposal<'a> {
 
     fn context<'s>(&'s self, grants: &'s &'a [Grant]) -> Context<'s> {
         let ctx = Context::new(grants);
-        match self.tuples {
+        let ctx = match self.tuples {
             Some(tuples) => ctx.with_tuples(tuples),
+            None => ctx,
+        };
+        match self.now {
+            Some(now) => ctx.at(now),
             None => ctx,
         }
     }
@@ -258,6 +278,15 @@ impl Governance {
         self.apply_with(engine, actor, current, mutation, tuples, &Attributes::new())
     }
 
+    /// The governance judging every change at `now` (milliseconds since the Unix epoch): the actor's
+    /// grants and roles, and the grants and roles the change reads, count only inside their validity
+    /// window, as with [`Context::at`]. The crate never reads a clock; the caller passes the instant.
+    /// [`Governance::apply`] and [`Governance::apply_with`] pass none, and what has a window then fails
+    /// closed.
+    pub fn at(&self, now: u64) -> GovernanceAt<'_> {
+        GovernanceAt { governance: self, now }
+    }
+
     /// Like [`Governance::apply`], with request metadata (ip, request id, reason) that goes
     /// to the audit from the `detailed` level upward.
     pub fn apply_with(
@@ -269,7 +298,19 @@ impl Governance {
         tuples: Option<&dyn TupleStore>,
         meta: &Attributes,
     ) -> Result<Vec<Grant>, Vec<Violation>> {
-        let result = self.evaluate(engine, actor, current, mutation, tuples);
+        self.run(engine, actor, current, mutation, Scene { tuples, now: None }, meta)
+    }
+
+    fn run(
+        &self,
+        engine: &Engine,
+        actor: &Subject,
+        current: &[Grant],
+        mutation: &Mutation,
+        scene: Scene<'_>,
+        meta: &Attributes,
+    ) -> Result<Vec<Grant>, Vec<Violation>> {
+        let result = self.evaluate_inner(engine, actor, current, mutation, scene, true);
         #[cfg(feature = "audit")]
         if let Some(auditor) = &self.auditor
             && let Err(error) = auditor.grant_mutation(actor, mutation, current, &result, meta)
@@ -291,7 +332,7 @@ impl Governance {
         mutation: &Mutation,
         tuples: Option<&dyn TupleStore>,
     ) -> Result<Vec<Grant>, Vec<Violation>> {
-        self.evaluate_inner(engine, actor, current, mutation, tuples, true)
+        self.evaluate_inner(engine, actor, current, mutation, Scene { tuples, now: None }, true)
     }
 
     fn evaluate_inner(
@@ -300,7 +341,7 @@ impl Governance {
         actor: &Subject,
         current: &[Grant],
         mutation: &Mutation,
-        tuples: Option<&dyn TupleStore>,
+        scene: Scene<'_>,
         with_remedies: bool,
     ) -> Result<Vec<Grant>, Vec<Violation>> {
         let after: Cow<'_, [Grant]> = match mutation {
@@ -335,7 +376,8 @@ impl Governance {
             mutation,
             before: current,
             after: &after,
-            tuples,
+            tuples: scene.tuples,
+            now: scene.now,
         };
         let mut violations = Vec::new();
         for invariant in &self.invariants {
@@ -344,7 +386,7 @@ impl Governance {
             };
             if with_remedies
                 && let Some(fix) = invariant.remedy(engine, &proposal)
-                && self.evaluate_inner(engine, actor, current, &fix, tuples, false).is_ok()
+                && self.evaluate_inner(engine, actor, current, &fix, scene, false).is_ok()
             {
                 violation.suggestion = Suggestion::of(&fix).map(Box::new);
             }
@@ -358,6 +400,50 @@ impl Governance {
     }
 }
 
+/// What a change is judged against besides the grants: the tuples and the instant.
+#[derive(Clone, Copy)]
+struct Scene<'a> {
+    tuples: Option<&'a dyn TupleStore>,
+    now: Option<u64>,
+}
+
+/// [`Governance`] judging every change at one instant; see [`Governance::at`].
+pub struct GovernanceAt<'g> {
+    governance: &'g Governance,
+    now: u64,
+}
+
+impl GovernanceAt<'_> {
+    /// Like [`Governance::apply`], at the instant.
+    pub fn apply(
+        &self,
+        engine: &Engine,
+        actor: &Subject,
+        current: &[Grant],
+        mutation: &Mutation,
+        tuples: Option<&dyn TupleStore>,
+    ) -> Result<Vec<Grant>, Vec<Violation>> {
+        self.apply_with(engine, actor, current, mutation, tuples, &Attributes::new())
+    }
+
+    /// Like [`Governance::apply_with`], at the instant.
+    pub fn apply_with(
+        &self,
+        engine: &Engine,
+        actor: &Subject,
+        current: &[Grant],
+        mutation: &Mutation,
+        tuples: Option<&dyn TupleStore>,
+        meta: &Attributes,
+    ) -> Result<Vec<Grant>, Vec<Violation>> {
+        let scene = Scene {
+            tuples,
+            now: Some(self.now),
+        };
+        self.governance.run(engine, actor, current, mutation, scene, meta)
+    }
+}
+
 fn check_role_mutation(subject: &Subject, role: &RoleAssignment, assigned: bool) -> Result<(), Vec<Violation>> {
     let Some(id) = subject.id.as_deref() else {
         return Err(vec![Violation::new(
@@ -365,6 +451,9 @@ fn check_role_mutation(subject: &Subject, role: &RoleAssignment, assigned: bool)
             "papel só se atribui a sujeito identificado",
         )]);
     };
+    if assigned && let Err(error) = role.check_window() {
+        return Err(vec![Violation::new("mutation", error.to_string())]);
+    }
     let has = subject.roles.contains(role);
     let message = match (assigned, has) {
         (true, true) => format!("{id} já tem o papel {}", role_label(role)),
@@ -447,7 +536,7 @@ impl Invariant for NoSelfManagement {
             SubjectMatcher::User { id } => actor.id.as_deref() == Some(id.as_str()),
             SubjectMatcher::Role { id } => engine
                 .roles()
-                .expand(actor.roles.iter().map(|r| r.role.as_str()))
+                .expand(standing_roles(actor, proposal.now).map(|r| r.role.as_str()))
                 .contains(id),
             _ => false,
         };
@@ -631,7 +720,7 @@ impl Invariant for Forbid {
     fn check(&self, engine: &Engine, proposal: &Proposal<'_>) -> Result<(), Violation> {
         match proposal.mutation {
             Mutation::Add(grant) => self.check_grant(engine, grant),
-            Mutation::AssignRole { subject, role } => self.check_role(engine, proposal.before, subject, role),
+            Mutation::AssignRole { subject, role } => self.check_role(engine, proposal, subject, role),
             Mutation::Remove { .. } | Mutation::RevokeRole { .. } => Ok(()),
         }
     }
@@ -663,7 +752,7 @@ impl Forbid {
     fn check_role(
         &self,
         engine: &Engine,
-        current: &[Grant],
+        proposal: &Proposal<'_>,
         subject: &Subject,
         role: &RoleAssignment,
     ) -> Result<(), Violation> {
@@ -674,7 +763,11 @@ impl Forbid {
             return Ok(());
         }
         let roles = engine.roles().expand([role.role.as_str()]);
-        for grant in current.iter().filter(|g| g.effect == Effect::Allow) {
+        for grant in proposal
+            .before
+            .iter()
+            .filter(|g| g.effect == Effect::Allow && !g.validity().has_ended(proposal.now))
+        {
             let SubjectMatcher::Role { id: granted } = &grant.subject else {
                 continue;
             };
@@ -752,18 +845,19 @@ fn conferred_keys(engine: &Engine, permission: &str) -> Vec<String> {
 /// The allow grants that the change gives to someone: the added grant, or, in a role assignment,
 /// the allow grants of the role (and of the roles it inherits) in the scope of the assignment.
 fn conferred<'a>(engine: &Engine, proposal: &Proposal<'a>) -> Vec<Conferred<'a>> {
+    let ended = |grant: &Grant| grant.validity().has_ended(proposal.now);
     match proposal.mutation {
-        Mutation::Add(grant) if grant.effect == Effect::Allow => vec![Conferred {
+        Mutation::Add(grant) if grant.effect == Effect::Allow && !ended(grant) => vec![Conferred {
             grant,
             resource: grant_resource(grant, None),
             keys: conferred_keys(engine, &grant.permission),
         }],
-        Mutation::AssignRole { role, .. } => {
+        Mutation::AssignRole { role, .. } if !role.validity().has_ended(proposal.now) => {
             let roles = engine.roles().expand([role.role.as_str()]);
             proposal
                 .before
                 .iter()
-                .filter(|g| g.effect == Effect::Allow)
+                .filter(|g| g.effect == Effect::Allow && !ended(g))
                 .filter(|g| matches!(&g.subject, SubjectMatcher::Role { id } if roles.contains(id)))
                 .map(|grant| Conferred {
                     grant,
@@ -780,10 +874,11 @@ fn conferred<'a>(engine: &Engine, proposal: &Proposal<'a>) -> Vec<Conferred<'a>>
 /// grants of the role (and of the roles it inherits) in the scope of the assignment. What each one was
 /// blocking, the permission and the ones it implies, is now open to its subject.
 fn unlocked<'a>(engine: &Engine, proposal: &Proposal<'a>) -> Vec<Conferred<'a>> {
+    let ended = |grant: &Grant| grant.validity().has_ended(proposal.now);
     match proposal.mutation {
         Mutation::Remove { .. } => proposal
             .grant()
-            .filter(|g| g.effect == Effect::Deny)
+            .filter(|g| g.effect == Effect::Deny && !ended(g))
             .map(|grant| Conferred {
                 grant,
                 resource: grant_resource(grant, None),
@@ -791,12 +886,12 @@ fn unlocked<'a>(engine: &Engine, proposal: &Proposal<'a>) -> Vec<Conferred<'a>> 
             })
             .into_iter()
             .collect(),
-        Mutation::RevokeRole { role, .. } => {
+        Mutation::RevokeRole { role, .. } if !role.validity().has_ended(proposal.now) => {
             let roles = engine.roles().expand([role.role.as_str()]);
             proposal
                 .before
                 .iter()
-                .filter(|g| g.effect == Effect::Deny)
+                .filter(|g| g.effect == Effect::Deny && !ended(g))
                 .filter(|g| matches!(&g.subject, SubjectMatcher::Role { id } if roles.contains(id)))
                 .map(|grant| Conferred {
                     grant,
@@ -923,6 +1018,9 @@ impl Invariant for Prerequisites {
         let ctx = proposal.after_context();
         match proposal.mutation {
             Mutation::Add(grant) if grant.effect == Effect::Deny => {
+                if grant.validity().has_ended(proposal.now) {
+                    return Ok(());
+                }
                 self.broken_by(engine, proposal, &ctx, &grant.permission)
             }
             Mutation::Add(grant) => {
@@ -938,10 +1036,15 @@ impl Invariant for Prerequisites {
                 }
                 Ok(())
             }
-            Mutation::Remove { .. } => match proposal.grant() {
+            Mutation::Remove { .. } => match proposal.grant().filter(|g| !g.validity().has_ended(proposal.now)) {
                 Some(removed) => self.broken_by(engine, proposal, &ctx, &removed.permission),
                 None => Ok(()),
             },
+            Mutation::AssignRole { role, .. } | Mutation::RevokeRole { role, .. }
+                if role.validity().has_ended(proposal.now) =>
+            {
+                Ok(())
+            }
             Mutation::AssignRole { subject, .. } | Mutation::RevokeRole { subject, .. } => {
                 let after = proposal.subject_after(subject);
                 for (grant, scope) in Self::grants_of(engine, &after, proposal.after) {

@@ -23,6 +23,6 @@ pub use cache::{CapabilityCache, TtlCache};
 pub use change::{Change, ChangeKind};
 pub use hub::{ChangeSink, Hub, HubBuilder, RelayHandle};
 pub use protocol::{ClientMessage, ServerMessage, scope_from_str, scope_to_string};
-pub use provider::{BoxError, CapabilityProvider, EngineProvider, GrantLoader};
+pub use provider::{BoxError, CapabilityProvider, Clock, EngineProvider, Evaluation, GrantLoader};
 pub use session::{Session, SessionControl, SessionOptions, SessionStream};
 pub use transport::{ChangeStream, MemoryTransport, Transport, TransportError};

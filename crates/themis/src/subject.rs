@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::attr::{Attributes, Value};
 use crate::resource::{Anchor, ObjectRef, Resource};
+use crate::validity::{Validity, ValidityError};
 
 /// Principal of every identified user.
 pub const AUTHENTICATED: &str = "authenticated";
@@ -15,6 +16,68 @@ pub struct RoleAssignment {
     pub role: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<Anchor>,
+    /// Start of the validity window, in milliseconds since the Unix epoch (inclusive).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_from: Option<u64>,
+    /// End of the validity window, in milliseconds since the Unix epoch (exclusive).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_until: Option<u64>,
+}
+
+impl RoleAssignment {
+    /// Unscoped role with no window.
+    pub fn new(role: impl Into<String>) -> Self {
+        Self {
+            role: role.into(),
+            scope: None,
+            valid_from: None,
+            valid_until: None,
+        }
+    }
+
+    /// Role restricted to the resources whose path goes through `scope`.
+    pub fn in_scope(role: impl Into<String>, scope: Anchor) -> Self {
+        Self {
+            scope: Some(scope),
+            ..Self::new(role)
+        }
+    }
+
+    /// The assignment only exists from `from` on (milliseconds since the Unix epoch, inclusive).
+    pub fn valid_from(mut self, from: u64) -> Self {
+        self.valid_from = Some(from);
+        self
+    }
+
+    /// The assignment stops existing at `until` (milliseconds since the Unix epoch, exclusive).
+    pub fn valid_until(mut self, until: u64) -> Self {
+        self.valid_until = Some(until);
+        self
+    }
+
+    /// The assignment exists in `[from, until)`. [`RoleAssignment::check_window`] refuses an
+    /// inverted window.
+    pub fn valid_between(self, from: u64, until: u64) -> Self {
+        self.valid_from(from).valid_until(until)
+    }
+
+    /// The validity window of the assignment.
+    pub fn validity(&self) -> Validity {
+        Validity {
+            valid_from: self.valid_from,
+            valid_until: self.valid_until,
+        }
+    }
+
+    fn in_scope_of(&self, resource: &Resource) -> bool {
+        self.scope.as_ref().is_none_or(|scope| resource.contains(scope))
+    }
+
+    /// # Errors
+    /// [`ValidityError::Inverted`] when the window ends before it starts.
+    pub fn check_window(&self) -> Result<(), ValidityError> {
+        self.validity().check()
+    }
 }
 
 /// Who requests the access.
@@ -60,18 +123,18 @@ impl Subject {
     }
 
     pub fn with_role(mut self, role: impl Into<String>) -> Self {
-        self.roles.push(RoleAssignment {
-            role: role.into(),
-            scope: None,
-        });
+        self.roles.push(RoleAssignment::new(role));
+        self
+    }
+
+    /// Adds a prepared assignment, such as one with a validity window.
+    pub fn with_assignment(mut self, assignment: RoleAssignment) -> Self {
+        self.roles.push(assignment);
         self
     }
 
     pub fn with_role_in(mut self, role: impl Into<String>, scope: Anchor) -> Self {
-        self.roles.push(RoleAssignment {
-            role: role.into(),
-            scope: Some(scope),
-        });
+        self.roles.push(RoleAssignment::in_scope(role, scope));
         self
     }
 
@@ -89,11 +152,32 @@ impl Subject {
         self.id.as_ref().map(|id| ObjectRef::new(self.kind.clone(), id.clone()))
     }
 
-    /// Direct roles that hold for the resource: unscoped, or with a scope in its path.
+    /// Direct roles that hold for the resource: unscoped, or with a scope in its path. Assignments
+    /// with a validity window are left out, because there is no instant to check them against;
+    /// see [`Subject::roles_at`].
     pub fn roles_for<'a>(&'a self, resource: &'a Resource) -> impl Iterator<Item = &'a str> {
+        self.roles_at(resource, None)
+    }
+
+    /// Direct roles that hold for the resource at `now`: scope in the path and inside the
+    /// validity window. Without `now`, assignments with a window do not hold.
+    pub fn roles_at<'a>(&'a self, resource: &'a Resource, now: Option<u64>) -> impl Iterator<Item = &'a str> {
         self.roles
             .iter()
-            .filter(|r| r.scope.as_ref().is_none_or(|scope| resource.contains(scope)))
+            .filter(move |r| r.in_scope_of(resource) && r.validity().in_force(now, false))
+            .map(|r| r.role.as_str())
+    }
+
+    /// Direct roles for the resource, counting the assignments whose window could not be checked
+    /// (no `now`). A `deny` keyed on a role uses this set: an error never opens access.
+    pub(crate) fn roles_for_denial<'a>(
+        &'a self,
+        resource: &'a Resource,
+        now: Option<u64>,
+    ) -> impl Iterator<Item = &'a str> {
+        self.roles
+            .iter()
+            .filter(move |r| r.in_scope_of(resource) && r.validity().in_force(now, true))
             .map(|r| r.role.as_str())
     }
 

@@ -34,10 +34,7 @@ fn deny(id: &str, user: &str, key: &str) -> Grant {
 }
 
 fn role(name: &str) -> RoleAssignment {
-    RoleAssignment {
-        role: name.into(),
-        scope: None,
-    }
+    RoleAssignment::new(name)
 }
 
 fn in_finance() -> Condition {

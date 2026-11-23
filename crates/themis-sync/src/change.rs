@@ -74,6 +74,19 @@ impl Change {
         Self::new(ChangeKind::Resync, Anchor::global())
     }
 
+    /// A grant or role assignment of `subject` started or stopped being in force. Emitted by the
+    /// hub's expiry scheduler, not by a write; only that subject's sessions and cache entries react.
+    pub fn expiry(subject: impl Into<String>) -> Self {
+        Self::new(ChangeKind::Grants, Anchor::global()).for_subject(subject)
+    }
+
+    /// A grant or role assignment that applies to everyone started or stopped being in force.
+    /// Every session and cache entry on the node reacts, so use it only when that is the point;
+    /// a subject without an id never gets this (see [`Change::expiry`]).
+    pub fn expiry_for_everyone() -> Self {
+        Self::new(ChangeKind::Grants, Anchor::global())
+    }
+
     pub fn for_subject(mut self, subject: impl Into<String>) -> Self {
         self.subject = Some(subject.into());
         self
