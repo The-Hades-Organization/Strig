@@ -6566,6 +6566,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "themis-macros"
+version = "0.3.1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "syn 2.0.119",
+ "themis-auth",
+]
+
+[[package]]
 name = "themis-node"
 version = "0.3.1"
 dependencies = [
