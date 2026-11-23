@@ -1,6 +1,6 @@
+use std::collections::HashMap;
 use std::hash::{BuildHasher, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Duration;
 
@@ -391,10 +391,7 @@ mod tests {
         hub.schedule_expiry(2_000, 1_000, Change::expiry(None));
         drop(hub);
         tokio::time::sleep(Duration::from_secs(2)).await;
-        assert!(matches!(
-            rx.try_recv(),
-            Err(broadcast::error::TryRecvError::Closed)
-        ));
+        assert!(matches!(rx.try_recv(), Err(broadcast::error::TryRecvError::Closed)));
     }
 
     #[test]

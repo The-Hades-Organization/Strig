@@ -75,9 +75,7 @@ pub fn window_predicate(
     let bound = i64::try_from(now).map_err(|_| InstantOutOfRange(now))?;
     let placeholder = format!("${param_index}::bigint");
     Ok(WindowPredicate {
-        sql: format!(
-            "(({from} IS NULL OR {from} <= {placeholder}) AND ({until} IS NULL OR {until} > {placeholder}))"
-        ),
+        sql: format!("(({from} IS NULL OR {from} <= {placeholder}) AND ({until} IS NULL OR {until} > {placeholder}))"),
         param: Some(bound),
     })
 }

@@ -358,8 +358,7 @@ mod tests {
             buffer: 8,
         };
         let scope = Resource::new("project", "p1");
-        let (_control, mut stream) =
-            Session::open(&hub, Subject::user("alice"), vec![scope], Some(provider), options);
+        let (_control, mut stream) = Session::open(&hub, Subject::user("alice"), vec![scope], Some(provider), options);
 
         assert!(matches!(next(&mut stream).await, ServerMessage::Hello { .. }));
         match next(&mut stream).await {
