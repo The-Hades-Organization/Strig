@@ -13,7 +13,7 @@
 //!   permission, and [`Engine::check_for`] asks one subject by reference, with the path that
 //!   decided.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -24,12 +24,60 @@ use crate::engine::{Context, Engine};
 use crate::explain::Explanation;
 use crate::grant::{Effect, Grant, GrantIndex, SubjectMatcher, TargetSelector};
 use crate::overrides::{OverrideGate, OverrideReach, ReachRequest, SubjectsRequest};
-use crate::rebac::{TupleIndex, TupleStore, TupleSubject};
+use crate::rebac::{RebacError, TupleIndex, TupleStore, TupleSubject};
 use crate::resource::{Anchor, GLOBAL, ObjectRef, Resource};
 use crate::strategy::{Candidate, NativeStrategy, Strategy};
 use crate::subject::{AUTHENTICATED, RoleAssignment, Subject};
 
 static EMPTY_ENV: Attributes = Attributes::new();
+
+/// Ceilings on the work a reverse query does, so a large table cannot turn one call into an
+/// unbounded loop. Past a ceiling the query fails with [`QueryError::LimitExceeded`], never with a
+/// partial answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct QueryLimits {
+    /// Most parties (users, roles, principals, usersets) one query decides for.
+    pub max_parties: usize,
+    /// Most [`Engine::check`]-equivalent decisions one query makes: parties times permissions for
+    /// [`Engine::access_of`], parties plus party-and-deny pairs for [`Engine::who_can_on`].
+    pub max_decisions: usize,
+}
+
+impl QueryLimits {
+    /// Default of [`QueryLimits::max_parties`].
+    pub const DEFAULT_MAX_PARTIES: usize = 10_000;
+    /// Default of [`QueryLimits::max_decisions`]: a few seconds of work.
+    pub const DEFAULT_MAX_DECISIONS: usize = 500_000;
+
+    #[must_use]
+    pub fn with_max_parties(mut self, max_parties: usize) -> Self {
+        self.max_parties = max_parties;
+        self
+    }
+
+    #[must_use]
+    pub fn with_max_decisions(mut self, max_decisions: usize) -> Self {
+        self.max_decisions = max_decisions;
+        self
+    }
+
+    fn check(what: &'static str, used: usize, limit: usize) -> Result<(), QueryError> {
+        if used > limit {
+            return Err(QueryError::LimitExceeded { what, limit });
+        }
+        Ok(())
+    }
+}
+
+impl Default for QueryLimits {
+    fn default() -> Self {
+        Self {
+            max_parties: Self::DEFAULT_MAX_PARTIES,
+            max_decisions: Self::DEFAULT_MAX_DECISIONS,
+        }
+    }
+}
 
 /// Data for a listing or a reverse query: indexed grants, indexed ReBAC tuples and the
 /// environment attributes. The counterpart of [`Context`] for the queries that start without a
@@ -40,6 +88,7 @@ pub struct QueryContext<'a> {
     pub grants: &'a dyn GrantIndex,
     pub tuples: Option<&'a dyn TupleIndex>,
     pub env: &'a Attributes,
+    pub limits: QueryLimits,
 }
 
 impl<'a> QueryContext<'a> {
@@ -48,7 +97,17 @@ impl<'a> QueryContext<'a> {
             grants,
             tuples: None,
             env: &EMPTY_ENV,
+            limits: QueryLimits {
+                max_parties: QueryLimits::DEFAULT_MAX_PARTIES,
+                max_decisions: QueryLimits::DEFAULT_MAX_DECISIONS,
+            },
         }
+    }
+
+    #[must_use]
+    pub fn with_limits(mut self, limits: QueryLimits) -> Self {
+        self.limits = limits;
+        self
     }
 
     pub fn with_tuples(mut self, tuples: &'a dyn TupleIndex) -> Self {
@@ -79,6 +138,13 @@ pub enum QueryError {
     /// represented without loading.
     #[error("subject not found: {0}")]
     UnknownSubject(SubjectRef),
+    /// The query would go past one of the [`QueryLimits`].
+    #[error("query limit exceeded: more than {limit} {what}")]
+    LimitExceeded { what: &'static str, limit: usize },
+    /// A deny grant through a relation could not be settled because the relation chain is deeper
+    /// than the engine allows. The query fails instead of leaving the denied party in the answer.
+    #[error("relation depth exceeded while reading the deny grant {grant_id}")]
+    RelationDepthExceeded { grant_id: String },
 }
 
 /// A party named by a grant or a tuple, in the terms the queries use: it keeps the kind of the
@@ -177,7 +243,7 @@ impl SubjectResolver for InMemorySubjects {
 ///
 /// The atoms that talk about the path assume that a kind appears at most once in a resource's
 /// path (a document has one project), which is how the path is built.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Expr {
     True,
@@ -316,32 +382,14 @@ impl Expr {
                 other => flat.push(other),
             }
         }
-        let mut merged: Vec<Expr> = Vec::new();
-        for item in flat {
-            if merged.contains(&item) {
-                continue;
-            }
-            if let Expr::AnchorIn { kind, ids } = &item
-                && let Some(Expr::AnchorIn { ids: held, .. }) = merged
-                    .iter_mut()
-                    .find(|e| matches!(e, Expr::AnchorIn { kind: k, .. } if k == kind))
-            {
-                held.retain(|id| ids.contains(id));
-                continue;
-            }
-            merged.push(item);
-        }
+        let merged = Self::merge_terms(flat, |held, ids| held.retain(|id| ids.contains(id)));
         if merged
             .iter()
             .any(|e| matches!(e, Expr::AnchorIn { ids, .. } if ids.is_empty()))
         {
             return Expr::False;
         }
-        match merged.len() {
-            0 => Expr::True,
-            1 => merged.remove(0),
-            _ => Expr::And(merged),
-        }
+        Self::collapse(merged, Expr::True, Expr::And)
     }
 
     fn simplify_or(items: &[Expr]) -> Expr {
@@ -354,25 +402,41 @@ impl Expr {
                 other => flat.push(other),
             }
         }
-        let mut merged: Vec<Expr> = Vec::new();
-        for item in flat {
-            if merged.contains(&item) {
-                continue;
+        let merged = Self::merge_terms(flat, |held, ids| held.extend(ids.iter().cloned()));
+        Self::collapse(merged, Expr::False, Expr::Or)
+    }
+
+    /// Drops repeated terms and merges the id sets of the terms on the same kind with `combine`,
+    /// in one pass (a hash set and a map by kind, not a scan per term).
+    fn merge_terms(terms: Vec<Expr>, combine: impl Fn(&mut BTreeSet<String>, &BTreeSet<String>)) -> Vec<Expr> {
+        let mut merged: Vec<Expr> = Vec::with_capacity(terms.len());
+        let mut seen: HashSet<Expr> = HashSet::new();
+        let mut slot_of_kind: HashMap<String, usize> = HashMap::new();
+        for item in terms {
+            if let Expr::AnchorIn { kind, ids } = &item {
+                match slot_of_kind.get(kind) {
+                    Some(&slot) => {
+                        if let Some(Expr::AnchorIn { ids: held, .. }) = merged.get_mut(slot) {
+                            combine(held, ids);
+                        }
+                    }
+                    None => {
+                        slot_of_kind.insert(kind.clone(), merged.len());
+                        merged.push(item);
+                    }
+                }
+            } else if seen.insert(item.clone()) {
+                merged.push(item);
             }
-            if let Expr::AnchorIn { kind, ids } = &item
-                && let Some(Expr::AnchorIn { ids: held, .. }) = merged
-                    .iter_mut()
-                    .find(|e| matches!(e, Expr::AnchorIn { kind: k, .. } if k == kind))
-            {
-                held.extend(ids.iter().cloned());
-                continue;
-            }
-            merged.push(item);
         }
-        match merged.len() {
-            0 => Expr::False,
-            1 => merged.remove(0),
-            _ => Expr::Or(merged),
+        merged
+    }
+
+    fn collapse(mut terms: Vec<Expr>, empty: Expr, join: fn(Vec<Expr>) -> Expr) -> Expr {
+        match terms.len() {
+            0 => empty,
+            1 => terms.remove(0),
+            _ => join(terms),
         }
     }
 
@@ -803,17 +867,20 @@ impl AccessFilter {
             }
             Some(NativeStrategy::PermitOverrides) => allow_any.clone(),
             Some(NativeStrategy::FirstApplicable) => {
-                let mut none_before: Vec<Expr> = Vec::new();
-                let mut terms = Vec::new();
+                // The first applicable grant decides, so a run of grants with the same effect
+                // decides together: it holds if any of them applies, and otherwise the rest decides.
+                // Built from the end, the expression grows with the grants, not with their square.
+                let mut runs: Vec<(Effect, Vec<Expr>)> = Vec::new();
                 for (_, effect, applies) in &ranked {
-                    if *effect == Effect::Allow {
-                        let mut term = none_before.clone();
-                        term.push(applies.clone());
-                        terms.push(Expr::And(term));
+                    match runs.last_mut() {
+                        Some((last, applied)) if last == effect => applied.push(applies.clone()),
+                        _ => runs.push((*effect, vec![applies.clone()])),
                     }
-                    none_before.push(Expr::not(applies.clone()));
                 }
-                Expr::Or(terms)
+                runs.into_iter().rev().fold(Expr::False, |rest, (effect, applied)| match effect {
+                    Effect::Allow => Expr::Or(vec![Expr::Or(applied), rest]),
+                    Effect::Deny => Expr::And(vec![Expr::not(Expr::Or(applied)), rest]),
+                })
             }
             _ => Expr::And(vec![
                 self.strategy_residual.map_or(Expr::False, Expr::Residual),
@@ -956,6 +1023,59 @@ fn resource_attr(path: &str) -> bool {
         .is_some_and(|(root, name)| root == "resource" && name != "kind")
 }
 
+/// Most alternations of allow and deny runs (under `FirstApplicable`) that a listing writes as an
+/// expression; past it the strategy is left to the row.
+const MAX_FIRST_APPLICABLE_RUNS: usize = 256;
+
+fn effect_runs(entries: &[Entry]) -> usize {
+    let mut runs = 0;
+    let mut last = None;
+    for entry in entries {
+        if last != Some(entry.grant.effect) {
+            runs += 1;
+            last = Some(entry.grant.effect);
+        }
+    }
+    runs
+}
+
+/// The roles a subject holds with everything they inherit, expanded once per listing.
+struct HeldRoles {
+    /// Each held role: its scope and the roles it stands for (itself and what it inherits).
+    held: Vec<(Option<Anchor>, BTreeSet<String>)>,
+    all: BTreeSet<String>,
+}
+
+impl HeldRoles {
+    fn new(engine: &Engine, subject: &Subject) -> Self {
+        let held: Vec<(Option<Anchor>, BTreeSet<String>)> = subject
+            .roles
+            .iter()
+            .map(|r| (r.scope.clone(), engine.roles.expand([r.role.as_str()])))
+            .collect();
+        let all = held.iter().flat_map(|(_, expanded)| expanded.iter().cloned()).collect();
+        Self { held, all }
+    }
+
+    /// Cheap test, before a grant is copied: could the grant's subject side hold for this subject?
+    /// A relation is settled later, with the tuples.
+    fn may_match(&self, subject: &Subject, matcher: &SubjectMatcher) -> bool {
+        match matcher {
+            SubjectMatcher::User { id } => subject.id.as_deref() == Some(id.as_str()),
+            SubjectMatcher::Principal { name } => subject.has_principal(name),
+            SubjectMatcher::Role { id } => self.all.contains(id),
+            SubjectMatcher::Any | SubjectMatcher::Relation { .. } => true,
+        }
+    }
+}
+
+/// What planning one listing carries besides the filter.
+struct SubjectPlan<'a> {
+    subject: &'a Subject,
+    roles: HeldRoles,
+    probe: Resource,
+}
+
 impl Engine {
     /// The reach of `subject` with `permission` over the resources of `kind`.
     ///
@@ -1002,15 +1122,28 @@ impl Engine {
             filter.strategy_residual = Some(filter.residuals.len() - 1);
         }
         let keys: Vec<&str> = effective.iter().map(String::as_str).collect();
+        let who = SubjectPlan {
+            subject,
+            roles: HeldRoles::new(self, subject),
+            probe: Resource::new(kind, ""),
+        };
         let mut grants = Vec::new();
         ctx.grants.visit_by_permission(&keys, &mut |g| {
-            if effective.contains(&g.permission) {
+            if effective.contains(&g.permission) && who.roles.may_match(subject, &g.subject) {
                 grants.push(g.clone());
             }
         });
-        let probe = Resource::new(kind, "");
         for grant in grants {
-            self.plan_grant(&mut filter, ctx, subject, grant, &probe);
+            self.plan_grant(&mut filter, ctx, &who, grant);
+        }
+        if native == Some(NativeStrategy::FirstApplicable) && effect_runs(&filter.entries) > MAX_FIRST_APPLICABLE_RUNS {
+            // Too many alternations to write as an expression of reasonable size: fail closed, the
+            // row decides.
+            filter.native = None;
+            filter.residuals.push(FilterResidual::Strategy {
+                name: self.strategy.name().to_string(),
+            });
+            filter.strategy_residual = Some(filter.residuals.len() - 1);
         }
         if with_overrides {
             for entry in &self.overrides {
@@ -1046,20 +1179,14 @@ impl Engine {
     }
 
     /// Settles the subject side of one grant, and the condition when it does not read the resource.
-    fn plan_grant(
-        &self,
-        filter: &mut AccessFilter,
-        ctx: &QueryContext<'_>,
-        subject: &Subject,
-        grant: Grant,
-        probe: &Resource,
-    ) {
+    fn plan_grant(&self, filter: &mut AccessFilter, ctx: &QueryContext<'_>, who: &SubjectPlan<'_>, grant: Grant) {
+        let (subject, probe) = (who.subject, &who.probe);
         let fail_safe = grant.effect == Effect::Deny;
         let mut parts = Vec::new();
         if let Some(scope) = &grant.scope {
             parts.push(Expr::Within(scope.clone()));
         }
-        match self.subject_gate(filter, ctx, subject, &grant) {
+        match self.subject_gate(filter, ctx, who, &grant) {
             Some(gate) => parts.push(gate),
             None => return,
         }
@@ -1102,19 +1229,21 @@ impl Engine {
         &self,
         filter: &mut AccessFilter,
         ctx: &QueryContext<'_>,
-        subject: &Subject,
+        who: &SubjectPlan<'_>,
         grant: &Grant,
     ) -> Option<Expr> {
+        let subject = who.subject;
         match &grant.subject {
             SubjectMatcher::User { id } => (subject.id.as_deref() == Some(id.as_str())).then_some(Expr::True),
             SubjectMatcher::Principal { name } => subject.has_principal(name).then_some(Expr::True),
             SubjectMatcher::Any => Some(Expr::True),
             SubjectMatcher::Role { id } => {
-                let alternatives: Vec<Expr> = subject
+                let alternatives: Vec<Expr> = who
                     .roles
+                    .held
                     .iter()
-                    .filter(|held| self.roles.expand([held.role.as_str()]).contains(id))
-                    .map(|held| held.scope.clone().map_or(Expr::True, Expr::Within))
+                    .filter(|(_, expanded)| expanded.contains(id))
+                    .map(|(scope, _)| scope.clone().map_or(Expr::True, Expr::Within))
                     .collect();
                 (!alternatives.is_empty()).then_some(Expr::Or(alternatives))
             }
@@ -1238,6 +1367,10 @@ pub struct WhoCanExcept {
 /// that is several parties at once can be denied by a rule that targets one of them; the pairs that
 /// the grants make conflict are in [`WhoCan::except`], and [`WhoCan::admits`] applies them. Pairs
 /// are the approximation: [`Engine::check_for`] is the authority for one subject.
+///
+/// The parties are decided as bare archetypes: a role, a principal or a user id with no attributes.
+/// A deny conditioned on `subject.<attr>` is therefore not seen, and [`WhoCan::except`] only covers
+/// pairs of parties named by deny grants, not the decisions of an override.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhoCan {
     pub permission: String,
@@ -1416,7 +1549,7 @@ impl Engine {
         ctx: &QueryContext<'_>,
         grants: &[Grant],
         resource: &Resource,
-    ) -> (BTreeSet<SubjectRef>, BTreeSet<SubjectRef>) {
+    ) -> Result<(BTreeSet<SubjectRef>, BTreeSet<SubjectRef>), QueryError> {
         let mut all = BTreeSet::new();
         let mut denied = BTreeSet::new();
         for grant in grants {
@@ -1431,26 +1564,45 @@ impl Engine {
                 SubjectMatcher::Role { id } => vec![SubjectRef::Role { id: id.clone() }],
                 SubjectMatcher::Principal { name } => vec![SubjectRef::Principal { name: name.clone() }],
                 SubjectMatcher::Any => vec![SubjectRef::Anyone],
-                SubjectMatcher::Relation { relation } => self.relation_parties(ctx, anchor.object_ref(), relation),
+                SubjectMatcher::Relation { relation } => {
+                    match self.relation_parties(ctx, anchor.object_ref(), relation) {
+                        Ok(parties) => parties,
+                        // A deny that cannot be read must not drop its parties from the answer.
+                        Err(RebacError::DepthExceeded(_)) if grant.effect == Effect::Deny => {
+                            return Err(QueryError::RelationDepthExceeded {
+                                grant_id: grant.id.clone(),
+                            });
+                        }
+                        // An allow that cannot be read grants nothing, as in `check`.
+                        Err(RebacError::DepthExceeded(_)) => continue,
+                    }
+                }
             };
             if grant.effect == Effect::Deny {
                 denied.extend(parties.iter().cloned());
             }
             all.extend(parties);
         }
-        (all, denied)
+        Ok((all, denied))
     }
 
     /// Parties that may hold `relation` on `object`: the direct subjects of the relation and of the
     /// relations it derives from, usersets kept as usersets.
-    fn relation_parties(&self, ctx: &QueryContext<'_>, object: Option<ObjectRef>, relation: &str) -> Vec<SubjectRef> {
+    ///
+    /// # Errors
+    ///
+    /// [`RebacError::DepthExceeded`] when the relation chain is deeper than the engine allows.
+    fn relation_parties(
+        &self,
+        ctx: &QueryContext<'_>,
+        object: Option<ObjectRef>,
+        relation: &str,
+    ) -> Result<Vec<SubjectRef>, RebacError> {
         let (Some(schema), Some(tuples), Some(object)) = (self.relations.as_ref(), ctx.tuples, object) else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
-        let Ok(subjects) = schema.subjects_of(tuples, &object, relation, self.max_relation_depth) else {
-            return Vec::new();
-        };
-        subjects
+        let subjects = schema.subjects_of(tuples, &object, relation, self.max_relation_depth)?;
+        Ok(subjects
             .into_iter()
             .map(|subject| match subject {
                 TupleSubject::Object(o) if o.id == crate::rebac::WILDCARD => SubjectRef::Wildcard { kind: o.kind },
@@ -1458,7 +1610,7 @@ impl Engine {
                 TupleSubject::Object(o) => SubjectRef::Object { kind: o.kind, id: o.id },
                 TupleSubject::Userset(object, relation) => SubjectRef::Userset { object, relation },
             })
-            .collect()
+            .collect())
     }
 
     /// Grants of the permission (and the ones that imply it) that sit on the resource's path.
@@ -1467,7 +1619,11 @@ impl Engine {
         let mut seen = BTreeSet::new();
         for (_, anchor) in resource.anchors() {
             ctx.grants.visit_by_target_kind(&anchor.kind, &mut |g| {
-                if permissions.is_none_or(|keys| keys.contains(&g.permission.as_str())) && seen.insert(g.id.clone()) {
+                let on_step = g.target.id.as_ref().is_none_or(|id| anchor.id.as_ref() == Some(id));
+                if on_step
+                    && permissions.is_none_or(|keys| keys.contains(&g.permission.as_str()))
+                    && seen.insert(g.id.clone())
+                {
                     out.push(g.clone());
                 }
             });
@@ -1481,7 +1637,7 @@ impl Engine {
         permission: &str,
         resource: &Resource,
         with_overrides: bool,
-    ) -> WhoCan {
+    ) -> Result<WhoCan, QueryError> {
         let mut result = WhoCan {
             permission: permission.to_string(),
             resource: Some(resource.clone()),
@@ -1489,11 +1645,11 @@ impl Engine {
             except: Vec::new(),
         };
         let Some(effective) = self.catalog.effective(permission) else {
-            return result;
+            return Ok(result);
         };
         let keys: Vec<&str> = effective.iter().map(String::as_str).collect();
         let grants = self.grants_on_path(ctx, Some(&keys), resource);
-        let (mut candidates, denied) = self.parties_on(ctx, &grants, resource);
+        let (mut candidates, denied) = self.parties_on(ctx, &grants, resource)?;
         if with_overrides {
             let request = SubjectsRequest {
                 engine: self,
@@ -1503,10 +1659,16 @@ impl Engine {
             };
             for entry in &self.overrides {
                 if !entry.except.iter().any(|key| effective.contains(key)) {
-                    candidates.extend(entry.inner.subjects(&request));
+                    candidates.extend(entry.inner.subjects(&request)?);
                 }
             }
         }
+        QueryLimits::check("parties", candidates.len(), ctx.limits.max_parties)?;
+        QueryLimits::check(
+            "decisions",
+            candidates.len().saturating_add(candidates.len().saturating_mul(denied.len())),
+            ctx.limits.max_decisions,
+        )?;
         for party in &candidates {
             let explanation = self.decide_parties(ctx, &[party], permission, resource, with_overrides);
             if explanation.decision.is_allowed() {
@@ -1528,16 +1690,31 @@ impl Engine {
                 }
             }
         }
-        result
+        Ok(result)
     }
 
-    pub(crate) fn who_can_on_by_grants(&self, ctx: &QueryContext<'_>, permission: &str, resource: &Resource) -> WhoCan {
+    pub(crate) fn who_can_on_by_grants(
+        &self,
+        ctx: &QueryContext<'_>,
+        permission: &str,
+        resource: &Resource,
+    ) -> Result<WhoCan, QueryError> {
         self.who_can_inner(ctx, permission, resource, false)
     }
 
     /// Parties that hold `permission` (or something that implies it) on `resource`, grants and
     /// overrides included. See [`WhoCan`] for what an entry promises.
-    pub fn who_can_on(&self, ctx: &QueryContext<'_>, permission: &str, resource: &Resource) -> WhoCan {
+    ///
+    /// # Errors
+    ///
+    /// [`QueryError::LimitExceeded`] past the [`QueryLimits`] of `ctx`;
+    /// [`QueryError::RelationDepthExceeded`] when a deny grant through a relation cannot be read.
+    pub fn who_can_on(
+        &self,
+        ctx: &QueryContext<'_>,
+        permission: &str,
+        resource: &Resource,
+    ) -> Result<WhoCan, QueryError> {
         self.who_can_inner(ctx, permission, resource, true)
     }
 
@@ -1575,7 +1752,10 @@ impl Engine {
                         None => tuples.visit_objects(&grant.target.kind, &mut |o| objects.push(o.clone())),
                     }
                     for object in objects {
-                        out.extend(self.relation_parties(ctx, Some(object), relation));
+                        // An allow that cannot be read names nobody, as in `check`.
+                        if let Ok(parties) = self.relation_parties(ctx, Some(object), relation) {
+                            out.extend(parties);
+                        }
                     }
                 }
             }
@@ -1585,9 +1765,14 @@ impl Engine {
 
     /// Who has access to the resource, with the permissions of each party. A party is listed with
     /// what it holds alone; [`Engine::check_for`] is the authority for a subject that is several.
-    pub fn access_of(&self, ctx: &QueryContext<'_>, resource: &Resource) -> Vec<PartyAccess> {
+    ///
+    /// # Errors
+    ///
+    /// [`QueryError::LimitExceeded`] past the [`QueryLimits`] of `ctx`;
+    /// [`QueryError::RelationDepthExceeded`] when a deny grant through a relation cannot be read.
+    pub fn access_of(&self, ctx: &QueryContext<'_>, resource: &Resource) -> Result<Vec<PartyAccess>, QueryError> {
         let grants = self.grants_on_path(ctx, None, resource);
-        let (mut parties, _) = self.parties_on(ctx, &grants, resource);
+        let (mut parties, _) = self.parties_on(ctx, &grants, resource)?;
         for def in self.catalog.all() {
             let request = SubjectsRequest {
                 engine: self,
@@ -1596,9 +1781,15 @@ impl Engine {
                 resource,
             };
             for entry in &self.overrides {
-                parties.extend(entry.inner.subjects(&request));
+                parties.extend(entry.inner.subjects(&request)?);
             }
         }
+        QueryLimits::check("parties", parties.len(), ctx.limits.max_parties)?;
+        QueryLimits::check(
+            "decisions",
+            parties.len().saturating_mul(self.catalog.all().len()),
+            ctx.limits.max_decisions,
+        )?;
         let mut out = Vec::new();
         for party in parties {
             let permissions: BTreeSet<String> = self
@@ -1619,7 +1810,7 @@ impl Engine {
                 });
             }
         }
-        out
+        Ok(out)
     }
 
     /// Does `subject` have `permission` on `resource`? The subject is loaded by `resolver` and the
