@@ -147,14 +147,17 @@ pub fn load_project(sources: &Value) -> DslResult<Value> {
     for item in list {
         let path = string("path", item.get("path").unwrap_or(&Value::Null))?;
         let text = string("text", item.get("text").unwrap_or(&Value::Null))?;
-        project.add_source(path, text).map_err(|found| failure("DSL_PARSE", &found))?;
+        project
+            .add_source(path, text)
+            .map_err(|found| failure("DSL_PARSE", &found))?;
     }
     build(&project)
 }
 
 fn build(project: &Project) -> DslResult<Value> {
     let built = project.build().map_err(|found| failure(project_code(&found), &found))?;
-    to_value(&built.policy)
+    // A montagem segue a ordem das fontes; o JSON canônico não depende dela.
+    to_value(&built.policy.canonical())
 }
 
 /// `loadProjectDir(dir)`: só no módulo nativo, o wasm não tem IO.
@@ -200,7 +203,11 @@ mod tests {
 
     #[test]
     fn syntax_error_is_parse_and_carries_position() {
-        let e = compile(&json!("language blocks\n\npermission {"), Some(&json!({ "file": "a.themis" }))).unwrap_err();
+        let e = compile(
+            &json!("language blocks\n\npermission {"),
+            Some(&json!({ "file": "a.themis" })),
+        )
+        .unwrap_err();
         assert_eq!(e.code, "DSL_PARSE");
         assert_eq!(e.diagnostics[0]["file"], "a.themis");
         assert!(e.diagnostics[0]["line"].as_u64().unwrap() >= 1);
