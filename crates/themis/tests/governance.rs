@@ -167,6 +167,7 @@ fn admin_assigns_role_to_another_user() {
         before: &after,
         after: &after,
         tuples: None,
+        now: None,
     };
     assert!(proposal.grant().is_none());
     assert_eq!(proposal.subject_after(&Subject::user("u1")).roles, [in_org("member")]);
