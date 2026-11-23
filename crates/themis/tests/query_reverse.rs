@@ -321,20 +321,22 @@ fn check_for_an_unknown_user_is_an_error() {
     assert_eq!(err, QueryError::UnknownSubject(missing));
 }
 
+/// F6: a resolver that returns `None` (an unknown subject or a failed load) must deny.
 #[test]
-fn check_for_a_role_that_the_resolver_does_not_know_answers_as_the_role_alone() {
+fn check_for_a_reference_the_resolver_does_not_know_is_an_error_never_an_allow() {
     let (engine, grants) = (engine_with_roles(), grants());
     let qctx = QueryContext::new(&grants);
-    let answer = engine
-        .check_for(
-            &qctx,
-            &resolver(),
-            &SubjectRef::Role { id: "member".into() },
-            "document.view",
-            &document("d2", "invoice"),
-        )
-        .unwrap();
-    assert!(answer.is_allowed());
+    let nothing = |_: &SubjectRef| None;
+    for party in [
+        SubjectRef::Role { id: "member".into() },
+        SubjectRef::Role { id: "admin".into() },
+        SubjectRef::Principal { name: "auditor".into() },
+        SubjectRef::Anyone,
+        SubjectRef::Wildcard { kind: "user".into() },
+    ] {
+        let result = engine.check_for(&qctx, &nothing, &party, "document.view", &document("d2", "invoice"));
+        assert_eq!(result.unwrap_err(), QueryError::UnknownSubject(party));
+    }
 }
 
 #[test]
