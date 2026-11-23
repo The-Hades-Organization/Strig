@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { PermissionClient } from '../client.js';
 import { load, scopeFromString } from '../node.js';
+import './binding040.mjs';
 import { Hub, change, engineProvider, memoryTransport, openSession, pgTransport, pipeSse, redisTransport, sseResponse } from '../server.js';
 
 const runtime = globalThis.Bun ? `bun ${Bun.version}` : `node ${process.version}`;
@@ -57,7 +58,7 @@ for (const backend of ['native', 'wasm']) {
     assert.equal(engine.check(ctx, request), true);
     const decision = engine.decide(ctx, request);
     assert.equal(decision.effect, 'allow');
-    assert.equal(decision.reason.grant_id, 'g1');
+    assert.equal(decision.reason.grantId, 'g1');
     assert.equal(engine.check(ctx, { ...request, permission: 'project.edit' }), false);
     assert.equal(engine.capabilities(ctx, admin, p1).grants.length, 1);
     const explained = engine.explain(ctx, request);
@@ -324,4 +325,4 @@ if (pgUrl) {
 }
 
 console.log(failures ? `# ${failures} falha(s)` : '# tudo ok');
-process.exit(failures ? 1 : 0);
+process.exit(failures || process.exitCode ? 1 : 0);
