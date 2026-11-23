@@ -18,12 +18,14 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 ## Módulo nativo para Node e Bun (N-API).
-napi = ["dep:napi", "dep:napi-derive"]
+napi = ["dep:napi", "dep:napi-derive", "dsl-fs"]
+## Ler um diretório de políticas (`loadProjectDir`); o wasm não tem IO.
+dsl-fs = ["themis/dsl-fs"]
 ## WebAssembly para navegador, Deno e fallback do Node/Bun.
 wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys"]
 
 [dependencies]
-themis = { workspace = true, features = ["exclusive"] }
+themis = { workspace = true, features = ["exclusive", "dsl"] }
 serde.workspace = true
 serde_json.workspace = true
 napi = { version = "3", default-features = false, features = ["napi6", "serde-json"], optional = true }

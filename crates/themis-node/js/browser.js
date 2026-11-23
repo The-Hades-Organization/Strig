@@ -1,5 +1,6 @@
 // Navegador e Deno: WebAssembly.
 import init, * as glue from './wasm/themis.js';
+import { makeDsl } from './dsl.js';
 
 let ready;
 
@@ -10,6 +11,7 @@ export function load(options = {}) {
     Context: glue.Context,
     auditEstimate: glue.auditEstimate,
     Exclusive: glue.Exclusive,
+    ...makeDsl(glue),
     backend: 'wasm',
   }));
   return ready;
