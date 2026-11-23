@@ -53,6 +53,7 @@ export type ErrorCode =
   | 'EXCLUSIVE_UNKNOWN_PERMISSION'
   | 'EXCLUSIVE_STORE'
   | 'EXCLUSIVE_ERROR'
+  | DslErrorCode
   | 'INTERNAL';
 
 /** What the binding throws: an `Error` with a stable `code`. */
@@ -468,7 +469,85 @@ export declare class Exclusive {
   expire(now?: number | bigint): Lease[];
 }
 
-export interface Themis {
+/** The syntaxes of the policy language. A source declares its own on the first line: `language rules`. */
+export type PolicyLanguage = 'blocks' | 'rules' | 'actors';
+
+/** Codes of the policy language, on top of `INVALID_ARGUMENT` (wrong type of argument, unknown language) and `INVALID_INPUT` (a policy object of the wrong shape). */
+export type DslErrorCode =
+  | 'DSL_PARSE'
+  | 'DSL_VALIDATE'
+  | 'DSL_CONFLICT'
+  | 'DSL_UNREPRESENTABLE'
+  | 'DSL_UNSUPPORTED'
+  | 'DSL_IO';
+
+/** Where the other side of a conflict lives. */
+export interface DslPlace {
+  file: string;
+  line: number;
+  column: number;
+}
+
+/** One problem, positioned. `file`, `line` and `column` are `null` for a policy that did not come from text. */
+export interface DslDiagnostic {
+  file: string | null;
+  line: number | null;
+  column: number | null;
+  message: string;
+  hint: string | null;
+  /** Present on `DSL_CONFLICT`: the declaration this one clashes with. */
+  related?: DslPlace;
+}
+
+/** What every language function throws: a stable `code` and at most 100 diagnostics (the last one may say how many were left out). */
+export interface DslError extends Error {
+  code: ErrorCode;
+  diagnostics: DslDiagnostic[];
+}
+
+/** A policy in its canonical JSON: the same whatever the syntax it was written in. Comments are in `notes`. */
+export interface PolicyDocument {
+  catalog: Record<string, unknown>;
+  roles?: unknown[];
+  relations?: unknown[];
+  strategy?: string;
+  overrides?: unknown[];
+  maxRelationDepth?: number;
+  subjects?: unknown[];
+  grants?: unknown[];
+  tuples?: unknown[];
+  invariants?: unknown[];
+  notes?: PolicyNote[];
+}
+
+export interface PolicyNote {
+  text: string;
+  anchor: { element: string; placement: 'before' | 'after' | 'inline' | 'inside' };
+  origin: { file: string; language: PolicyLanguage; line: number; column: number; field?: string };
+}
+
+export interface PolicySource {
+  path: string;
+  text: string;
+}
+
+export interface PolicyLanguageApi {
+  /** Reads a source in the syntax it declares and validates it. `file` names it in the positions. Throws `DSL_PARSE` or `DSL_VALIDATE`. */
+  compile(text: string, options?: { file?: string }): PolicyDocument;
+  /** Writes a policy as text in `language`, comments included. Throws `DSL_UNREPRESENTABLE` when the syntax cannot say it. */
+  print(policy: PolicyDocument, language: PolicyLanguage): string;
+  /** Reads `text` in whatever syntax it declares and writes it in `language`. */
+  convert(text: string, language: PolicyLanguage): string;
+  /** Merges sources, each in its own syntax, into one policy. Throws `DSL_CONFLICT` with both positions when two declare the same thing. */
+  loadProject(sources: PolicySource[]): PolicyDocument;
+}
+
+export interface NativePolicyLanguageApi extends PolicyLanguageApi {
+  /** Reads every `.themis` file of a directory as a project. Only the native module has it: the WebAssembly build has no IO. */
+  loadProjectDir(dir: string): PolicyDocument;
+}
+
+export interface Themis extends PolicyLanguageApi {
   Engine: typeof Engine;
   Context: typeof Context;
   Exclusive: typeof Exclusive;
@@ -476,4 +555,9 @@ export interface Themis {
   backend: 'native' | 'wasm';
 }
 
+export interface NativeThemis extends Themis, NativePolicyLanguageApi {
+  backend: 'native';
+}
+
+export function load(options: { backend: 'native' }): Promise<NativeThemis>;
 export function load(options?: { backend?: 'auto' | 'native' | 'wasm'; wasm?: unknown }): Promise<Themis>;
