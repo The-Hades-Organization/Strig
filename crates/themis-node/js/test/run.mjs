@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { PermissionClient } from '../client.js';
 import { load, scopeFromString } from '../node.js';
 import './binding040.mjs';
+import './dsl.mjs';
 import './web-core.mjs';
 import './web-express.mjs';
 import './web-fastify.mjs';
