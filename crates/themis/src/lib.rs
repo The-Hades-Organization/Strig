@@ -32,6 +32,8 @@ pub mod catalog;
 pub mod condition;
 pub mod decision;
 pub mod engine;
+#[cfg(feature = "exclusive")]
+pub mod exclusive;
 pub mod explain;
 pub mod governance;
 pub mod grant;
@@ -56,6 +58,11 @@ pub use catalog::{
 pub use condition::{Condition, ConditionError, ConditionRegistry, EvalContext, Operand};
 pub use decision::{Decision, Reason, Request};
 pub use engine::{CapabilitySet, Context, Engine, EngineBuilder, EngineError, GrantError};
+#[cfg(feature = "exclusive")]
+pub use exclusive::{
+    Acquisition, Claim, ExclusiveError, ExclusivePermissions, ExclusiveRegistry, ExclusiveStore, Lease,
+    MemoryExclusiveStore, Preemption, StoreError, Terms, priority_from_attr,
+};
 pub use explain::{
     ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, TraceResult, Verdict, trace_condition,
 };
