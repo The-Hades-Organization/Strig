@@ -1,0 +1,14 @@
+error: policy:3:6: unexpected character 'é'
+       policy:3:8: unexpected character '☃'
+       policy:3:10: unexpected character 'ñ'
+         note: line 1 is the line where the literal's text starts; from line 2 on, lines and columns (in characters) are those of the file once that line is added
+  --> tests/ui/raw_multiline.rs:2:36
+   |
+ 2 |       let _ = themis_macros::policy!(r#"language blocks
+   |  ____________________________________^
+ 3 | |
+ 4 | | # café ☃ ñ
+ 5 | | target_kinds = [org]
+...  |
+11 | | "#);
+   | |__^
