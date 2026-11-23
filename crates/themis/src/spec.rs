@@ -9,14 +9,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Catalog, CatalogErrors, CatalogExport};
 use crate::engine::{Engine, EngineBuilder, EngineError};
-use crate::governance::{CatalogConformance, Forbid, Governance, NoLockout, NoSelfManagement, RequirePermission};
+use crate::governance::{
+    Bypass, CatalogConformance, Forbid, Governance, ManagementOnly, NoEscalation, NoLockout, NoSelfManagement,
+    NonDelegable, Prerequisites, RequirePermission,
+};
 use crate::grant::SubjectMatcher;
 use crate::overrides::{PermissionHolder, ResourceOwner};
 use crate::rbac::{RbacError, RoleGraph};
 use crate::rebac::{RelationSchema, Rewrite};
 use crate::resource::Resource;
 use crate::strategy::{DenyOverrides, FirstApplicable, MostSpecific, PermitOverrides};
-use crate::subject::Subject;
+use crate::subject::{RoleAssignment, Subject};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SpecError {
@@ -145,11 +148,37 @@ pub enum InvariantSpec {
         permissions: Vec<String>,
         members: Vec<Subject>,
         resource: Resource,
+        /// Reserve whose administrator-role assignment the refusal proposes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reserve: Option<ReserveSpec>,
+    },
+    /// [`Prerequisites`]: a permission is only held together with its `depends_on` ones.
+    Prerequisites,
+    /// [`NonDelegable`]: only whoever holds `manager` grants a non-delegable permission.
+    NonDelegable {
+        manager: String,
+    },
+    /// [`ManagementOnly`]: management-only permissions go only to the listed roles.
+    ManagementOnly {
+        roles: Vec<String>,
+    },
+    /// [`NoEscalation`]: the actor only grants what they hold, unless they hold the bypass.
+    NoEscalation {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bypass: Option<Bypass>,
     },
     Forbid {
         subject: SubjectMatcher,
         permissions: Vec<String>,
     },
+}
+
+/// Reserve of [`InvariantSpec::NoLockout`]: the administrator role and the subjects that may receive it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReserveSpec {
+    pub admin_role: RoleAssignment,
+    pub subjects: Vec<Subject>,
 }
 
 impl InvariantSpec {
@@ -164,7 +193,24 @@ impl InvariantSpec {
                 permissions,
                 members,
                 resource,
-            } => governance.with(NoLockout::new(permissions, members, resource)),
+                reserve,
+            } => {
+                let lockout = NoLockout::new(permissions, members, resource);
+                governance.with(match reserve {
+                    Some(r) => lockout.with_reserve(r.admin_role, r.subjects),
+                    None => lockout,
+                })
+            }
+            InvariantSpec::Prerequisites => governance.with(Prerequisites),
+            InvariantSpec::NonDelegable { manager } => governance.with(NonDelegable::new(manager)),
+            InvariantSpec::ManagementOnly { roles } => governance.with(ManagementOnly::new(roles)),
+            InvariantSpec::NoEscalation { bypass } => {
+                let invariant = NoEscalation::new();
+                governance.with(match bypass {
+                    Some(b) => invariant.bypass(b),
+                    None => invariant,
+                })
+            }
             InvariantSpec::Forbid { subject, permissions } => governance.with(Forbid::new(subject, permissions)),
         }
     }

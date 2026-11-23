@@ -44,6 +44,7 @@ pub mod resource;
 pub mod spec;
 pub mod strategy;
 pub mod subject;
+pub mod template;
 
 pub use attr::{Attributes, Value};
 #[cfg(feature = "audit")]
@@ -64,11 +65,12 @@ pub use exclusive::{
     MemoryExclusiveStore, Preemption, StoreError, Terms, priority_from_attr,
 };
 pub use explain::{
-    ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, TraceResult, Verdict, trace_condition,
+    ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, PrerequisiteStep, TraceResult, Verdict,
+    trace_condition,
 };
 pub use governance::{
-    CatalogConformance, Forbid, Governance, Invariant, Mutation, NoLockout, NoSelfManagement, Proposal,
-    RequirePermission, Violation,
+    Bypass, CatalogConformance, Forbid, Governance, Invariant, ManagementOnly, Mutation, NoEscalation, NoLockout,
+    NoSelfManagement, NonDelegable, Prerequisites, Proposal, RequirePermission, Suggestion, Violation,
 };
 pub use grant::{Effect, Grant, GrantSource, SubjectMatcher, TargetSelector};
 pub use overrides::{FnOverride, Override, PermissionHolder, ResourceOwner};
@@ -76,7 +78,8 @@ pub use rbac::{RbacError, RoleGraph};
 pub use rebac::{InMemoryTuples, RebacError, RelationSchema, Rewrite, Tuple, TupleStore, TupleSubject};
 pub use resource::{Anchor, GLOBAL, ObjectRef, Resource};
 pub use spec::{
-    EngineSpec, InvariantSpec, OverrideRule, OverrideSpec, RelationSpec, RoleSpec, SpecError, StrategySpec,
+    EngineSpec, InvariantSpec, OverrideRule, OverrideSpec, RelationSpec, ReserveSpec, RoleSpec, SpecError, StrategySpec,
 };
 pub use strategy::{Candidate, DenyOverrides, FirstApplicable, MostSpecific, PermitOverrides, Strategy};
 pub use subject::{ANONYMOUS, AUTHENTICATED, RoleAssignment, Subject};
+pub use template::{Materialized, RoleTemplate, TemplateGrant};
