@@ -18,8 +18,16 @@ fn engine() -> Engine {
 
 fn template(version: u32) -> RoleTemplate {
     RoleTemplate::new("reviewer", version)
-        .grant(TemplateGrant::allow("view", "project.view", TargetSelector::kind("project")))
-        .grant(TemplateGrant::allow("edit", "project.edit", TargetSelector::kind("project")))
+        .grant(TemplateGrant::allow(
+            "view",
+            "project.view",
+            TargetSelector::kind("project"),
+        ))
+        .grant(TemplateGrant::allow(
+            "edit",
+            "project.edit",
+            TargetSelector::kind("project"),
+        ))
 }
 
 #[test]
@@ -59,8 +67,16 @@ fn changing_the_template_does_not_alter_what_was_materialized() {
 
     // The first copy is untouched, and the new one is a separate set of grants.
     assert_eq!(applied.iter().filter(|g| g.id.starts_with("t1:")).count(), 2);
-    assert_eq!(applied.iter().find(|g| g.id == "t1:view").map(|g| g.permission.as_str()), Some("project.view"));
-    let both = second.apply(&governance, &engine, &actor, &applied, None).expect("applies");
+    assert_eq!(
+        applied
+            .iter()
+            .find(|g| g.id == "t1:view")
+            .map(|g| g.permission.as_str()),
+        Some("project.view")
+    );
+    let both = second
+        .apply(&governance, &engine, &actor, &applied, None)
+        .expect("applies");
     assert_eq!(both.len(), 3);
 }
 

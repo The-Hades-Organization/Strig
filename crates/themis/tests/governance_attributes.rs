@@ -2,7 +2,7 @@
 
 use themis::{
     Anchor, Bypass, Catalog, Engine, Governance, Grant, ManagementOnly, Mutation, NoEscalation, NoLockout,
-    NonDelegable, PermissionDef, RoleAssignment, Resource, Subject, SubjectMatcher, TargetSelector,
+    NonDelegable, PermissionDef, Resource, RoleAssignment, Subject, SubjectMatcher, TargetSelector,
 };
 
 fn engine() -> Engine {
@@ -12,7 +12,11 @@ fn engine() -> Engine {
         .permission(PermissionDef::new("project.edit").targets(["project"]))
         .permission(PermissionDef::new("project.manage").targets(["project"]))
         .permission(PermissionDef::new("project.admin").targets(["project"]).non_delegable())
-        .permission(PermissionDef::new("project.billing").targets(["project"]).management_only())
+        .permission(
+            PermissionDef::new("project.billing")
+                .targets(["project"])
+                .management_only(),
+        )
         .build()
         .expect("catalog");
     Engine::builder(catalog).build().expect("engine")
@@ -49,17 +53,27 @@ fn invariant_of(result: Result<Vec<Grant>, Vec<themis::Violation>>) -> String {
 fn non_delegable_is_granted_only_by_the_manager() {
     let engine = engine();
     let governance = Governance::new().with(NonDelegable::new("project.manage"));
-    let grants = vec![user_grant("h", "holder", "project.admin"), user_grant("m", "manager", "project.manage")];
+    let grants = vec![
+        user_grant("h", "holder", "project.admin"),
+        user_grant("m", "manager", "project.manage"),
+    ];
     let add = Mutation::Add(user_grant("new", "ana", "project.admin"));
 
     let holder = Subject::user("holder");
-    assert_eq!(invariant_of(governance.apply(&engine, &holder, &grants, &add, None)), "non_delegable");
+    assert_eq!(
+        invariant_of(governance.apply(&engine, &holder, &grants, &add, None)),
+        "non_delegable"
+    );
 
     let manager = Subject::user("manager");
-    governance.apply(&engine, &manager, &grants, &add, None).expect("manager may delegate");
+    governance
+        .apply(&engine, &manager, &grants, &add, None)
+        .expect("manager may delegate");
 
     let plain = Mutation::Add(user_grant("v", "ana", "project.view"));
-    governance.apply(&engine, &holder, &grants, &plain, None).expect("other permissions are free");
+    governance
+        .apply(&engine, &holder, &grants, &plain, None)
+        .expect("other permissions are free");
 }
 
 #[test]
@@ -96,30 +110,43 @@ fn management_only_goes_to_management_roles() {
         SubjectMatcher::role("ordinary"),
     ] {
         let add = Mutation::Add(Grant::allow("b", subject, "project.billing", on_projects()));
-        assert_eq!(invariant_of(governance.apply(&engine, &actor, &[], &add, None)), "management_only");
+        assert_eq!(
+            invariant_of(governance.apply(&engine, &actor, &[], &add, None)),
+            "management_only"
+        );
     }
 
     let to_finance = Mutation::Add(role_grant("b", "finance", "project.billing"));
-    governance.apply(&engine, &actor, &[], &to_finance, None).expect("management role");
+    governance
+        .apply(&engine, &actor, &[], &to_finance, None)
+        .expect("management role");
 }
 
 #[test]
 fn management_only_refuses_assigning_an_ordinary_role_that_carries_it() {
     let engine = engine();
     let governance = Governance::new().with(ManagementOnly::new(["finance"]));
-    let grants = vec![role_grant("o", "ordinary", "project.billing"), role_grant("f", "finance", "project.billing")];
+    let grants = vec![
+        role_grant("o", "ordinary", "project.billing"),
+        role_grant("f", "finance", "project.billing"),
+    ];
     let actor = Subject::user("boss");
     let ana = Subject::user("ana");
     let ordinary = Mutation::AssignRole {
         subject: ana.clone(),
         role: role("ordinary"),
     };
-    assert_eq!(invariant_of(governance.apply(&engine, &actor, &grants, &ordinary, None)), "management_only");
+    assert_eq!(
+        invariant_of(governance.apply(&engine, &actor, &grants, &ordinary, None)),
+        "management_only"
+    );
     let finance = Mutation::AssignRole {
         subject: ana,
         role: role("finance"),
     };
-    governance.apply(&engine, &actor, &grants, &finance, None).expect("management role");
+    governance
+        .apply(&engine, &actor, &grants, &finance, None)
+        .expect("management role");
 }
 
 #[test]
@@ -130,10 +157,15 @@ fn no_escalation_limits_grants_to_what_the_actor_holds() {
     let lead = Subject::user("lead");
 
     let view = Mutation::Add(user_grant("a", "ana", "project.view"));
-    governance.apply(&engine, &lead, &grants, &view, None).expect("holds view");
+    governance
+        .apply(&engine, &lead, &grants, &view, None)
+        .expect("holds view");
 
     let edit = Mutation::Add(user_grant("b", "ana", "project.edit"));
-    assert_eq!(invariant_of(governance.apply(&engine, &lead, &grants, &edit, None)), "no_escalation");
+    assert_eq!(
+        invariant_of(governance.apply(&engine, &lead, &grants, &edit, None)),
+        "no_escalation"
+    );
 }
 
 #[test]
@@ -151,12 +183,17 @@ fn no_escalation_checks_the_permissions_of_an_assigned_role() {
         subject: ana.clone(),
         role: role("editors"),
     };
-    assert_eq!(invariant_of(governance.apply(&engine, &lead, &grants, &editors, None)), "no_escalation");
+    assert_eq!(
+        invariant_of(governance.apply(&engine, &lead, &grants, &editors, None)),
+        "no_escalation"
+    );
     let viewers = Mutation::AssignRole {
         subject: ana,
         role: role("viewers"),
     };
-    governance.apply(&engine, &lead, &grants, &viewers, None).expect("holds everything in the role");
+    governance
+        .apply(&engine, &lead, &grants, &viewers, None)
+        .expect("holds everything in the role");
 }
 
 #[test]
@@ -185,7 +222,10 @@ fn no_escalation_bypass_exempts_its_holder() {
     let engine = engine();
     let bypass = Bypass::new("project.manage", project());
     let governance = Governance::new().with(NoEscalation::new().bypass(bypass));
-    let grants = vec![user_grant("m", "root", "project.manage"), user_grant("l", "lead", "project.view")];
+    let grants = vec![
+        user_grant("m", "root", "project.manage"),
+        user_grant("l", "lead", "project.view"),
+    ];
     let edit = Mutation::Add(user_grant("b", "ana", "project.edit"));
 
     governance
@@ -199,8 +239,7 @@ fn no_escalation_bypass_exempts_its_holder() {
 
 fn lockout_governance(boss: Subject, spare: Subject) -> Governance {
     Governance::new().with(
-        NoLockout::new(["project.manage"], vec![boss, spare.clone()], project())
-            .with_reserve(role("admin"), [spare]),
+        NoLockout::new(["project.manage"], vec![boss, spare.clone()], project()).with_reserve(role("admin"), [spare]),
     )
 }
 
