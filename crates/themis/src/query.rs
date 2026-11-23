@@ -817,7 +817,11 @@ impl AccessFilter {
         let all: Vec<(Option<usize>, Effect, Expr)> = (0..self.entries.len())
             .map(|i| {
                 let entry = &self.entries[i];
-                (layout.rank(&entry.grant.target.kind), entry.grant.effect, self.applies_expr(i))
+                (
+                    layout.rank(&entry.grant.target.kind),
+                    entry.grant.effect,
+                    self.applies_expr(i),
+                )
             })
             .collect();
         if all.iter().any(|(rank, _, _)| rank.is_none()) {
@@ -877,10 +881,12 @@ impl AccessFilter {
                         _ => runs.push((*effect, vec![applies.clone()])),
                     }
                 }
-                runs.into_iter().rev().fold(Expr::False, |rest, (effect, applied)| match effect {
-                    Effect::Allow => Expr::Or(vec![Expr::Or(applied), rest]),
-                    Effect::Deny => Expr::And(vec![Expr::not(Expr::Or(applied)), rest]),
-                })
+                runs.into_iter()
+                    .rev()
+                    .fold(Expr::False, |rest, (effect, applied)| match effect {
+                        Effect::Allow => Expr::Or(vec![Expr::Or(applied), rest]),
+                        Effect::Deny => Expr::And(vec![Expr::not(Expr::Or(applied)), rest]),
+                    })
             }
             _ => Expr::And(vec![
                 self.strategy_residual.map_or(Expr::False, Expr::Residual),
@@ -1163,8 +1169,8 @@ impl Engine {
                     filter.residuals.len() - 1
                 });
                 let nested_offset = filter.residuals.len();
-                if let OverrideReach::Allows(OverrideGate::Holds(nested)) | OverrideReach::Denies(OverrideGate::Holds(nested)) =
-                    &reach
+                if let OverrideReach::Allows(OverrideGate::Holds(nested))
+                | OverrideReach::Denies(OverrideGate::Holds(nested)) = &reach
                 {
                     filter.residuals.extend(nested.residuals.iter().cloned());
                 }
@@ -1666,7 +1672,9 @@ impl Engine {
         QueryLimits::check("parties", candidates.len(), ctx.limits.max_parties)?;
         QueryLimits::check(
             "decisions",
-            candidates.len().saturating_add(candidates.len().saturating_mul(denied.len())),
+            candidates
+                .len()
+                .saturating_add(candidates.len().saturating_mul(denied.len())),
             ctx.limits.max_decisions,
         )?;
         for party in &candidates {

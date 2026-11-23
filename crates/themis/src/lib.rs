@@ -70,8 +70,8 @@ pub use overrides::{
 };
 pub use query::{
     AccessFilter, AccessVia, CheckAnswer, Expr, FilterOutcome, FilterResidual, FilterResolution, FilterShape,
-    InMemorySubjects, PartyAccess, PathLayout, QueryContext, QueryError, QueryLimits, SubjectRef, SubjectResolver, WhoCan,
-    WhoCanEntry, WhoCanExcept,
+    InMemorySubjects, PartyAccess, PathLayout, QueryContext, QueryError, QueryLimits, SubjectRef, SubjectResolver,
+    WhoCan, WhoCanEntry, WhoCanExcept,
 };
 pub use rbac::{RbacError, RoleGraph};
 pub use rebac::{InMemoryTuples, RebacError, RelationSchema, Rewrite, Tuple, TupleIndex, TupleStore, TupleSubject};

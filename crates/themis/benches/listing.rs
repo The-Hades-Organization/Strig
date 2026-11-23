@@ -10,9 +10,9 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use themis::{
-    Anchor, Catalog, Condition, Engine, FirstApplicable, Grant, InMemoryTuples, ObjectRef, Operand, PathLayout, PermissionDef,
-    QueryContext, RelationSchema, Request, Resource, ResourceOwner, Rewrite, Subject, SubjectMatcher, TargetSelector,
-    Tuple,
+    Anchor, Catalog, Condition, Engine, FirstApplicable, Grant, InMemoryTuples, ObjectRef, Operand, PathLayout,
+    PermissionDef, QueryContext, RelationSchema, Request, Resource, ResourceOwner, Rewrite, Subject, SubjectMatcher,
+    TargetSelector, Tuple,
 };
 
 const SIZES: [usize; 3] = [1_000, 10_000, 100_000];
