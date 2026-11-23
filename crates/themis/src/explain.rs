@@ -85,6 +85,9 @@ pub enum Verdict {
     },
     /// The grant's permission is not the requested one and does not grant it.
     PermissionUnrelated,
+    /// The grant is outside its validity window at the decision instant, or has a window and the
+    /// context carries no instant (an `allow` is then ignored; a `deny` is never discarded for it).
+    OutsideWindow,
     /// The grant's scope is not in the resource path.
     OutOfScope,
     /// The grant's target matches no step of the path.

@@ -42,6 +42,7 @@ pub mod resource;
 pub mod spec;
 pub mod strategy;
 pub mod subject;
+pub mod validity;
 
 pub use attr::{Attributes, Value};
 #[cfg(feature = "audit")]
@@ -73,3 +74,4 @@ pub use spec::{
 };
 pub use strategy::{Candidate, DenyOverrides, FirstApplicable, MostSpecific, PermitOverrides, Strategy};
 pub use subject::{ANONYMOUS, AUTHENTICATED, RoleAssignment, Subject};
+pub use validity::{Validity, ValidityError, next_boundary};
