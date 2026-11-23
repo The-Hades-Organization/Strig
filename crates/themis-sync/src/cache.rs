@@ -110,7 +110,9 @@ impl<K: Eq + Hash + Clone, V: Clone> TtlCache<K, V> {
 /// it drops the entries a change affects.
 ///
 /// An entry never outlives the next validity boundary of its set (a grant or role assignment that
-/// starts or stops being in force), so a capability is not served after its `valid_until`.
+/// starts or stops being in force), so a capability is not served after its `valid_until`. The
+/// monotonic lifetime does not count time the machine spent suspended; the wall-clock check on every
+/// read covers that and a clock step.
 pub struct CapabilityCache {
     inner: TtlCache<String, (Option<String>, Resource, CapabilitySet, Option<u64>)>,
 }
@@ -138,25 +140,50 @@ impl CapabilityCache {
 
     /// The cached set and the instant at which it stops being valid (see
     /// [`CapabilityCache::insert_with_boundary`]).
+    ///
+    /// The entry lifetime runs on the monotonic clock, which a wall-clock step or a suspend of the
+    /// machine moves apart from the validity boundary, so the boundary is also compared with the wall
+    /// clock here: an entry whose boundary has been reached is a miss (fail closed).
     pub fn get_with_boundary(&self, subject: &Subject, scope: &Resource) -> Option<(CapabilitySet, Option<u64>)> {
+        self.get_with_boundary_at(subject, scope, now_ms())
+    }
+
+    fn get_with_boundary_at(
+        &self,
+        subject: &Subject,
+        scope: &Resource,
+        wall_ms: u64,
+    ) -> Option<(CapabilitySet, Option<u64>)> {
         self.inner
             .get(&Self::key(subject, scope))
+            // `wall_ms` is truncated to the millisecond: one more keeps the cut strict.
+            .filter(|(_, _, _, boundary)| boundary.is_none_or(|b| b > wall_ms.saturating_add(1)))
             .map(|(_, _, set, boundary)| (set, boundary))
     }
 
-    /// Stores a set computed just now, by the system clock. See [`CapabilityCache::insert_at`].
+    /// Stores a set that was computed just now, by the system clock. See [`CapabilityCache::insert_at`].
+    ///
+    /// Only for a set evaluated at this moment. If a grant in the set is already out of its window
+    /// (it expired between the evaluation and this call) the set is not stored. A caller that
+    /// evaluated earlier, or that knows grants the set does not hold, uses
+    /// [`CapabilityCache::insert_with_boundary`].
     pub fn insert(&self, subject: &Subject, scope: &Resource, set: CapabilitySet) {
         self.insert_at(subject, scope, set, now_ms());
     }
 
-    /// Stores a set computed at `now_ms` (milliseconds since the Unix epoch), cutting the TTL at the
-    /// set's next validity boundary.
-    pub fn insert_at(&self, subject: &Subject, scope: &Resource, set: CapabilitySet, now_ms: u64) {
-        let boundary = set.next_boundary(now_ms);
-        self.insert_with_boundary(subject, scope, set, boundary, now_ms);
+    /// Stores a set evaluated at `evaluated_at` (milliseconds since the Unix epoch), cutting the TTL at
+    /// the set's next validity boundary after that instant. A grant that starts later is not in the
+    /// set and is not seen: use [`CapabilityCache::insert_with_boundary`] when the caller knows it.
+    pub fn insert_at(&self, subject: &Subject, scope: &Resource, set: CapabilitySet, evaluated_at: u64) {
+        // A grant that is not open at the evaluation instant means the set is already stale.
+        if set.grants.iter().any(|g| !g.validity().contains(evaluated_at)) {
+            return;
+        }
+        let boundary = set.next_boundary(evaluated_at);
+        self.insert_with_boundary(subject, scope, set, boundary, evaluated_at);
     }
 
-    /// Stores a set computed at `now_ms` that stays valid until `next_boundary`. Use it when the
+    /// Stores a set evaluated at `now_ms` that stays valid until `next_boundary`. Use it when the
     /// boundary is known from more than the set holds: grants that start later are not in the set,
     /// but their start is still a boundary.
     pub fn insert_with_boundary(
@@ -188,9 +215,12 @@ impl CapabilityCache {
 }
 
 /// Time left until the set's next validity boundary; unlimited when nothing changes any more.
+///
+/// `now_ms` is truncated, so the real instant is up to 1 ms later: that millisecond comes off the
+/// lifetime and the entry is never alive past the boundary.
 fn max_age(next_boundary: Option<u64>, now_ms: u64) -> Duration {
     next_boundary.map_or(Duration::MAX, |boundary| {
-        Duration::from_millis(boundary.saturating_sub(now_ms))
+        Duration::from_millis(boundary.saturating_sub(now_ms.saturating_add(1)))
     })
 }
 
@@ -238,7 +268,7 @@ mod tests {
     fn ttl_is_cut_at_the_next_boundary() {
         let alice = Subject::user("alice");
         let set = windowed_set(&alice, 1_050);
-        assert_eq!(max_age(set.next_boundary(1_000), 1_000), Duration::from_millis(50));
+        assert_eq!(max_age(set.next_boundary(1_000), 1_000), Duration::from_millis(49));
         assert_eq!(max_age(None, 1_000), Duration::MAX);
         assert_eq!(max_age(Some(900), 1_000), Duration::ZERO);
     }
@@ -261,7 +291,8 @@ mod tests {
         std::thread::sleep(Duration::from_millis(30));
         assert!(cache.get(&alice, &scope).is_none(), "served a set past its valid_until");
 
-        cache.insert_at(&alice, &scope, windowed_set(&alice, 1_000_000), 1_000);
+        let now = now_ms();
+        cache.insert_at(&alice, &scope, windowed_set(&alice, now + 1_000_000), now);
         assert!(cache.get(&alice, &scope).is_some());
     }
 
@@ -277,8 +308,57 @@ mod tests {
         cache.insert_with_boundary(&alice, &scope, empty.clone(), Some(1_000), 1_000);
         assert!(cache.get(&alice, &scope).is_none(), "served a set at its boundary");
 
-        cache.insert_with_boundary(&alice, &scope, empty.clone(), Some(5_000_000), 1_000);
-        assert_eq!(cache.get_with_boundary(&alice, &scope), Some((empty, Some(5_000_000))));
+        let now = now_ms();
+        let later = now + 5_000_000;
+        cache.insert_with_boundary(&alice, &scope, empty.clone(), Some(later), now);
+        assert_eq!(cache.get_with_boundary(&alice, &scope), Some((empty, Some(later))));
+    }
+
+    #[test]
+    fn the_entry_lifetime_never_exceeds_the_time_left_to_the_boundary() {
+        // `now_ms` truncates: at 1_000.9 ms the boundary at 1_001 is 0.1 ms away, not 1 ms.
+        assert_eq!(max_age(Some(1_001), 1_000), Duration::ZERO);
+        assert_eq!(max_age(Some(1_002), 1_000), Duration::from_millis(1));
+    }
+
+    #[test]
+    fn a_wall_clock_jump_past_the_boundary_is_a_miss() {
+        let cache = CapabilityCache::new(Duration::from_secs(60), 10);
+        let alice = Subject::user("alice");
+        let scope = Resource::new("project", "p1");
+        let now = now_ms();
+        let boundary = now + 30_000;
+        cache.insert_with_boundary(&alice, &scope, windowed_set(&alice, boundary), Some(boundary), now);
+
+        // The monotonic lifetime still has 30 s, but the wall clock jumped 40 s ahead.
+        assert!(cache.get_with_boundary_at(&alice, &scope, now).is_some());
+        assert!(cache.get_with_boundary_at(&alice, &scope, boundary - 2).is_some());
+        assert!(cache.get_with_boundary_at(&alice, &scope, boundary - 1).is_none());
+        assert!(cache.get_with_boundary_at(&alice, &scope, now + 40_000).is_none());
+    }
+
+    #[test]
+    fn insert_does_not_keep_a_set_whose_grant_expired_before_the_insert() {
+        let cache = CapabilityCache::new(Duration::from_secs(60), 10);
+        let alice = Subject::user("alice");
+        let scope = Resource::new("project", "p1");
+        // The set was computed while the grant was open; its `valid_until` passed since.
+        cache.insert(&alice, &scope, windowed_set(&alice, 1_000));
+        assert!(cache.is_empty(), "a stale set stayed for the whole TTL");
+
+        cache.insert_at(&alice, &scope, windowed_set(&alice, 1_000), 1_000);
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn insert_at_cuts_at_the_boundary_after_the_evaluation_instant() {
+        let cache = CapabilityCache::new(Duration::from_secs(60), 10);
+        let alice = Subject::user("alice");
+        let scope = Resource::new("project", "p1");
+        let now = now_ms();
+        cache.insert_at(&alice, &scope, windowed_set(&alice, now + 5_000), now - 1_000);
+        let (_, boundary) = cache.get_with_boundary(&alice, &scope).expect("still in force");
+        assert_eq!(boundary, Some(now + 5_000));
     }
 
     #[test]
