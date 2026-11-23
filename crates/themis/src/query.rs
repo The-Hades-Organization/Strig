@@ -256,6 +256,18 @@ impl Expr {
         }
     }
 
+    /// The same expression with every residual index replaced by `f(index)`.
+    #[must_use]
+    pub fn map_residuals(&self, f: &dyn Fn(usize) -> usize) -> Expr {
+        match self {
+            Expr::Residual(index) => Expr::Residual(f(*index)),
+            Expr::Not(inner) => Expr::Not(Box::new(inner.map_residuals(f))),
+            Expr::And(items) => Expr::And(items.iter().map(|e| e.map_residuals(f)).collect()),
+            Expr::Or(items) => Expr::Or(items.iter().map(|e| e.map_residuals(f)).collect()),
+            other => other.clone(),
+        }
+    }
+
     /// Whether any residual part is left.
     pub fn has_residual(&self) -> bool {
         match self {
@@ -469,6 +481,10 @@ pub enum FilterResidual {
     Override { name: String },
     /// A strategy the filter does not reproduce structurally.
     Strategy { name: String },
+    /// Grants whose target kind is not a step of the [`PathLayout`] the structural form was asked
+    /// for: where they apply depends on the resource's real path, so the structural form cannot
+    /// say. Only [`AccessFilter::residual_for`] lists it.
+    OutsideLayout { grant_ids: Vec<String> },
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -487,6 +503,22 @@ struct Entry {
 struct OverridePlan {
     reach: OverrideReach,
     residual: Option<usize>,
+    /// Where the residuals of a nested listing (`OverrideGate::Holds`) start in the outer list.
+    nested_offset: usize,
+}
+
+impl OverridePlan {
+    /// The nested listing of an override that decides where another permission is held.
+    fn nested(&self) -> Option<&AccessFilter> {
+        match &self.reach {
+            OverrideReach::Allows(OverrideGate::Holds(nested)) | OverrideReach::Denies(OverrideGate::Holds(nested))
+                if nested.known =>
+            {
+                Some(nested)
+            }
+            _ => None,
+        }
+    }
 }
 
 /// The reach of one subject with one permission over the resources of one kind.
@@ -540,8 +572,30 @@ impl AccessFilter {
 
     /// The parts that only the resource can settle, including the ones that depend on `layout`
     /// (the indexes `Expr::Residual` of [`AccessFilter::expr`] point into this list).
-    pub fn residual_for(&self, _layout: &PathLayout) -> Vec<FilterResidual> {
-        self.residuals.clone()
+    pub fn residual_for(&self, layout: &PathLayout) -> Vec<FilterResidual> {
+        let mut out = self.residuals.clone();
+        let grant_ids = self.outside_layout(layout);
+        if !grant_ids.is_empty() {
+            out.push(FilterResidual::OutsideLayout { grant_ids });
+        }
+        out
+    }
+
+    /// Ids of the grants (this filter's and its nested listings') whose target kind is not in
+    /// `layout`.
+    fn outside_layout(&self, layout: &PathLayout) -> Vec<String> {
+        let mut ids: BTreeSet<String> = self
+            .entries
+            .iter()
+            .filter(|e| layout.rank(&e.grant.target.kind).is_none())
+            .map(|e| e.grant.id.clone())
+            .collect();
+        for plan in &self.overrides {
+            if let Some(nested) = plan.nested() {
+                ids.extend(nested.outside_layout(layout));
+            }
+        }
+        ids.into_iter().collect()
     }
 
     /// Problems found while planning (a relation grant with no tuple store, a condition that
@@ -651,6 +705,7 @@ impl AccessFilter {
     // --- structural form -------------------------------------------------------------------
 
     fn full_expr(&self, layout: &PathLayout) -> Expr {
+        let outside = self.residuals.len();
         let mut acc = self.grants_expr(layout);
         for plan in self.overrides.iter().rev() {
             match &plan.reach {
@@ -659,19 +714,27 @@ impl AccessFilter {
                     let unknown = plan.residual.map_or(Expr::False, Expr::Residual);
                     acc = Expr::Or(vec![unknown.clone(), Expr::And(vec![Expr::not(unknown), acc])]);
                 }
-                OverrideReach::Allows(gate) => acc = Expr::Or(vec![Self::gate_expr(gate, layout), acc]),
+                OverrideReach::Allows(gate) => acc = Expr::Or(vec![Self::gate_expr(plan, gate, layout, outside), acc]),
                 OverrideReach::Denies(gate) => {
-                    acc = Expr::And(vec![Expr::not(Self::gate_expr(gate, layout)), acc]);
+                    acc = Expr::And(vec![Expr::not(Self::gate_expr(plan, gate, layout, outside)), acc]);
                 }
             }
         }
         acc
     }
 
-    fn gate_expr(gate: &OverrideGate, layout: &PathLayout) -> Expr {
+    /// The gate of an override as an expression over the outer filter's residuals: the residuals
+    /// of a nested listing were copied at `plan.nested_offset`, and the ones of its grants outside
+    /// the layout fold into the outer `outside` slot.
+    fn gate_expr(plan: &OverridePlan, gate: &OverrideGate, layout: &PathLayout, outside: usize) -> Expr {
         match gate {
             OverrideGate::Expr(expr) => expr.clone(),
-            OverrideGate::Holds(filter) if filter.known => filter.grants_expr(layout),
+            OverrideGate::Holds(filter) if filter.known => {
+                let own = filter.residuals.len();
+                filter.grants_expr(layout).map_residuals(&|i| {
+                    if i < own { i + plan.nested_offset } else { outside }
+                })
+            }
             OverrideGate::Holds(_) => Expr::False,
         }
     }
@@ -683,14 +746,30 @@ impl AccessFilter {
         Expr::And(parts)
     }
 
-    /// Combination of the grants by the strategy, without overrides.
+    /// Combination of the grants by the strategy, without overrides. Its `Residual` indexes are
+    /// relative to this filter, with the grants outside the layout at `self.residuals.len()`.
     fn grants_expr(&self, layout: &PathLayout) -> Expr {
-        // (rank, effect, applies) in source order; a target outside the layout never matches.
-        let ranked: Vec<(usize, Effect, Expr)> = (0..self.entries.len())
-            .filter_map(|i| {
-                let rank = layout.rank(&self.entries[i].grant.target.kind)?;
-                Some((rank, self.entries[i].grant.effect, self.applies_expr(i)))
+        // (rank, effect, applies) in source order; a target outside the layout has no rank.
+        let all: Vec<(Option<usize>, Effect, Expr)> = (0..self.entries.len())
+            .map(|i| {
+                let entry = &self.entries[i];
+                (layout.rank(&entry.grant.target.kind), entry.grant.effect, self.applies_expr(i))
             })
+            .collect();
+        if all.iter().any(|(rank, _, _)| rank.is_none()) {
+            // The strategy reads specificity from the path position, and a grant outside the layout
+            // has none the filter can see: keep the upper bound (some allow applies) and leave the
+            // rest to the row.
+            let allows = all
+                .iter()
+                .filter(|(_, effect, _)| *effect == Effect::Allow)
+                .map(|(_, _, applies)| applies.clone())
+                .collect();
+            return Expr::And(vec![Expr::Residual(self.residuals.len()), Expr::Or(allows)]);
+        }
+        let ranked: Vec<(usize, Effect, Expr)> = all
+            .into_iter()
+            .filter_map(|(rank, effect, applies)| Some((rank?, effect, applies)))
             .collect();
         let any = |effect: Effect, only_rank: Option<usize>| {
             Expr::Or(
@@ -755,7 +834,9 @@ impl AccessFilter {
                 };
                 condition.evaluate(&ctx, &self.conditions).ok()
             }
-            FilterResidual::Override { .. } | FilterResidual::Strategy { .. } => None,
+            FilterResidual::Override { .. }
+            | FilterResidual::Strategy { .. }
+            | FilterResidual::OutsideLayout { .. } => None,
         }
     }
 
@@ -948,7 +1029,17 @@ impl Engine {
                     filter.residuals.push(FilterResidual::Override { name: name.clone() });
                     filter.residuals.len() - 1
                 });
-                filter.overrides.push(OverridePlan { reach, residual });
+                let nested_offset = filter.residuals.len();
+                if let OverrideReach::Allows(OverrideGate::Holds(nested)) | OverrideReach::Denies(OverrideGate::Holds(nested)) =
+                    &reach
+                {
+                    filter.residuals.extend(nested.residuals.iter().cloned());
+                }
+                filter.overrides.push(OverridePlan {
+                    reach,
+                    residual,
+                    nested_offset,
+                });
             }
         }
         filter
