@@ -26,7 +26,19 @@ pub struct Explanation {
     /// All the grants the source delivered, in its order.
     pub grants: Vec<GrantTrace>,
     pub strategy: String,
+    /// The prerequisites (`depends_on`, transitive) consulted because the permission was allowed,
+    /// with their own outcome. Empty when the permission has none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prerequisites: Vec<PrerequisiteStep>,
     pub decision: Decision,
+}
+
+/// A prerequisite consulted in a decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrerequisiteStep {
+    pub permission: String,
+    /// The prerequisite is allowed on the same resource.
+    pub allowed: bool,
 }
 
 impl Explanation {
@@ -99,6 +111,8 @@ pub enum Verdict {
     ConditionUnresolved {
         problem: String,
     },
+    /// The grant, or the requested permission, is marked `override_only`: grants are ignored.
+    OverrideOnly,
     /// An override decided before collection.
     NotReached,
 }

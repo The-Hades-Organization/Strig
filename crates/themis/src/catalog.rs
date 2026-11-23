@@ -21,6 +21,23 @@ pub struct PermissionDef {
     /// More general permissions that grant this one. A grant on any of them holds here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub implied_by: Vec<String>,
+    /// Prerequisites: holding this permission requires holding each of these on the same resource.
+    /// The opposite direction of `implied_by`. Checked by the engine in every decision and by the
+    /// [`Prerequisites`](crate::Prerequisites) invariant in governance.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub depends_on: Vec<String>,
+    /// Whoever merely holds the permission cannot grant it to others; only an actor with the
+    /// management permission configured in [`NonDelegable`](crate::NonDelegable) can.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub non_delegable: bool,
+    /// Can only be granted to the roles declared as management roles in
+    /// [`ManagementOnly`](crate::ManagementOnly), never to a user, principal or common role.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub management_only: bool,
+    /// Holds only through an override. A grant that cites it is refused by catalog conformance
+    /// ([`GrantError::OverrideOnly`](crate::GrantError::OverrideOnly)) and ignored by the decision.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub override_only: bool,
     /// Application metadata (UI group, display level, sensitivity). The engine does not read it;
     /// catalog rules ([`CatalogRule`]) can require it.
     #[serde(default, skip_serializing_if = "Attributes::is_empty")]
@@ -35,6 +52,10 @@ impl PermissionDef {
             label: None,
             description: None,
             implied_by: Vec::new(),
+            depends_on: Vec::new(),
+            non_delegable: false,
+            management_only: false,
+            override_only: false,
             meta: Attributes::new(),
         }
     }
@@ -67,10 +88,46 @@ impl PermissionDef {
         self
     }
 
+    /// Holding this permission requires holding each of `prerequisites` on the same resource.
+    #[must_use]
+    pub fn depends_on<I, S>(mut self, prerequisites: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.depends_on.extend(prerequisites.into_iter().map(Into::into));
+        self
+    }
+
+    /// Marks the permission as not delegable by whoever merely holds it.
+    #[must_use]
+    pub fn non_delegable(mut self) -> Self {
+        self.non_delegable = true;
+        self
+    }
+
+    /// Marks the permission as grantable only to management roles.
+    #[must_use]
+    pub fn management_only(mut self) -> Self {
+        self.management_only = true;
+        self
+    }
+
+    /// Marks the permission as valid only through an override.
+    #[must_use]
+    pub fn override_only(mut self) -> Self {
+        self.override_only = true;
+        self
+    }
+
     pub fn meta(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
         self.meta.insert(key.into(), value.into());
         self
     }
+}
+
+fn is_false(flag: &bool) -> bool {
+    !*flag
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -81,6 +138,10 @@ pub enum CatalogError {
     DuplicateKey(String),
     #[error("'{key}' é implicada por chave inexistente '{parent}'")]
     UnknownParent { key: String, parent: String },
+    #[error("'{key}' depende de chave inexistente '{prerequisite}'")]
+    UnknownPrerequisite { key: String, prerequisite: String },
+    #[error("ciclo de pré-requisitos: {}", .0.join(" -> "))]
+    PrerequisiteCycle(Vec<String>),
     #[error("'{key}' mira tipo de alvo não registrado '{target}'")]
     UnknownTarget { key: String, target: String },
     #[error("'{0}' não declara nenhum alvo")]
@@ -301,6 +362,14 @@ impl CatalogBuilder {
                 });
             }
         }
+        for def in &self.defs {
+            for prerequisite in def.depends_on.iter().filter(|p| !index.contains_key(*p)) {
+                errors.push(CatalogError::UnknownPrerequisite {
+                    key: def.key.clone(),
+                    prerequisite: prerequisite.clone(),
+                });
+            }
+        }
         if !errors.is_empty() {
             return Err(CatalogErrors(errors));
         }
@@ -313,6 +382,22 @@ impl CatalogBuilder {
         if let Some(cycle) = graph::find_cycle(&parents) {
             return Err(CatalogErrors(vec![CatalogError::Cycle(cycle)]));
         }
+        let requires: BTreeMap<String, Vec<String>> = self
+            .defs
+            .iter()
+            .map(|d| (d.key.clone(), d.depends_on.clone()))
+            .collect();
+        if let Some(cycle) = graph::find_cycle(&requires) {
+            return Err(CatalogErrors(vec![CatalogError::PrerequisiteCycle(cycle)]));
+        }
+        let required = requires
+            .keys()
+            .filter_map(|k| {
+                let mut set = graph::reachable(k, &requires);
+                set.remove(k);
+                (!set.is_empty()).then(|| (k.clone(), set))
+            })
+            .collect();
         let effective = parents
             .keys()
             .map(|k| (k.clone(), graph::reachable(k, &parents)))
@@ -329,6 +414,7 @@ impl CatalogBuilder {
             defs: self.defs,
             index,
             effective,
+            required,
             children,
             target_kinds,
             broad_targets,
@@ -352,6 +438,8 @@ pub struct Catalog {
     defs: Vec<PermissionDef>,
     index: HashMap<String, usize>,
     effective: HashMap<String, BTreeSet<String>>,
+    /// Prerequisites of each permission, transitively; permissions with none are absent.
+    required: HashMap<String, BTreeSet<String>>,
     children: BTreeMap<String, Vec<String>>,
     target_kinds: BTreeSet<String>,
     broad_targets: BTreeSet<String>,
@@ -406,6 +494,22 @@ impl Catalog {
     /// The key and every permission that grants it, transitively.
     pub fn effective(&self, key: &str) -> Option<&BTreeSet<String>> {
         self.effective.get(key)
+    }
+
+    /// Every permission that holding `key` requires, transitively and without `key` itself.
+    /// Empty when `key` has no prerequisites or is not in the catalog.
+    pub fn prerequisites(&self, key: &str) -> impl Iterator<Item = &str> {
+        self.required.get(key).into_iter().flatten().map(String::as_str)
+    }
+
+    /// `key` has at least one prerequisite.
+    pub fn has_prerequisites(&self, key: &str) -> bool {
+        self.required.contains_key(key)
+    }
+
+    /// `key` is in the catalog and is marked [`PermissionDef::override_only`].
+    pub fn is_override_only(&self, key: &str) -> bool {
+        self.get(key).is_some_and(|d| d.override_only)
     }
 
     /// `general` grants `specific` (or is the same key).
@@ -561,5 +665,68 @@ mod tests {
         let json = serde_json::to_string(&cat.export()).unwrap();
         let back = Catalog::from_export(serde_json::from_str(&json).unwrap()).unwrap();
         assert_eq!(back.export(), cat.export());
+    }
+
+    #[test]
+    fn prerequisites_are_transitive() {
+        let cat = base()
+            .permission(PermissionDef::new("a.view").targets(["project"]))
+            .permission(PermissionDef::new("a.edit").targets(["project"]).depends_on(["a.view"]))
+            .permission(PermissionDef::new("a.publish").targets(["project"]).depends_on(["a.edit"]))
+            .build()
+            .unwrap();
+        assert_eq!(cat.prerequisites("a.publish").collect::<Vec<_>>(), ["a.edit", "a.view"]);
+        assert!(cat.has_prerequisites("a.edit") && !cat.has_prerequisites("a.view"));
+        assert_eq!(cat.prerequisites("missing").count(), 0);
+    }
+
+    #[test]
+    fn rejects_unknown_prerequisite() {
+        let errors = base()
+            .permission(PermissionDef::new("a.edit").targets(["project"]).depends_on(["a.nope"]))
+            .build()
+            .unwrap_err();
+        assert!(matches!(
+            errors.0.as_slice(),
+            [CatalogError::UnknownPrerequisite { key, prerequisite }] if key == "a.edit" && prerequisite == "a.nope"
+        ));
+    }
+
+    #[test]
+    fn rejects_prerequisite_cycle_and_self_dependency() {
+        let cycle = base()
+            .permission(PermissionDef::new("a.x").targets(["project"]).depends_on(["a.y"]))
+            .permission(PermissionDef::new("a.y").targets(["project"]).depends_on(["a.x"]))
+            .build()
+            .unwrap_err();
+        assert!(matches!(cycle.0.as_slice(), [CatalogError::PrerequisiteCycle(_)]));
+        let itself = base()
+            .permission(PermissionDef::new("a.x").targets(["project"]).depends_on(["a.x"]))
+            .build()
+            .unwrap_err();
+        assert!(matches!(itself.0.as_slice(), [CatalogError::PrerequisiteCycle(_)]));
+    }
+
+    #[test]
+    fn attributes_survive_export_round_trip() {
+        let cat = base()
+            .permission(PermissionDef::new("a.view").targets(["project"]))
+            .permission(
+                PermissionDef::new("a.admin")
+                    .targets(["project"])
+                    .depends_on(["a.view"])
+                    .non_delegable()
+                    .management_only()
+                    .override_only(),
+            )
+            .build()
+            .unwrap();
+        let json = serde_json::to_string(&cat.export()).unwrap();
+        assert!(json.contains("\"nonDelegable\":true") && json.contains("\"dependsOn\":[\"a.view\"]"));
+        assert!(!json.contains("\"overrideOnly\":false"));
+        let back = Catalog::from_export(serde_json::from_str(&json).unwrap()).unwrap();
+        let def = back.get("a.admin").unwrap();
+        assert!(def.non_delegable && def.management_only && def.override_only);
+        assert!(back.is_override_only("a.admin") && !back.is_override_only("a.view"));
     }
 }
