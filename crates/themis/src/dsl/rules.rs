@@ -135,7 +135,7 @@ fn statement(cur: &mut Cursor, b: &mut Builder, state: &mut State) -> PResult<()
         }
         "role" => {
             cur.advance();
-            role(cur, b)
+            role(cur, b, false)
         }
         "subject" => {
             cur.advance();
@@ -318,12 +318,17 @@ pub(crate) fn permission(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     Ok(())
 }
 
-pub(crate) fn role(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
+/// `empty_inherits` lets a bare `inherits` end the line: the Actors spelling of a role whose name
+/// is close to a declared one but is meant as new.
+pub(crate) fn role(cur: &mut Cursor, b: &mut Builder, empty_inherits: bool) -> PResult<()> {
     let name = cur.word("a role name")?;
     let id = ids::role(&name.v);
     let repeated = duplicate(b, &id, name.span, &format!("role `{}`", name.v));
     let inherits = scoped(cur, b, &id, name.span, |cur, _| {
         if cur.eat_word("inherits") {
+            if empty_inherits && cur.at_eof() {
+                return Ok(Vec::new());
+            }
             Ok(names(comma_words(cur, "a role")?))
         } else {
             Ok(Vec::new())

@@ -2,7 +2,7 @@ language actors
 
 role reviewer inherits viewer
 
-role viewer
+role viewer inherits
   in org:acme
     allow doc.read on doc as g-read
 
