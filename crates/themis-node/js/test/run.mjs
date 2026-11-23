@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { PermissionClient } from '../client.js';
 import { load, scopeFromString } from '../node.js';
+import './binding040.mjs';
 import { Hub, change, engineProvider, memoryTransport, openSession, pgTransport, pipeSse, redisTransport, sseResponse } from '../server.js';
 
 const runtime = globalThis.Bun ? `bun ${Bun.version}` : `node ${process.version}`;
@@ -324,4 +325,4 @@ if (pgUrl) {
 }
 
 console.log(failures ? `# ${failures} falha(s)` : '# tudo ok');
-process.exit(failures ? 1 : 0);
+process.exit(failures || process.exitCode ? 1 : 0);
