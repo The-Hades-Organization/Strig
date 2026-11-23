@@ -1,20 +1,64 @@
-//! A scratch test that writes the other two syntaxes of each scenario.
-use std::path::Path;
-use themis::dsl::{Language, convert, parse};
+//! Every scenario written in each syntax describes the same policy, comments included.
+
+use crate::{LANGUAGES, SCENARIOS, source};
+use themis::dsl::{Language, convert, parse, print};
+
+fn read(scenario: &str, language: Language) -> themis::dsl::Parsed {
+    let text = source(scenario, language);
+    parse(&format!("{scenario}.{language}"), &text)
+        .unwrap_or_else(|errors| panic!("{scenario} in {language} must parse:\n{errors}"))
+}
 
 #[test]
-fn generate() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/dsl/corpus");
-    for name in ["roles", "conditions", "validity", "relations", "governance", "members"] {
-        let text = std::fs::read_to_string(dir.join(format!("{name}.blocks.themis"))).unwrap();
-        if let Err(e) = parse(name, &text) {
-            println!("PARSE {name}: {e}");
-            continue;
+fn a_scenario_in_each_syntax_is_the_same_policy() {
+    for scenario in SCENARIOS {
+        let blocks = read(scenario, Language::Blocks);
+        let json = blocks.policy.to_json().unwrap();
+        for language in LANGUAGES {
+            let other = read(scenario, language);
+            assert_eq!(other.language, language);
+            assert!(blocks.policy.equivalent(&other.policy), "{scenario}: {language} differs from blocks");
+            assert_eq!(other.policy.to_json().unwrap(), json, "{scenario}: {language} json differs");
         }
-        for (lang, ext) in [(Language::Rules, "rules"), (Language::Actors, "actors")] {
-            match convert(&text, lang) {
-                Ok(out) => std::fs::write(dir.join(format!("{name}.{ext}.themis")), out).unwrap(),
-                Err(e) => println!("CONVERT {name} {ext}: {e}"),
+    }
+}
+
+#[test]
+fn a_scenario_keeps_its_comments_in_every_syntax() {
+    for scenario in SCENARIOS {
+        let blocks = read(scenario, Language::Blocks);
+        for language in LANGUAGES {
+            let other = read(scenario, language);
+            assert_eq!(blocks.policy.notes.len(), other.policy.notes.len(), "{scenario} in {language}");
+        }
+    }
+}
+
+#[test]
+fn printing_a_scenario_reads_back_the_same_in_its_own_syntax() {
+    for scenario in SCENARIOS {
+        for language in LANGUAGES {
+            let policy = read(scenario, language).policy;
+            let text = print(&policy, language).unwrap_or_else(|error| panic!("{scenario} in {language}: {error}"));
+            let again = parse("again", &text).unwrap_or_else(|errors| panic!("{scenario} in {language}:\n{errors}\n{text}"));
+            assert!(policy.equivalent(&again.policy), "{scenario} in {language} lost something");
+            assert_eq!(print(&again.policy, language).unwrap(), text, "{scenario} in {language} is not stable");
+        }
+    }
+}
+
+#[test]
+fn converting_between_every_pair_keeps_the_policy() {
+    for scenario in SCENARIOS {
+        for from in LANGUAGES {
+            let original = read(scenario, from).policy;
+            let text = source(scenario, from);
+            for to in LANGUAGES {
+                let converted = convert(&text, to).unwrap_or_else(|error| panic!("{scenario} {from} to {to}: {error}"));
+                let again = parse("converted", &converted)
+                    .unwrap_or_else(|errors| panic!("{scenario} {from} to {to}:\n{errors}\n{converted}"));
+                assert_eq!(again.language, to);
+                assert!(original.equivalent(&again.policy), "{scenario} {from} to {to} lost something");
             }
         }
     }
