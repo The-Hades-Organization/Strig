@@ -20,7 +20,7 @@ use crate::attr::Attributes;
 use crate::decision::{Decision, Reason, Request};
 use crate::engine::{Context, Engine};
 use crate::explain::Explanation;
-use crate::governance::{Mutation, Violation};
+use crate::governance::{Mutation, Suggestion, Violation};
 use crate::grant::{Effect, Grant, SubjectMatcher, TargetSelector};
 use crate::rebac::Tuple;
 use crate::resource::{Anchor, Resource};
@@ -213,9 +213,9 @@ pub struct AuditRecord {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub violations: Vec<String>,
     /// Compensating changes the refusing invariants proposed (see [`Violation::suggestion`]), from
-    /// `standard` upward. Nothing was applied.
+    /// `standard` upward: the subject id and the role, nothing else. Nothing was applied.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub suggestions: Vec<Mutation>,
+    pub suggestions: Vec<Suggestion>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision: Option<DecisionSummary>,
@@ -824,11 +824,8 @@ pub fn reference_decision_record(level: AuditLevel) -> AuditRecord {
     record.expect("registro de referência")
 }
 
-fn suggestions_of(violations: &[Violation]) -> Vec<Mutation> {
-    violations
-        .iter()
-        .filter_map(|v| v.suggestion.as_deref().cloned())
-        .collect()
+fn suggestions_of(violations: &[Violation]) -> Vec<Suggestion> {
+    violations.iter().filter_map(|v| v.suggestion.clone()).collect()
 }
 
 #[cfg(test)]
