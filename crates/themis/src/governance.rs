@@ -8,8 +8,10 @@ use serde::{Deserialize, Serialize};
 use crate::attr::Attributes;
 #[cfg(feature = "audit")]
 use crate::audit::Auditor;
+use crate::condition::Condition;
 use crate::decision::Request;
 use crate::engine::{Context, Engine};
+use crate::explain::Explanation;
 use crate::grant::{Effect, Grant, SubjectMatcher};
 use crate::rebac::TupleStore;
 use crate::resource::{Anchor, Resource};
@@ -704,6 +706,39 @@ fn conferred<'a>(engine: &Engine, proposal: &Proposal<'a>) -> Vec<Conferred<'a>>
     }
 }
 
+/// The `deny` grants that the change lifts: the removed one, or, in a role revocation, the `deny`
+/// grants of the role (and of the roles it inherits) in the scope of the assignment. What each one was
+/// blocking, the permission and the ones it implies, is now open to its subject.
+fn unlocked<'a>(engine: &Engine, proposal: &Proposal<'a>) -> Vec<Conferred<'a>> {
+    match proposal.mutation {
+        Mutation::Remove { .. } => proposal
+            .grant()
+            .filter(|g| g.effect == Effect::Deny)
+            .map(|grant| Conferred {
+                grant,
+                resource: grant_resource(grant, None),
+                keys: conferred_keys(engine, &grant.permission),
+            })
+            .into_iter()
+            .collect(),
+        Mutation::RevokeRole { role, .. } => {
+            let roles = engine.roles().expand([role.role.as_str()]);
+            proposal
+                .before
+                .iter()
+                .filter(|g| g.effect == Effect::Deny)
+                .filter(|g| matches!(&g.subject, SubjectMatcher::Role { id } if roles.contains(id)))
+                .map(|grant| Conferred {
+                    grant,
+                    resource: grant_resource(grant, role.scope.as_ref()),
+                    keys: conferred_keys(engine, &grant.permission),
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// Holding a permission requires holding its `depends_on` prerequisites on the same resource.
 /// The change is refused when it would leave someone with a permission and without one of its
 /// prerequisites: adding the permission alone, removing the prerequisite, or assigning or
@@ -935,9 +970,22 @@ impl Bypass {
     }
 }
 
-/// The actor only grants a permission, or assigns a role, on the resource where they hold
-/// everything they hand out (for a role: the permissions of the role in that scope). With
-/// [`NoEscalation::bypass`], whoever holds the bypass permission is exempt.
+/// The actor only hands out what they hold. Three things count as handing out:
+///
+/// - adding an `allow` grant, or assigning a role: every permission it confers, the permission itself
+///   and each one it implies, must be held by the actor on the resource where it would apply (for a
+///   role: in the scope of the assignment);
+/// - removing a `deny` grant, or revoking a role that carries one: the permissions the `deny` was
+///   blocking are unlocked for its subject, so the actor must hold each of them where they become
+///   valid. It is the same rule as for an `allow`, applied to what the change lets through;
+/// - a condition does not widen: when the actor holds a permission only through grants with a
+///   condition, the new grant must carry that condition, the same or inside an `all`. Anything else is
+///   refused (fail closed), since the check cannot compare conditions by meaning.
+///
+/// The actor is evaluated against a synthetic resource built from the grant (target, scope and the
+/// scope of the assignment), with no attributes: a condition on resource attributes does not hold
+/// there, so it also fails closed. With [`NoEscalation::bypass`], whoever holds the bypass permission
+/// is exempt.
 #[derive(Default)]
 pub struct NoEscalation {
     bypass: Option<Bypass>,
@@ -953,11 +1001,67 @@ impl NoEscalation {
         self.bypass = Some(bypass);
         self
     }
+
+    fn name_of(&self) -> &'static str {
+        "no_escalation"
+    }
+
+    /// The actor holds every key of `c` on its resource. With `carried`, the grant that hands the
+    /// permission out, it must also be at least as restrictive as the actor's own derivation.
+    fn require_held(
+        &self,
+        engine: &Engine,
+        ctx: &Context<'_>,
+        actor: &Subject,
+        c: &Conferred<'_>,
+        carried: Option<&Grant>,
+    ) -> Result<(), Violation> {
+        for key in &c.keys {
+            let explanation = engine.explain(ctx, &Request::new(actor, key, &c.resource));
+            if !explanation.decision.is_allowed() {
+                return Err(Violation::new(
+                    self.name_of(),
+                    format!("o ator não tem {key} onde a mudança passaria a valer"),
+                ));
+            }
+            let Some(grant) = carried else { continue };
+            let Some(required) = conditions_behind(&explanation) else {
+                continue;
+            };
+            if !required.iter().any(|r| covers(grant.condition.as_ref(), r)) {
+                return Err(Violation::new(
+                    self.name_of(),
+                    format!("o ator só tem {key} sob condição: a concessão precisa carregar a mesma condição"),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Conditions of the `allow` grants the decision stands on. `None` when some of them is
+/// unconditional, or no grant decided (an override), so nothing limits the actor.
+fn conditions_behind(explanation: &Explanation) -> Option<Vec<&Condition>> {
+    let mut conditions = Vec::new();
+    for trace in explanation.candidates().filter(|t| t.grant.effect == Effect::Allow) {
+        conditions.push(trace.grant.condition.as_ref()?);
+    }
+    (!conditions.is_empty()).then_some(conditions)
+}
+
+/// `candidate` is `required` itself, or an `all` that has it among its terms (at any depth).
+fn covers(candidate: Option<&Condition>, required: &Condition) -> bool {
+    match candidate {
+        None => false,
+        Some(c) if c == required => true,
+        Some(Condition::All { of }) => of.iter().any(|term| covers(Some(term), required)),
+        Some(_) => false,
+    }
 }
 
 impl Invariant for NoEscalation {
     fn name(&self) -> &str {
-        "no_escalation"
+        self.name_of()
     }
 
     fn check(&self, engine: &Engine, proposal: &Proposal<'_>) -> Result<(), Violation> {
@@ -971,13 +1075,10 @@ impl Invariant for NoEscalation {
             return Ok(());
         }
         for c in conferred(engine, proposal) {
-            let permission = &c.grant.permission;
-            if !engine.check(&ctx, &Request::new(proposal.actor, permission, &c.resource)) {
-                return Err(Violation::new(
-                    self.name(),
-                    format!("o ator não tem {permission} onde a concederia"),
-                ));
-            }
+            self.require_held(engine, &ctx, proposal.actor, &c, Some(c.grant))?;
+        }
+        for c in unlocked(engine, proposal) {
+            self.require_held(engine, &ctx, proposal.actor, &c, None)?;
         }
         Ok(())
     }
