@@ -720,7 +720,7 @@ impl Invariant for Forbid {
     fn check(&self, engine: &Engine, proposal: &Proposal<'_>) -> Result<(), Violation> {
         match proposal.mutation {
             Mutation::Add(grant) => self.check_grant(engine, grant),
-            Mutation::AssignRole { subject, role } => self.check_role(engine, proposal.before, subject, role),
+            Mutation::AssignRole { subject, role } => self.check_role(engine, proposal, subject, role),
             Mutation::Remove { .. } | Mutation::RevokeRole { .. } => Ok(()),
         }
     }
@@ -752,7 +752,7 @@ impl Forbid {
     fn check_role(
         &self,
         engine: &Engine,
-        current: &[Grant],
+        proposal: &Proposal<'_>,
         subject: &Subject,
         role: &RoleAssignment,
     ) -> Result<(), Violation> {
@@ -763,7 +763,11 @@ impl Forbid {
             return Ok(());
         }
         let roles = engine.roles().expand([role.role.as_str()]);
-        for grant in current.iter().filter(|g| g.effect == Effect::Allow) {
+        for grant in proposal
+            .before
+            .iter()
+            .filter(|g| g.effect == Effect::Allow && !g.validity().has_ended(proposal.now))
+        {
             let SubjectMatcher::Role { id: granted } = &grant.subject else {
                 continue;
             };
@@ -841,18 +845,19 @@ fn conferred_keys(engine: &Engine, permission: &str) -> Vec<String> {
 /// The allow grants that the change gives to someone: the added grant, or, in a role assignment,
 /// the allow grants of the role (and of the roles it inherits) in the scope of the assignment.
 fn conferred<'a>(engine: &Engine, proposal: &Proposal<'a>) -> Vec<Conferred<'a>> {
+    let ended = |grant: &Grant| grant.validity().has_ended(proposal.now);
     match proposal.mutation {
-        Mutation::Add(grant) if grant.effect == Effect::Allow => vec![Conferred {
+        Mutation::Add(grant) if grant.effect == Effect::Allow && !ended(grant) => vec![Conferred {
             grant,
             resource: grant_resource(grant, None),
             keys: conferred_keys(engine, &grant.permission),
         }],
-        Mutation::AssignRole { role, .. } => {
+        Mutation::AssignRole { role, .. } if !role.validity().has_ended(proposal.now) => {
             let roles = engine.roles().expand([role.role.as_str()]);
             proposal
                 .before
                 .iter()
-                .filter(|g| g.effect == Effect::Allow)
+                .filter(|g| g.effect == Effect::Allow && !ended(g))
                 .filter(|g| matches!(&g.subject, SubjectMatcher::Role { id } if roles.contains(id)))
                 .map(|grant| Conferred {
                     grant,
@@ -869,10 +874,11 @@ fn conferred<'a>(engine: &Engine, proposal: &Proposal<'a>) -> Vec<Conferred<'a>>
 /// grants of the role (and of the roles it inherits) in the scope of the assignment. What each one was
 /// blocking, the permission and the ones it implies, is now open to its subject.
 fn unlocked<'a>(engine: &Engine, proposal: &Proposal<'a>) -> Vec<Conferred<'a>> {
+    let ended = |grant: &Grant| grant.validity().has_ended(proposal.now);
     match proposal.mutation {
         Mutation::Remove { .. } => proposal
             .grant()
-            .filter(|g| g.effect == Effect::Deny)
+            .filter(|g| g.effect == Effect::Deny && !ended(g))
             .map(|grant| Conferred {
                 grant,
                 resource: grant_resource(grant, None),
@@ -880,12 +886,12 @@ fn unlocked<'a>(engine: &Engine, proposal: &Proposal<'a>) -> Vec<Conferred<'a>> 
             })
             .into_iter()
             .collect(),
-        Mutation::RevokeRole { role, .. } => {
+        Mutation::RevokeRole { role, .. } if !role.validity().has_ended(proposal.now) => {
             let roles = engine.roles().expand([role.role.as_str()]);
             proposal
                 .before
                 .iter()
-                .filter(|g| g.effect == Effect::Deny)
+                .filter(|g| g.effect == Effect::Deny && !ended(g))
                 .filter(|g| matches!(&g.subject, SubjectMatcher::Role { id } if roles.contains(id)))
                 .map(|grant| Conferred {
                     grant,
@@ -1012,6 +1018,9 @@ impl Invariant for Prerequisites {
         let ctx = proposal.after_context();
         match proposal.mutation {
             Mutation::Add(grant) if grant.effect == Effect::Deny => {
+                if grant.validity().has_ended(proposal.now) {
+                    return Ok(());
+                }
                 self.broken_by(engine, proposal, &ctx, &grant.permission)
             }
             Mutation::Add(grant) => {
@@ -1027,10 +1036,15 @@ impl Invariant for Prerequisites {
                 }
                 Ok(())
             }
-            Mutation::Remove { .. } => match proposal.grant() {
+            Mutation::Remove { .. } => match proposal.grant().filter(|g| !g.validity().has_ended(proposal.now)) {
                 Some(removed) => self.broken_by(engine, proposal, &ctx, &removed.permission),
                 None => Ok(()),
             },
+            Mutation::AssignRole { role, .. } | Mutation::RevokeRole { role, .. }
+                if role.validity().has_ended(proposal.now) =>
+            {
+                Ok(())
+            }
             Mutation::AssignRole { subject, .. } | Mutation::RevokeRole { subject, .. } => {
                 let after = proposal.subject_after(subject);
                 for (grant, scope) in Self::grants_of(engine, &after, proposal.after) {
