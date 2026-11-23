@@ -1,0 +1,36 @@
+language blocks
+
+target_kinds = [project]
+
+permission project.view {
+  targets = [project]
+}
+
+role auditor {
+}
+
+// A temporary assignment.
+subject user:carla {
+  assign auditor {
+    scope = project:apollo
+    valid_from = 2026-01-01
+    valid_until = 2026-12-31T23:59:59Z
+  }
+}
+
+grant g-window {
+  effect = allow
+  subject = role auditor
+  permission = project.view
+  target = project
+  valid_from = 2026-03-01T08:30:00Z
+  valid_until = 2026-06-30
+}
+
+grant g-open {
+  effect = allow
+  subject = user carla
+  permission = project.view
+  target = project:apollo
+  valid_until = 2027-01-01  // renewed yearly
+}

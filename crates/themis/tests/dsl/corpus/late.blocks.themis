@@ -1,0 +1,29 @@
+language blocks
+
+target_kinds = [doc]
+
+permission doc.read {
+  targets = [doc]
+}
+
+role editor {
+}
+
+subject user:ana {
+  assign editor {
+  }
+}
+
+grant g-first {
+  effect = allow
+  subject = user ana
+  permission = doc.read
+  target = doc
+}
+
+grant g-second {
+  effect = allow
+  subject = role editor
+  permission = doc.read
+  target = doc
+}

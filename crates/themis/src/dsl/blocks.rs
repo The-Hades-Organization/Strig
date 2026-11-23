@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use crate::dsl::build::Builder;
 use crate::dsl::error::{PResult, Raw, Span};
 use crate::dsl::grammar::{
-    AnchorAt, Cursor, Sp, anchor, condition, literal, matcher, path, rewrite, suggest, target, tuple,
+    AnchorAt, Cursor, Sp, anchor, condition, literal, matcher, members, resource, rewrite, suggest, target, tuple,
 };
 use crate::dsl::policy::ids;
 use crate::{
@@ -16,13 +16,13 @@ use crate::{
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind {
+pub(crate) enum Kind {
     Words,
     Str,
     Bool,
     Word,
     Anchor,
-    Anchors,
+    Members,
     Path,
     Date,
     Cond,
@@ -33,10 +33,10 @@ enum Kind {
     Assign,
 }
 
-struct FieldSpec {
-    name: &'static str,
-    kind: Kind,
-    required: bool,
+pub(crate) struct FieldSpec {
+    pub(crate) name: &'static str,
+    pub(crate) kind: Kind,
+    pub(crate) required: bool,
 }
 
 const fn opt(name: &'static str, kind: Kind) -> FieldSpec {
@@ -91,13 +91,13 @@ const RELATION: &[FieldSpec] = &[req("rewrite", Kind::Rewrite)];
 const OWNER: &[FieldSpec] = &[req("attr", Kind::Str), opt("except", Kind::Words)];
 const HOLDER: &[FieldSpec] = &[req("permission", Kind::Word), opt("except", Kind::Words)];
 
-const STRATEGIES: [&str; 4] = [
+pub(crate) const STRATEGIES: [&str; 4] = [
     "most_specific",
     "deny_overrides",
     "permit_overrides",
     "first_applicable",
 ];
-const DECLARATIONS: [&str; 12] = [
+const DECLARATIONS: [&str; 13] = [
     "target_kinds",
     "broad_targets",
     "strategy",
@@ -106,12 +106,13 @@ const DECLARATIONS: [&str; 12] = [
     "role",
     "subject",
     "grant",
+    "relations",
     "relation",
     "tuples",
     "override",
     "invariant",
 ];
-const INVARIANT_KINDS: [&str; 9] = [
+pub(crate) const INVARIANT_KINDS: [&str; 9] = [
     "catalog_conformance",
     "no_self_management",
     "prerequisites",
@@ -126,11 +127,13 @@ const INVARIANT_KINDS: [&str; 9] = [
 const REQUIRE_PERMISSION: &[FieldSpec] = &[req("permission", Kind::Word), req("resource", Kind::Path)];
 const NO_LOCKOUT: &[FieldSpec] = &[
     req("permissions", Kind::Words),
-    req("members", Kind::Anchors),
+    req("members", Kind::Members),
     req("resource", Kind::Path),
     opt("reserve_role", Kind::Word),
     opt("reserve_scope", Kind::Anchor),
-    opt("reserve_subjects", Kind::Anchors),
+    opt("reserve_subjects", Kind::Members),
+    opt("reserve_from", Kind::Date),
+    opt("reserve_until", Kind::Date),
 ];
 const NON_DELEGABLE: &[FieldSpec] = &[req("manager", Kind::Word)];
 const MANAGEMENT_ONLY: &[FieldSpec] = &[req("roles", Kind::Words)];
@@ -138,7 +141,7 @@ const NO_ESCALATION: &[FieldSpec] = &[opt("bypass", Kind::Word), opt("on", Kind:
 const FORBID: &[FieldSpec] = &[req("subject", Kind::Matcher), req("permissions", Kind::Words)];
 
 /// The fields of one invariant kind.
-fn invariant_fields(kind: &str) -> Option<&'static [FieldSpec]> {
+pub(crate) fn invariant_fields(kind: &str) -> Option<&'static [FieldSpec]> {
     Some(match kind {
         "catalog_conformance" | "no_self_management" | "prerequisites" => &[],
         "require_permission" => REQUIRE_PERMISSION,
@@ -151,14 +154,14 @@ fn invariant_fields(kind: &str) -> Option<&'static [FieldSpec]> {
     })
 }
 
-enum Val {
+pub(crate) enum Val {
     Words(Vec<Sp<String>>),
     Str(Sp<String>),
     Bool(bool),
     Word(Sp<String>),
     Anchor(AnchorAt),
-    Anchors(Vec<AnchorAt>),
-    Path(Vec<AnchorAt>),
+    Members(Vec<Subject>),
+    Path(Vec<AnchorAt>, BTreeMap<String, Value>),
     Date(Sp<u64>),
     Cond(Condition),
     Rewrite(Rewrite),
@@ -168,9 +171,9 @@ enum Val {
 }
 
 #[derive(Default)]
-struct Body {
-    fields: Vec<(&'static str, Val)>,
-    assigns: Vec<(Sp<String>, Body)>,
+pub(crate) struct Body {
+    pub(crate) fields: Vec<(&'static str, Val)>,
+    pub(crate) assigns: Vec<(Sp<String>, Body)>,
 }
 
 macro_rules! getter {
@@ -185,7 +188,7 @@ macro_rules! getter {
 }
 
 impl Body {
-    fn has(&self, field: &str) -> bool {
+    pub(crate) fn has(&self, field: &str) -> bool {
         self.fields.iter().any(|(name, _)| *name == field)
     }
 
@@ -202,14 +205,20 @@ impl Body {
     getter!(string, Str, Sp<String>);
     getter!(word, Word, Sp<String>);
     getter!(anchor, Anchor, AnchorAt);
-    getter!(anchors, Anchors, Vec<AnchorAt>);
-    getter!(path, Path, Vec<AnchorAt>);
+    getter!(members, Members, Vec<Subject>);
     getter!(date, Date, Sp<u64>);
     getter!(cond, Cond, Condition);
     getter!(rewrite, Rewrite, Rewrite);
     getter!(matcher, Matcher, SubjectMatcher);
     getter!(target, Target, TargetSelector);
     getter!(kv, Kv, BTreeMap<String, Value>);
+
+    fn path(&mut self, field: &str) -> Option<(Vec<AnchorAt>, BTreeMap<String, Value>)> {
+        match self.take(field) {
+            Some(Val::Path(steps, attrs)) => Some((steps, attrs)),
+            _ => None,
+        }
+    }
 
     fn flag(&mut self, field: &str) -> bool {
         matches!(self.take(field), Some(Val::Bool(true)))
@@ -241,7 +250,7 @@ fn at_line_start(cur: &Cursor, base: u32) -> bool {
     token.bol && token.span.col <= base
 }
 
-fn scoped<T>(
+pub(crate) fn scoped<T>(
     cur: &mut Cursor,
     b: &mut Builder,
     id: &str,
@@ -254,7 +263,7 @@ fn scoped<T>(
     result
 }
 
-fn duplicate(b: &mut Builder, id: &str, at: Span, what: &str) -> bool {
+pub(crate) fn duplicate(b: &mut Builder, id: &str, at: Span, what: &str) -> bool {
     match b.declared(id) {
         Some(first) => {
             let raw =
@@ -283,6 +292,7 @@ fn statement(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
         "role" => role(cur, b),
         "subject" => subject(cur, b),
         "grant" => grant(cur, b),
+        "relations" => relations_empty(cur, b, &head),
         "relation" => relation(cur, b),
         "tuples" => tuples(cur, b, &head),
         "override" => override_block(cur, b),
@@ -455,7 +465,7 @@ fn field(
     Ok(())
 }
 
-fn value(cur: &mut Cursor, b: &mut Builder, id: &str, kind: Kind, key: &Sp<String>) -> PResult<Val> {
+pub(crate) fn value(cur: &mut Cursor, b: &mut Builder, id: &str, kind: Kind, key: &Sp<String>) -> PResult<Val> {
     Ok(match kind {
         Kind::Words => {
             let words = crate::dsl::grammar::word_list(cur, "list")?;
@@ -475,19 +485,11 @@ fn value(cur: &mut Cursor, b: &mut Builder, id: &str, kind: Kind, key: &Sp<Strin
         }
         Kind::Word => Val::Word(cur.word("a name")?),
         Kind::Anchor => Val::Anchor(anchor(cur)?),
-        Kind::Anchors => {
-            cur.expect_punct("[", "to start the list")?;
-            let mut items = Vec::new();
-            while !cur.is_punct("]") {
-                items.push(anchor(cur)?);
-                if !cur.eat_punct(",") {
-                    break;
-                }
-            }
-            cur.expect_punct("]", "to close the list")?;
-            Val::Anchors(items)
+        Kind::Members => Val::Members(members(cur)?),
+        Kind::Path => {
+            let (steps, attrs) = resource(cur)?;
+            Val::Path(steps, attrs)
         }
-        Kind::Path => Val::Path(path(cur)?),
         Kind::Date => Val::Date(cur.date()?),
         Kind::Cond => Val::Cond(condition(cur)?),
         Kind::Rewrite => Val::Rewrite(rewrite(cur)?),
@@ -518,11 +520,11 @@ fn table(cur: &mut Cursor, b: &mut Builder, id: &str, key: &Sp<String>) -> PResu
     Ok(entries)
 }
 
-fn names(words: Vec<Sp<String>>) -> Vec<String> {
+pub(crate) fn names(words: Vec<Sp<String>>) -> Vec<String> {
     words.into_iter().map(|w| w.v).collect()
 }
 
-fn to_anchors(items: Vec<AnchorAt>) -> Vec<Anchor> {
+pub(crate) fn to_anchors(items: Vec<AnchorAt>) -> Vec<Anchor> {
     items.into_iter().map(|a| a.anchor).collect()
 }
 
@@ -643,6 +645,27 @@ fn grant(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     Ok(())
 }
 
+/// `relations = []`: the policy declares that it has no relations, as opposed to saying nothing.
+fn relations_empty(cur: &mut Cursor, b: &mut Builder, head: &Sp<String>) -> PResult<()> {
+    let repeated = b.declared(ids::RELATIONS).is_some();
+    single(cur, b, head, |cur| {
+        cur.expect_punct("[", "to open the empty list")?;
+        cur.expect_punct("]", "to close the empty list: `relations` only takes `[]`")?;
+        Ok(())
+    })?;
+    if repeated {
+        return Ok(());
+    }
+    if b.policy.relations.is_some() {
+        let raw = Raw::new(head.span, "`relations = []` comes after a relation")
+            .hint("declare the empty list before any relation, or drop it");
+        b.conflict(raw, None);
+        return Ok(());
+    }
+    b.policy.relations = Some(Vec::new());
+    Ok(())
+}
+
 fn relation(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     let kind = cur.word("a kind")?;
     cur.expect_punct("#", "between the kind and the relation")?;
@@ -653,6 +676,11 @@ fn relation(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
         block_body(cur, b, &id, RELATION, "relation", &name)
     })?;
     if repeated {
+        return Ok(());
+    }
+    if let Some(first) = b.declared(ids::RELATIONS) {
+        let raw = Raw::new(kind.span, "a relation follows `relations = []`").hint("drop the empty list");
+        b.conflict(raw, Some(first));
         return Ok(());
     }
     if let Some(rewrite) = body.rewrite("rewrite") {
@@ -765,24 +793,19 @@ fn invariant(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     Ok(())
 }
 
-fn resource(path: Vec<AnchorAt>) -> Resource {
+fn resource_of((path, attrs): (Vec<AnchorAt>, BTreeMap<String, Value>)) -> Resource {
     Resource {
         path: to_anchors(path),
-        attrs: BTreeMap::new(),
+        attrs,
     }
 }
 
-fn subjects_of(items: Vec<AnchorAt>) -> PResult<Vec<Subject>> {
-    items
-        .into_iter()
-        .map(|item| match item.anchor.id {
-            Some(id) => Ok(Subject::of_kind(item.anchor.kind, id)),
-            None => Err(Raw::new(item.span, "a member needs an id").hint("write kind:id")),
-        })
-        .collect()
-}
-
-fn build_invariant(b: &mut Builder, kind: &str, head: &Sp<String>, body: &mut Body) -> PResult<InvariantSpec> {
+pub(crate) fn build_invariant(
+    b: &mut Builder,
+    kind: &str,
+    head: &Sp<String>,
+    body: &mut Body,
+) -> PResult<InvariantSpec> {
     let missing = |what: &str| Raw::new(head.span, format!("{kind} needs `{what}`"));
     Ok(match kind {
         "catalog_conformance" => InvariantSpec::CatalogConformance,
@@ -790,12 +813,14 @@ fn build_invariant(b: &mut Builder, kind: &str, head: &Sp<String>, body: &mut Bo
         "prerequisites" => InvariantSpec::Prerequisites,
         "require_permission" => InvariantSpec::RequirePermission {
             permission: body.word("permission").ok_or_else(|| missing("permission"))?.v,
-            resource: resource(body.path("resource").ok_or_else(|| missing("resource"))?),
+            resource: resource_of(body.path("resource").ok_or_else(|| missing("resource"))?),
         },
         "no_lockout" => {
+            let from = body.date("reserve_from");
+            let until = body.date("reserve_until");
             let reserve = match body.word("reserve_role") {
                 Some(role) => {
-                    let subjects = body.anchors("reserve_subjects").ok_or_else(|| {
+                    let subjects = body.members("reserve_subjects").ok_or_else(|| {
                         Raw::new(role.span, "reserve_role needs `reserve_subjects`")
                             .hint("add a line: reserve_subjects = [user:ana]")
                     })?;
@@ -803,18 +828,20 @@ fn build_invariant(b: &mut Builder, kind: &str, head: &Sp<String>, body: &mut Bo
                         admin_role: RoleAssignment {
                             role: role.v,
                             scope: body.anchor("reserve_scope").map(|a| a.anchor),
-                            valid_from: None,
-                            valid_until: None,
+                            valid_from: from.map(|d| d.v),
+                            valid_until: until.map(|d| d.v),
                         },
-                        subjects: subjects_of(subjects)?,
+                        subjects,
                     })
                 }
                 None => {
                     // The reserve is all or nothing: a field of it with no role would be dropped.
                     let orphan = body
-                        .anchors("reserve_subjects")
-                        .and_then(|items| items.first().map(|item| ("reserve_subjects", item.span)))
-                        .or_else(|| body.anchor("reserve_scope").map(|item| ("reserve_scope", item.span)));
+                        .take("reserve_subjects")
+                        .map(|_| ("reserve_subjects", head.span))
+                        .or_else(|| body.anchor("reserve_scope").map(|item| ("reserve_scope", item.span)))
+                        .or_else(|| from.map(|item| ("reserve_from", item.span)))
+                        .or_else(|| until.map(|item| ("reserve_until", item.span)));
                     if let Some((field, span)) = orphan {
                         b.report(
                             Raw::new(span, format!("`{field}` has no meaning without `reserve_role`"))
@@ -826,8 +853,8 @@ fn build_invariant(b: &mut Builder, kind: &str, head: &Sp<String>, body: &mut Bo
             };
             InvariantSpec::NoLockout {
                 permissions: names(body.words("permissions")),
-                members: subjects_of(body.anchors("members").ok_or_else(|| missing("members"))?)?,
-                resource: resource(body.path("resource").ok_or_else(|| missing("resource"))?),
+                members: body.members("members").ok_or_else(|| missing("members"))?,
+                resource: resource_of(body.path("resource").ok_or_else(|| missing("resource"))?),
                 reserve,
             }
         }
@@ -842,7 +869,7 @@ fn build_invariant(b: &mut Builder, kind: &str, head: &Sp<String>, body: &mut Bo
             let bypass = match (body.word("bypass"), on) {
                 (Some(permission), on) => Some(Bypass {
                     permission: permission.v,
-                    resource: resource(on.unwrap_or_default()),
+                    resource: on.map(resource_of).unwrap_or_default(),
                 }),
                 (None, Some(_)) => {
                     b.report(
