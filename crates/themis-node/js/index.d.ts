@@ -479,6 +479,11 @@ export type DslErrorCode =
   | 'DSL_CONFLICT'
   | 'DSL_UNREPRESENTABLE'
   | 'DSL_UNSUPPORTED'
+  /** A size or count limit: too many sources, a source or the project too large, a directory with too many files. */
+  | 'DSL_LIMIT'
+  /** `loadProject` got the same `path` twice. */
+  | 'DSL_DUPLICATE_SOURCE'
+  /** `loadProjectDir` could not read the directory or a file, or found a `.themis` that is a link. The message carries the path and the system's error: do not pass it on to a remote client. */
   | 'DSL_IO';
 
 /** Where the other side of a conflict lives. */
@@ -499,18 +504,39 @@ export interface DslDiagnostic {
   related?: DslPlace;
 }
 
-/** What every language function throws: a stable `code` and at most 100 diagnostics (the last one may say how many were left out). */
+/** What every language function throws: a stable `code` and at most 100 diagnostics, then one more saying "and N more errors not shown" when some were left out. */
 export interface DslError extends Error {
   code: ErrorCode;
   diagnostics: DslDiagnostic[];
 }
 
 /** A policy in its canonical JSON: the same whatever the syntax it was written in. Comments are in `notes`. */
+export interface PolicyPermission {
+  key: string;
+  targets: string[];
+  label?: string;
+  description?: string;
+  impliedBy?: string[];
+  dependsOn?: string[];
+  nonDelegable?: boolean;
+  managementOnly?: boolean;
+  overrideOnly?: boolean;
+  meta?: Record<string, unknown>;
+}
+
+export interface PolicyCatalog {
+  targetKinds: string[];
+  broadTargets: string[];
+  permissions: PolicyPermission[];
+}
+
+export type PolicyStrategy = 'most_specific' | 'deny_overrides' | 'permit_overrides' | 'first_applicable';
+
 export interface PolicyDocument {
-  catalog: Record<string, unknown>;
+  catalog: PolicyCatalog;
   roles?: unknown[];
   relations?: unknown[];
-  strategy?: string;
+  strategy: PolicyStrategy;
   overrides?: unknown[];
   maxRelationDepth?: number;
   subjects?: unknown[];
@@ -538,12 +564,12 @@ export interface PolicyLanguageApi {
   print(policy: PolicyDocument, language: PolicyLanguage): string;
   /** Reads `text` in whatever syntax it declares and writes it in `language`. */
   convert(text: string, language: PolicyLanguage): string;
-  /** Merges sources, each in its own syntax, into one policy. Throws `DSL_CONFLICT` with both positions when two declare the same thing. */
+  /** Merges sources, each in its own syntax, into one policy. Throws `DSL_CONFLICT` with both positions when two declare the same thing, `DSL_DUPLICATE_SOURCE` for a repeated `path` and `DSL_LIMIT` past the size and count limits. */
   loadProject(sources: PolicySource[]): PolicyDocument;
 }
 
 export interface NativePolicyLanguageApi extends PolicyLanguageApi {
-  /** Reads every `.themis` file of a directory as a project. Only the native module has it: the WebAssembly build has no IO. */
+  /** Reads every `.themis` file of a directory as a project. Only the native module has it: the WebAssembly build has no IO. A `.themis` that is a link is refused with `DSL_IO`, never skipped. `dir` itself is resolved following links, so it must come from a trusted source, never from external input. */
   loadProjectDir(dir: string): PolicyDocument;
 }
 
