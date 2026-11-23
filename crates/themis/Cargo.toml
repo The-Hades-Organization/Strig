@@ -50,3 +50,7 @@ required-features = ["dsl"]
 [[test]]
 name = "dsl_fs"
 required-features = ["dsl-fs"]
+
+[[bench]]
+name = "listing"
+harness = false
