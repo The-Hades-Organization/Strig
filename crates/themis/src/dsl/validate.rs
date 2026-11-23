@@ -406,7 +406,11 @@ fn assignments(policy: &Policy, report: &mut Report<'_>) {
         let Some(sid) = &subject.id else { continue };
         let subject_id = ids::subject(&subject.kind, sid);
         if !subjects.insert((&subject.kind, sid)) {
-            report.error(&subject_id, format!("subject `{}:{sid}` is declared twice", subject.kind), None);
+            report.error(
+                &subject_id,
+                format!("subject `{}:{sid}` is declared twice", subject.kind),
+                None,
+            );
         }
         let mut assigned: HashSet<&str> = HashSet::new();
         for RoleAssignment {
@@ -451,7 +455,11 @@ fn overrides(policy: &Policy, catalog: Option<&Catalog>, report: &mut Report<'_>
         if let OverrideRule::ResourceOwner { attr } = &spec.rule
             && attr.contains('/')
         {
-            report.error(&id, format!("`{attr}` is not an attribute name"), Some("it cannot hold `/`".into()));
+            report.error(
+                &id,
+                format!("`{attr}` is not an attribute name"),
+                Some("it cannot hold `/`".into()),
+            );
         }
         let Some(catalog) = catalog else { continue };
         let mut named: Vec<&String> = spec.except.iter().collect();

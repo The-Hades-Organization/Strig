@@ -55,7 +55,11 @@ pub(crate) fn print(policy: &Policy) -> Printed<String> {
             _ => slots.before.push(note.text.clone()),
         }
     }
-    if let Some(key) = notes.iter().find(|(_, slots)| slots.inline.len() > 1).map(|(key, _)| key) {
+    if let Some(key) = notes
+        .iter()
+        .find(|(_, slots)| slots.inline.len() > 1)
+        .map(|(key, _)| key)
+    {
         return unrepresentable(
             format!("the comments of `{key}`"),
             "two comments on the same line have no spelling",
@@ -101,7 +105,12 @@ fn id_part<'a>(text: &'a str, what: &str) -> Printed<&'a str> {
 
 fn date(ms: u64) -> Printed<String> {
     time::format(ms).map_or_else(
-        || unrepresentable(format!("the instant {ms}"), "the language writes dates up to the year 9999"),
+        || {
+            unrepresentable(
+                format!("the instant {ms}"),
+                "the language writes dates up to the year 9999",
+            )
+        },
         Ok,
     )
 }
@@ -120,7 +129,10 @@ fn attr(path: &str) -> Printed<&str> {
     if is_attr_path(path) {
         Ok(path)
     } else {
-        unrepresentable(format!("the attribute `{path}`"), "it is not an attribute path the language can read")
+        unrepresentable(
+            format!("the attribute `{path}`"),
+            "it is not an attribute path the language can read",
+        )
     }
 }
 

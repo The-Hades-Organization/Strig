@@ -141,7 +141,9 @@ fn a_subject_with_two_values_for_an_attribute_clashes() {
 fn the_same_invariant_in_two_files_clashes_with_both_positions() {
     let one = "language blocks\n\ninvariant no_self_management {\n}\n\ninvariant prerequisites {\n}\n";
     let two = "language blocks\n\ninvariant prerequisites {\n}\n";
-    let errors = project(&[("one.themis", one), ("two.themis", two)]).build().unwrap_err();
+    let errors = project(&[("one.themis", one), ("two.themis", two)])
+        .build()
+        .unwrap_err();
     let first = errors.first().unwrap();
     let at = first.location.as_ref().unwrap();
     assert_eq!((&*at.file, at.line), ("two.themis", 3));
@@ -167,7 +169,9 @@ fn a_repeat_word_for_word_across_files_is_a_clash() {
     assert_eq!(&*first.location.as_ref().unwrap().file, "b.themis");
     assert_eq!(&*first.related.as_ref().unwrap().file, "a.themis");
 
-    let errors = project(&[("a.themis", KINDS), ("b.themis", KINDS)]).build().unwrap_err();
+    let errors = project(&[("a.themis", KINDS), ("b.themis", KINDS)])
+        .build()
+        .unwrap_err();
     assert!(errors.first().unwrap().message.contains("target_kinds"));
 }
 
@@ -184,7 +188,9 @@ fn the_same_role_for_one_subject_in_two_files_clashes() {
 fn a_project_takes_a_bounded_number_of_sources() {
     let mut project = Project::new();
     for at in 0..themis::dsl::MAX_SOURCES {
-        project.add_source(&format!("{at}.themis"), "language blocks\n").unwrap();
+        project
+            .add_source(&format!("{at}.themis"), "language blocks\n")
+            .unwrap();
     }
     let errors = project.add_source("one-more.themis", "language blocks\n").unwrap_err();
     assert!(errors.first().unwrap().message.contains("at most"));
