@@ -91,10 +91,17 @@ impl RoleTemplate {
         self
     }
 
-    /// Copies the template into new grants for `subject`, ids prefixed with `id_prefix`. `scope`
-    /// applies to every model grant that has no scope of its own. The result is detached from the
-    /// template: nothing is stored that points back to it except the provenance in
+    /// Copies the template into new grants for `subject`, ids prefixed with `id_prefix`. The result is
+    /// detached from the template: nothing is stored that points back to it except the provenance in
     /// [`Materialized::meta`].
+    ///
+    /// `scope` applies to every model grant that has no scope of its own. With `None`, those grants
+    /// have no scope at all and take effect everywhere their target does: a template meant for one
+    /// project, materialized without a scope, comes out wider than intended. Pass a scope, and install
+    /// [`NoEscalation`](crate::NoEscalation) to bound what an actor can hand out.
+    ///
+    /// The grant id is `<id_prefix>:<template grant id>`, so `a` + `b:c` and `a:b` + `c` collide; a
+    /// repeated id, inside the template or against the current set, is refused when the change is applied.
     pub fn materialize(&self, subject: SubjectMatcher, scope: Option<Anchor>, id_prefix: &str) -> Materialized {
         let mutations = self
             .grants
@@ -125,6 +132,11 @@ impl RoleTemplate {
 }
 
 /// Result of [`RoleTemplate::materialize`]: ordinary changes plus their provenance.
+///
+/// The provenance is declared by whoever builds the value, and this type is `Deserialize`: it is a
+/// trace for the audit, not proof of origin. The invariants judge each change on its own merits
+/// whatever the `meta` says. Writing [`Materialized::mutations`] straight to storage, instead of going
+/// through [`Materialized::apply`], skips the invariants.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Materialized {
@@ -136,9 +148,30 @@ pub struct Materialized {
 }
 
 impl Materialized {
-    /// Applies the changes in order, each one through `governance` as an ordinary change: every
-    /// grant is checked against the invariants with the earlier ones already in place, and the
-    /// provenance goes to the audit as the change metadata.
+    /// The changes in the order [`Materialized::apply`] sends them: a grant comes after the grants
+    /// of the permissions it depends on (`depends_on`), since [`Prerequisites`](crate::Prerequisites)
+    /// judges each change with only the earlier ones in place. Otherwise the order of the template is
+    /// kept. Whoever applies the changes by other means follows this order.
+    pub fn ordered(&self, engine: &Engine) -> Vec<&Mutation> {
+        let depth = |m: &Mutation| match m {
+            Mutation::Add(grant) => engine.catalog().prerequisites(&grant.permission).count(),
+            _ => 0,
+        };
+        let mut ordered: Vec<&Mutation> = self.mutations.iter().collect();
+        // A prerequisite closure is acyclic, so a permission always has more of them than each of its
+        // own prerequisites: sorting by that count (stable) puts the prerequisites first.
+        ordered.sort_by_key(|m| depth(m));
+        ordered
+    }
+
+    /// Applies the changes in the order of [`Materialized::ordered`], each one through `governance` as
+    /// an ordinary change: every grant is checked against the invariants with the earlier ones already in
+    /// place, and the provenance goes to the audit as the change metadata.
+    ///
+    /// The whole batch is checked first, and only then recorded: the audit never says `applied` about a
+    /// change the caller will discard. If one change is refused, only that refusal is recorded. If the
+    /// audit itself fails halfway through the recording, the earlier records stay and the error comes
+    /// back; the caller writes nothing, so the trail is then ahead of the stored set.
     ///
     /// # Errors
     ///
@@ -152,8 +185,20 @@ impl Materialized {
         current: &[Grant],
         tuples: Option<&dyn TupleStore>,
     ) -> Result<Vec<Grant>, Vec<Violation>> {
+        let ordered = self.ordered(engine);
         let mut grants = current.to_vec();
-        for mutation in &self.mutations {
+        for mutation in &ordered {
+            match governance.evaluate(engine, actor, &grants, mutation, tuples) {
+                Ok(next) => grants = next,
+                Err(violations) => {
+                    return governance
+                        .apply_with(engine, actor, &grants, mutation, tuples, &self.meta)
+                        .and(Err(violations));
+                }
+            }
+        }
+        let mut grants = current.to_vec();
+        for mutation in ordered {
             grants = governance.apply_with(engine, actor, &grants, mutation, tuples, &self.meta)?;
         }
         Ok(grants)
