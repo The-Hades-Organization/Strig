@@ -213,10 +213,7 @@ fn revoking_a_role_checks_the_grants_that_come_by_principal_or_any() {
     let viewers = Subject::user("ana").with_role("viewers").with_principal("staff");
     let revoke = Mutation::RevokeRole {
         subject: viewers,
-        role: themis::RoleAssignment {
-            role: "viewers".into(),
-            scope: None,
-        },
+        role: themis::RoleAssignment::new("viewers"),
     };
     let on_projects = TargetSelector::kind("project");
     for holder in [SubjectMatcher::principal("staff"), SubjectMatcher::Any] {
