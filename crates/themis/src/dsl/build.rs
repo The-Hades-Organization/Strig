@@ -82,6 +82,20 @@ impl Builder {
         self.open.push(at);
     }
 
+    /// Renames an element (and what hangs under it) once its name is known: an override is named
+    /// by a field of its own body.
+    pub fn rename(&mut self, from: &str, to: &str) {
+        let below = format!("{from}/");
+        for extent in &mut self.extents {
+            if extent.id == from {
+                extent.id = to.to_string();
+            } else if let Some(rest) = extent.id.strip_prefix(&below) {
+                extent.id = format!("{to}/{rest}");
+            }
+        }
+        self.origins.rename_prefix(from, to);
+    }
+
     /// Ends the innermost open element at the last token consumed.
     pub fn close(&mut self, last: Span) {
         if let Some(at) = self.open.pop() {

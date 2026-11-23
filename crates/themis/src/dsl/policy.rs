@@ -257,6 +257,21 @@ impl Origins {
         self.0.extend(other.0);
     }
 
+    pub(crate) fn rename_prefix(&mut self, from: &str, to: &str) {
+        let below = format!("{from}/");
+        let moved: Vec<String> = self
+            .0
+            .keys()
+            .filter(|id| id.as_str() == from || id.starts_with(&below))
+            .cloned()
+            .collect();
+        for id in moved {
+            if let Some(at) = self.0.remove(&id) {
+                self.0.insert(format!("{to}{}", &id[from.len()..]), at);
+            }
+        }
+    }
+
     pub(crate) fn remove_prefix(&mut self, prefix: &str) {
         self.0.retain(|id, _| !id.starts_with(prefix));
     }
