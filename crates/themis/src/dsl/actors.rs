@@ -199,7 +199,8 @@ fn empty_relations(b: &mut Builder, at: Span) -> PResult<()> {
         return Ok(());
     }
     if b.policy.relations.is_some() {
-        let raw = Raw::new(at, "an empty `relations` comes after a relation").hint("declare it before any relation, or drop it");
+        let raw = Raw::new(at, "an empty `relations` comes after a relation")
+            .hint("declare it before any relation, or drop it");
         b.conflict(raw, None);
         return Ok(());
     }
@@ -240,14 +241,18 @@ fn declare_subject(cur: &Cursor, b: &mut Builder, kind: &str, sid: &str, at: Spa
     if repeated {
         return (id, None);
     }
-    b.policy.subjects.push(Subject::of_kind(kind.to_string(), sid.to_string()));
+    b.policy
+        .subjects
+        .push(Subject::of_kind(kind.to_string(), sid.to_string()));
     let at = b.policy.subjects.len() - 1;
     (id, Some(at))
 }
 
 fn child(cur: &mut Cursor, b: &mut Builder, ctx: &mut Ctx, col: u32) -> PResult<()> {
     match ctx {
-        Ctx::None => Err(Raw::new(cur.span(), "unexpected indentation").hint("a line under a heading, or a heading at column 1")),
+        Ctx::None => {
+            Err(Raw::new(cur.span(), "unexpected indentation").hint("a line under a heading, or a heading at column 1"))
+        }
         Ctx::Skip => {
             while !cur.at_eof() {
                 cur.advance();
@@ -258,7 +263,9 @@ fn child(cur: &mut Cursor, b: &mut Builder, ctx: &mut Ctx, col: u32) -> PResult<
         Ctx::Actor(actor) => {
             let level = *actor.level.get_or_insert(col);
             if col < level {
-                return Err(Raw::new(cur.span(), "inconsistent indentation").hint("lines under one heading share a column"));
+                return Err(
+                    Raw::new(cur.span(), "inconsistent indentation").hint("lines under one heading share a column")
+                );
             }
             if col > level {
                 let Some(scope) = actor.scope.clone() else {
@@ -294,8 +301,11 @@ fn actor_line(cur: &mut Cursor, b: &mut Builder, actor: &mut Actor) -> PResult<(
         "allow" | "deny" => grant(cur, b, actor, None),
         "role" | "principal" | "attr" => {
             let Some((id, at)) = actor.subject.clone() else {
-                return Err(Raw::new(head.span, format!("`{word}` lines belong under a user or subject heading"))
-                    .hint("put them first under the heading, before any rule"));
+                return Err(Raw::new(
+                    head.span,
+                    format!("`{word}` lines belong under a user or subject heading"),
+                )
+                .hint("put them first under the heading, before any rule"));
             };
             cur.advance();
             subject_line(cur, b, &word, &id, at, head.span)
@@ -350,7 +360,9 @@ fn with_subject(b: &mut Builder, at: Option<usize>, apply: impl FnOnce(&mut Subj
 /// `allow|deny <permission> on <target> [when <c>] [from <d>] [until <d>] as <id>`
 fn grant(cur: &mut Cursor, b: &mut Builder, actor: &Actor, scope: Option<&Anchor>) -> PResult<()> {
     let Some(subject) = actor.matcher.clone() else {
-        return Err(Raw::new(cur.span(), "this heading cannot own rules").hint("use role, user, principal, relation or anyone"));
+        return Err(
+            Raw::new(cur.span(), "this heading cannot own rules").hint("use role, user, principal, relation or anyone")
+        );
     };
     let effect = cur.word("allow or deny")?;
     let scope = scope.or(actor.scope.as_ref()).cloned();
@@ -420,8 +432,10 @@ fn grant_body(
                 }
             }
             "in" => {
-                return Err(Raw::new(clause.span, "a rule takes its scope from the enclosing `in` line")
-                    .hint("put `in <scope>` on its own line above the rule"));
+                return Err(
+                    Raw::new(clause.span, "a rule takes its scope from the enclosing `in` line")
+                        .hint("put `in <scope>` on its own line above the rule"),
+                );
             }
             other => {
                 return Err(Raw::new(clause.span, format!("unexpected `{other}`"))
@@ -430,7 +444,10 @@ fn grant_body(
         }
     }
     let Some(name) = name else {
-        return Err(Raw::new(cur.span(), format!("a rule needs an id: end the line with `as <id>`")));
+        return Err(Raw::new(
+            cur.span(),
+            format!("a rule needs an id: end the line with `as <id>`"),
+        ));
     };
     let id = ids::grant(&name.v);
     if duplicate(b, &id, name.span, &format!("grant `{}`", name.v)) {
@@ -618,7 +635,11 @@ fn group_heading<'a>(p: &mut Printer, walk: &mut Walk<'a>, m: &SubjectMatcher) -
         }
         SubjectMatcher::User { id } => {
             let text = bp::matcher(m)?;
-            let at = walk.users.get(id.as_str()).copied().filter(|at| *at >= walk.next_subject);
+            let at = walk
+                .users
+                .get(id.as_str())
+                .copied()
+                .filter(|at| *at >= walk.next_subject);
             let Some(at) = at else {
                 p.push(0, &text);
                 return Ok(None);
@@ -663,7 +684,10 @@ fn decl_lines(p: &mut Printer, s: &Subject) -> Printed<()> {
         p.push(1, &format!("principal {}", bp::word(principal, "principal")?));
     }
     for (key, item) in &s.attrs {
-        p.push(1, &format!("attr {} = {}", bp::word(key, "attribute")?, bp::value(item)?));
+        p.push(
+            1,
+            &format!("attr {} = {}", bp::word(key, "attribute")?, bp::value(item)?),
+        );
     }
     Ok(())
 }

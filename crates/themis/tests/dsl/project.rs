@@ -18,10 +18,17 @@ fn scratch(name: &str) -> PathBuf {
 #[test]
 fn a_directory_with_the_three_syntaxes_builds_one_policy() {
     let dir = scratch("dsl-mixed-project");
-    for (name, text) in [("a.themis", KINDS_BLOCKS), ("b.themis", READ_RULES), ("c.themis", VIEWER_ACTORS)] {
+    for (name, text) in [
+        ("a.themis", KINDS_BLOCKS),
+        ("b.themis", READ_RULES),
+        ("c.themis", VIEWER_ACTORS),
+    ] {
         std::fs::write(dir.join(name), text).unwrap();
     }
-    let built = read_dir(&dir).unwrap().build().unwrap_or_else(|errors| panic!("{errors}"));
+    let built = read_dir(&dir)
+        .unwrap()
+        .build()
+        .unwrap_or_else(|errors| panic!("{errors}"));
     assert_eq!(built.policy.catalog.target_kinds, ["org", "doc"]);
     assert_eq!(built.policy.catalog.permissions.len(), 1);
     assert_eq!(built.policy.roles.len(), 1);
@@ -46,5 +53,11 @@ fn the_order_of_mixed_sources_does_not_change_the_policy() {
     for (name, text) in all.into_iter().rev() {
         backward.add_source(name, text).unwrap();
     }
-    assert!(forward.build().unwrap().policy.equivalent(&backward.build().unwrap().policy));
+    assert!(
+        forward
+            .build()
+            .unwrap()
+            .policy
+            .equivalent(&backward.build().unwrap().policy)
+    );
 }

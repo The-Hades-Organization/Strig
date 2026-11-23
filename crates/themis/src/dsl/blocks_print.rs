@@ -772,54 +772,54 @@ impl Printer {
 
 /// The `name value` pairs of an invariant, as both Blocks and Rules write them.
 pub(crate) fn invariant_fields(spec: &InvariantSpec) -> Printed<Vec<(&'static str, String)>> {
-        let mut fields: Vec<(&'static str, String)> = Vec::new();
-        match spec {
-            InvariantSpec::RequirePermission {
-                permission,
-                resource: r,
-            } => {
-                fields.push(("permission", word(permission, "permission")?.to_string()));
-                fields.push(("resource", resource(r, "the resource")?));
-            }
-            InvariantSpec::NoLockout {
-                permissions,
-                members,
-                resource: r,
-                reserve,
-            } => {
-                fields.push(("permissions", words(permissions, "permission")?));
-                fields.push(("members", member_list(members)?));
-                fields.push(("resource", resource(r, "the resource")?));
-                if let Some(reserve) = reserve {
-                    let admin = &reserve.admin_role;
-                    fields.push(("reserve_role", word(&admin.role, "role")?.to_string()));
-                    if let Some(scope) = &admin.scope {
-                        fields.push(("reserve_scope", anchor(scope)?));
-                    }
-                    fields.push(("reserve_subjects", member_list(&reserve.subjects)?));
-                    if let Some(from) = admin.valid_from {
-                        fields.push(("reserve_from", date(from)?));
-                    }
-                    if let Some(until) = admin.valid_until {
-                        fields.push(("reserve_until", date(until)?));
-                    }
-                }
-            }
-            InvariantSpec::NonDelegable { manager } => {
-                fields.push(("manager", word(manager, "permission")?.to_string()));
-            }
-            InvariantSpec::ManagementOnly { roles } => fields.push(("roles", words(roles, "role")?)),
-            InvariantSpec::NoEscalation { bypass: Some(b) } => {
-                fields.push(("bypass", word(&b.permission, "permission")?.to_string()));
-                if !b.resource.path.is_empty() {
-                    fields.push(("on", resource(&b.resource, "the bypass resource")?));
-                }
-            }
-            InvariantSpec::Forbid { subject, permissions } => {
-                fields.push(("subject", matcher(subject)?));
-                fields.push(("permissions", words(permissions, "permission")?));
-            }
-            _ => {}
+    let mut fields: Vec<(&'static str, String)> = Vec::new();
+    match spec {
+        InvariantSpec::RequirePermission {
+            permission,
+            resource: r,
+        } => {
+            fields.push(("permission", word(permission, "permission")?.to_string()));
+            fields.push(("resource", resource(r, "the resource")?));
         }
+        InvariantSpec::NoLockout {
+            permissions,
+            members,
+            resource: r,
+            reserve,
+        } => {
+            fields.push(("permissions", words(permissions, "permission")?));
+            fields.push(("members", member_list(members)?));
+            fields.push(("resource", resource(r, "the resource")?));
+            if let Some(reserve) = reserve {
+                let admin = &reserve.admin_role;
+                fields.push(("reserve_role", word(&admin.role, "role")?.to_string()));
+                if let Some(scope) = &admin.scope {
+                    fields.push(("reserve_scope", anchor(scope)?));
+                }
+                fields.push(("reserve_subjects", member_list(&reserve.subjects)?));
+                if let Some(from) = admin.valid_from {
+                    fields.push(("reserve_from", date(from)?));
+                }
+                if let Some(until) = admin.valid_until {
+                    fields.push(("reserve_until", date(until)?));
+                }
+            }
+        }
+        InvariantSpec::NonDelegable { manager } => {
+            fields.push(("manager", word(manager, "permission")?.to_string()));
+        }
+        InvariantSpec::ManagementOnly { roles } => fields.push(("roles", words(roles, "role")?)),
+        InvariantSpec::NoEscalation { bypass: Some(b) } => {
+            fields.push(("bypass", word(&b.permission, "permission")?.to_string()));
+            if !b.resource.path.is_empty() {
+                fields.push(("on", resource(&b.resource, "the bypass resource")?));
+            }
+        }
+        InvariantSpec::Forbid { subject, permissions } => {
+            fields.push(("subject", matcher(subject)?));
+            fields.push(("permissions", words(permissions, "permission")?));
+        }
+        _ => {}
+    }
     Ok(fields)
 }
