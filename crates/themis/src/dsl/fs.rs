@@ -4,8 +4,8 @@ use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-use crate::dsl::{parse, print, Diagnostics, Language, Parsed, Policy, PrintError, Project};
 use crate::dsl::MAX_SOURCE_BYTES;
+use crate::dsl::{Diagnostics, Language, Parsed, Policy, PrintError, Project, parse, print};
 
 /// The extension of the policy files [`read_dir`] picks up.
 pub const EXTENSION: &str = "themis";
@@ -118,11 +118,7 @@ pub fn read_dir(path: impl AsRef<Path>) -> Result<Project, FsError> {
 ///
 /// # Errors
 /// [`FsError::Print`] when the syntax cannot say the policy, [`FsError::Io`] when the write fails.
-pub fn write_file(
-    path: impl AsRef<Path>,
-    policy: &Policy,
-    language: Language,
-) -> Result<(), FsError> {
+pub fn write_file(path: impl AsRef<Path>, policy: &Policy, language: Language) -> Result<(), FsError> {
     let path = path.as_ref();
     let text = print(policy, language)?;
     fs::write(path, text).map_err(io_error(path))

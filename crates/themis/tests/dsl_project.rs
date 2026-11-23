@@ -39,8 +39,12 @@ fn sources_in_separate_files_merge_into_one_policy() {
 
 #[test]
 fn the_order_of_the_sources_does_not_change_the_policy() {
-    let forward = project(&[("kinds.themis", KINDS), ("read.themis", READ)]).build().unwrap();
-    let backward = project(&[("read.themis", READ), ("kinds.themis", KINDS)]).build().unwrap();
+    let forward = project(&[("kinds.themis", KINDS), ("read.themis", READ)])
+        .build()
+        .unwrap();
+    let backward = project(&[("read.themis", READ), ("kinds.themis", KINDS)])
+        .build()
+        .unwrap();
     assert!(forward.policy.equivalent(&backward.policy));
 }
 
@@ -124,9 +128,8 @@ fn two_strategies_clash_and_one_strategy_is_taken() {
 
 #[test]
 fn a_subject_with_two_values_for_an_attribute_clashes() {
-    let subject = |dept: &str| {
-        format!("language blocks\n\nsubject user:ana {{\n  attrs {{\n    dept = \"{dept}\"\n  }}\n}}\n")
-    };
+    let subject =
+        |dept: &str| format!("language blocks\n\nsubject user:ana {{\n  attrs {{\n    dept = \"{dept}\"\n  }}\n}}\n");
     let errors = project(&[("a.themis", &subject("it")), ("b.themis", &subject("hr"))])
         .build()
         .unwrap_err();
@@ -168,5 +171,9 @@ fn an_error_of_the_whole_is_found_after_the_merge() {
     // The permission targets a kind that only exists once the second file is added.
     let permission = "language blocks\n\npermission doc.read {\n  targets = [doc]\n}\n";
     assert!(project(&[("p.themis", permission)]).build().is_err());
-    assert!(project(&[("p.themis", permission), ("k.themis", KINDS)]).build().is_ok());
+    assert!(
+        project(&[("p.themis", permission), ("k.themis", KINDS)])
+            .build()
+            .is_ok()
+    );
 }

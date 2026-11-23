@@ -6,14 +6,13 @@ use std::collections::BTreeMap;
 use crate::dsl::build::Builder;
 use crate::dsl::error::{PResult, Raw, Span};
 use crate::dsl::grammar::{
-    anchor, condition, literal, matcher, path, rewrite, suggest, target, tuple, AnchorAt,
-    Cursor, Sp,
+    AnchorAt, Cursor, Sp, anchor, condition, literal, matcher, path, rewrite, suggest, target, tuple,
 };
 use crate::dsl::policy::ids;
 use crate::{
-    Anchor, Bypass, Condition, Effect, Grant, InvariantSpec, OverrideRule, OverrideSpec,
-    PermissionDef, RelationSpec, ReserveSpec, Resource, Rewrite, RoleAssignment, RoleSpec,
-    StrategySpec, Subject, SubjectMatcher, TargetSelector, Value,
+    Anchor, Bypass, Condition, Effect, Grant, InvariantSpec, OverrideRule, OverrideSpec, PermissionDef, RelationSpec,
+    ReserveSpec, Resource, Rewrite, RoleAssignment, RoleSpec, StrategySpec, Subject, SubjectMatcher, TargetSelector,
+    Value,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -124,10 +123,7 @@ const INVARIANT_KINDS: [&str; 9] = [
     "forbid",
 ];
 
-const REQUIRE_PERMISSION: &[FieldSpec] = &[
-    req("permission", Kind::Word),
-    req("resource", Kind::Path),
-];
+const REQUIRE_PERMISSION: &[FieldSpec] = &[req("permission", Kind::Word), req("resource", Kind::Path)];
 const NO_LOCKOUT: &[FieldSpec] = &[
     req("permissions", Kind::Words),
     req("members", Kind::Anchors),
@@ -139,10 +135,7 @@ const NO_LOCKOUT: &[FieldSpec] = &[
 const NON_DELEGABLE: &[FieldSpec] = &[req("manager", Kind::Word)];
 const MANAGEMENT_ONLY: &[FieldSpec] = &[req("roles", Kind::Words)];
 const NO_ESCALATION: &[FieldSpec] = &[opt("bypass", Kind::Word), opt("on", Kind::Path)];
-const FORBID: &[FieldSpec] = &[
-    req("subject", Kind::Matcher),
-    req("permissions", Kind::Words),
-];
+const FORBID: &[FieldSpec] = &[req("subject", Kind::Matcher), req("permissions", Kind::Words)];
 
 /// The fields of one invariant kind.
 fn invariant_fields(kind: &str) -> Option<&'static [FieldSpec]> {
@@ -261,8 +254,8 @@ fn scoped<T>(
 fn duplicate(b: &mut Builder, id: &str, at: Span, what: &str) -> bool {
     match b.declared(id) {
         Some(first) => {
-            let raw = Raw::new(at, format!("{what} is declared twice"))
-                .hint("the first declaration is the related position");
+            let raw =
+                Raw::new(at, format!("{what} is declared twice")).hint("the first declaration is the related position");
             b.conflict(raw, Some(first));
             true
         }
@@ -291,10 +284,7 @@ fn statement(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
         "tuples" => tuples(cur, b, &head),
         "override" => override_block(cur, b),
         "invariant" => invariant(cur, b),
-        other => Err(
-            Raw::new(head.span, format!("unknown declaration `{other}`"))
-                .hint(suggest(other, &DECLARATIONS)),
-        ),
+        other => Err(Raw::new(head.span, format!("unknown declaration `{other}`")).hint(suggest(other, &DECLARATIONS))),
     }
 }
 
@@ -343,8 +333,7 @@ fn strategy(cur: &mut Cursor, b: &mut Builder, head: &Sp<String>) -> PResult<()>
             "permit_overrides" => StrategySpec::PermitOverrides,
             "first_applicable" => StrategySpec::FirstApplicable,
             other => {
-                return Err(Raw::new(word.span, format!("unknown strategy `{other}`"))
-                    .hint(suggest(other, &STRATEGIES)))
+                return Err(Raw::new(word.span, format!("unknown strategy `{other}`")).hint(suggest(other, &STRATEGIES)));
             }
         };
         Ok(())
@@ -430,14 +419,12 @@ fn field(
     let key = cur.word(&format!("a field name of the {what}"))?;
     let Some(spec) = schema.iter().find(|s| s.name == key.v) else {
         let names: Vec<&str> = schema.iter().map(|s| s.name).collect();
-        return Err(
-            Raw::new(key.span, format!("unknown field `{}` in {what}", key.v))
-                .hint(suggest(&key.v, &names)),
-        );
+        return Err(Raw::new(key.span, format!("unknown field `{}` in {what}", key.v)).hint(suggest(&key.v, &names)));
     };
     if spec.kind != Kind::Assign && body.has(spec.name) {
-        return Err(Raw::new(key.span, format!("field `{}` is given twice in {what}", key.v))
-            .hint("keep one line per field"));
+        return Err(
+            Raw::new(key.span, format!("field `{}` is given twice in {what}", key.v)).hint("keep one line per field"),
+        );
     }
     let id = ids::field(elem, spec.name);
     if spec.kind == Kind::Assign {
@@ -478,12 +465,7 @@ fn value(cur: &mut Cursor, b: &mut Builder, id: &str, kind: Kind, key: &Sp<Strin
             match word.v.as_str() {
                 "true" => Val::Bool(true),
                 "false" => Val::Bool(false),
-                other => {
-                    return Err(Raw::new(
-                        word.span,
-                        format!("expected true or false, found `{other}`"),
-                    ))
-                }
+                other => return Err(Raw::new(word.span, format!("expected true or false, found `{other}`"))),
             }
         }
         Kind::Word => Val::Word(cur.word("a name")?),
@@ -512,12 +494,7 @@ fn value(cur: &mut Cursor, b: &mut Builder, id: &str, kind: Kind, key: &Sp<Strin
 }
 
 /// `{ key = literal ... }`
-fn table(
-    cur: &mut Cursor,
-    b: &mut Builder,
-    id: &str,
-    key: &Sp<String>,
-) -> PResult<BTreeMap<String, Value>> {
+fn table(cur: &mut Cursor, b: &mut Builder, id: &str, key: &Sp<String>) -> PResult<BTreeMap<String, Value>> {
     cur.expect_punct("{", "to open the table")?;
     let mut entries = BTreeMap::new();
     while !cur.is_punct("}") {
@@ -644,7 +621,7 @@ fn grant(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
             return Err(Raw::new(
                 effect.span,
                 format!("effect must be allow or deny, found `{other}`"),
-            ))
+            ));
         }
     };
     b.policy.grants.push(Grant {
@@ -674,14 +651,11 @@ fn relation(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
         return Ok(());
     }
     if let Some(rewrite) = body.rewrite("rewrite") {
-        b.policy
-            .relations
-            .get_or_insert_with(Vec::new)
-            .push(RelationSpec {
-                kind: kind.v,
-                relation: name.v,
-                rewrite,
-            });
+        b.policy.relations.get_or_insert_with(Vec::new).push(RelationSpec {
+            kind: kind.v,
+            relation: name.v,
+            rewrite,
+        });
     }
     Ok(())
 }
@@ -691,8 +665,7 @@ fn tuples(cur: &mut Cursor, b: &mut Builder, head: &Sp<String>) -> PResult<()> {
         cur.expect_punct("{", "to open the tuple list")?;
         while !cur.is_punct("}") {
             if cur.at_eof() {
-                return Err(Raw::new(head.span, "the tuples block is not closed")
-                    .hint("add a closing `}`"));
+                return Err(Raw::new(head.span, "the tuples block is not closed").hint("add a closing `}`"));
             }
             let start = cur.index();
             match tuple(cur) {
@@ -724,14 +697,10 @@ fn override_block(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     let kind = cur.word("an override kind")?;
     let (schema, what, placeholder) = match kind.v.as_str() {
         "resource_owner" => (OWNER, "resource_owner override", "override:resource_owner:"),
-        "permission_holder" => (
-            HOLDER,
-            "permission_holder override",
-            "override:permission_holder:",
-        ),
+        "permission_holder" => (HOLDER, "permission_holder override", "override:permission_holder:"),
         other => {
             return Err(Raw::new(kind.span, format!("unknown override `{other}`"))
-                .hint(suggest(other, &["resource_owner", "permission_holder"])))
+                .hint(suggest(other, &["resource_owner", "permission_holder"])));
         }
     };
     let owner = kind.v == "resource_owner";
@@ -763,9 +732,7 @@ fn override_block(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     let rule = if owner {
         OverrideRule::ResourceOwner { attr: argument.v }
     } else {
-        OverrideRule::PermissionHolder {
-            permission: argument.v,
-        }
+        OverrideRule::PermissionHolder { permission: argument.v }
     };
     b.policy.overrides.push(OverrideSpec {
         rule,
@@ -778,8 +745,9 @@ fn invariant(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     let word = cur.word("an invariant kind")?;
     let kind = word.v.replace('-', "_");
     let Some(schema) = invariant_fields(&kind) else {
-        return Err(Raw::new(word.span, format!("unknown invariant `{}`", word.v))
-            .hint(suggest(&word.v, &INVARIANT_KINDS)));
+        return Err(
+            Raw::new(word.span, format!("unknown invariant `{}`", word.v)).hint(suggest(&word.v, &INVARIANT_KINDS))
+        );
     };
     let id = b.next_invariant(&kind);
     let what = format!("{kind} invariant");
@@ -808,12 +776,7 @@ fn subjects_of(items: Vec<AnchorAt>) -> PResult<Vec<Subject>> {
         .collect()
 }
 
-fn build_invariant(
-    b: &mut Builder,
-    kind: &str,
-    head: &Sp<String>,
-    body: &mut Body,
-) -> PResult<InvariantSpec> {
+fn build_invariant(b: &mut Builder, kind: &str, head: &Sp<String>, body: &mut Body) -> PResult<InvariantSpec> {
     let missing = |what: &str| Raw::new(head.span, format!("{kind} needs `{what}`"));
     Ok(match kind {
         "catalog_conformance" => InvariantSpec::CatalogConformance,

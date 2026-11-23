@@ -8,8 +8,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CatalogExport, EngineSpec, Grant, InvariantSpec, OverrideSpec, RelationSpec, RoleSpec,
-    StrategySpec, Subject, Tuple,
+    CatalogExport, EngineSpec, Grant, InvariantSpec, OverrideSpec, RelationSpec, RoleSpec, StrategySpec, Subject, Tuple,
 };
 
 use super::error::Location;
@@ -164,11 +163,7 @@ impl Policy {
         if let Some(relations) = &mut policy.relations {
             relations.sort_by(|a, b| (&a.kind, &a.relation).cmp(&(&b.kind, &b.relation)));
         }
-        let mut notes: Vec<_> = policy
-            .notes
-            .drain(..)
-            .map(|note| (note.anchor, note.text))
-            .collect();
+        let mut notes: Vec<_> = policy.notes.drain(..).map(|note| (note.anchor, note.text)).collect();
         notes.sort();
         let mut value = serde_json::to_value(&policy).unwrap_or(serde_json::Value::Null);
         sort_array(&mut value, "subjects");

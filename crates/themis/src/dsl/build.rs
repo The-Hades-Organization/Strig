@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::dsl::error::{Diagnostic, Location, Raw, Span};
 use crate::dsl::lex::Comment;
-use crate::dsl::policy::{ids, Language, Note, NoteAnchor, NoteOrigin, Origins, Placement, Policy};
+use crate::dsl::policy::{Language, Note, NoteAnchor, NoteOrigin, Origins, Placement, Policy, ids};
 
 /// The lines an element of the source covers, and where it sits in the nesting.
 #[derive(Debug, Clone)]
@@ -126,18 +126,19 @@ impl Builder {
         while let Some(comment) = comments.get(at) {
             if !comment.own_line {
                 at += 1;
-                let anchor = self.inline_anchor(comment.span.line).or_else(|| {
-                    self.own_line_anchor(comment.span.line, comment.span.line)
-                });
+                let anchor = self
+                    .inline_anchor(comment.span.line)
+                    .or_else(|| self.own_line_anchor(comment.span.line, comment.span.line));
                 notes.extend(anchor.map(|a| self.note(comment, a)));
                 continue;
             }
             // A run of comment lines with no gap is anchored together.
             let start = at;
             let mut end = at;
-            while comments.get(end + 1).is_some_and(|next| {
-                next.own_line && next.span.line == comments[end].span.line + 1
-            }) {
+            while comments
+                .get(end + 1)
+                .is_some_and(|next| next.own_line && next.span.line == comments[end].span.line + 1)
+            {
                 end += 1;
             }
             let first = comments[start].span.line;
@@ -188,11 +189,7 @@ impl Builder {
             .filter(|(_, e)| e.first < first && e.last > last)
             .max_by_key(|(_, e)| e.depth)
             .map(|(i, _)| i);
-        let siblings = || {
-            self.extents
-                .iter()
-                .filter(move |e| e.parent == container)
-        };
+        let siblings = || self.extents.iter().filter(move |e| e.parent == container);
         let previous = siblings().filter(|e| e.last < first).max_by_key(|e| e.last);
         let next = siblings().filter(|e| e.first > last).min_by_key(|e| e.first);
         let glued_above = previous.is_some_and(|p| p.last + 1 == first);
