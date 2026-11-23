@@ -236,12 +236,23 @@ await test('client: the timer is cleared on every path', async () => {
   const realSet = globalThis.setTimeout;
   const realClear = globalThis.clearTimeout;
   const live = new Set();
-  globalThis.setTimeout = (...args) => { const id = realSet(...args); live.add(id); return id; };
+  let capture = false; // the client sets its timer synchronously inside check(); other suites run concurrently and set their own
+  globalThis.setTimeout = (fn, ...rest) => {
+    const id = realSet(() => { live.delete(id); fn(); }, ...rest);
+    if (capture) live.add(id);
+    return id;
+  };
   globalThis.clearTimeout = (id) => { live.delete(id); realClear(id); };
+  const run = (options) => {
+    capture = true;
+    const pending = new RemoteClient({ url: 'http://x', ...options }).check(input('a'));
+    capture = false;
+    return pending;
+  };
   try {
-    await new RemoteClient({ url: 'http://x', fetch: answer(200, allow) }).check(input('a'));
-    await new RemoteClient({ url: 'http://x', fetch: async () => { throw new Error('down'); } }).check(input('a'));
-    await new RemoteClient({ url: 'http://x', fetch: () => new Promise(() => {}), timeoutMs: 5 }).check(input('a'));
+    await run({ fetch: answer(200, allow) });
+    await run({ fetch: async () => { throw new Error('down'); } });
+    await run({ fetch: () => new Promise(() => {}), timeoutMs: 5 });
     assert.equal(live.size, 0);
   } finally {
     globalThis.setTimeout = realSet;
