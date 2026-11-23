@@ -9,8 +9,19 @@ também `dsl-fs`.
 themis-auth = { version = "0.4", features = ["dsl", "dsl-fs"] }
 ```
 
-O texto é só uma maneira de escrever a política. Ao ler o texto você obtém o mesmo valor `Policy`, e dali em diante
-valida, serializa para JSON ou monta um motor, exatamente como numa política montada em código.
+Ler o texto produz uma `Policy`, o mesmo valor que você montaria em código.
+
+A menor política declara um tipo e uma permissão:
+
+```themis
+language blocks
+
+target_kinds = [org]
+
+permission org.read {
+  targets = [org]
+}
+```
 
 ## Três sintaxes, uma política
 
@@ -243,7 +254,7 @@ assert_eq!(actors, "language actors\n\n// hi\nrole viewer\n\ncatalog\n  kinds do
 ## Notas e reconstrução
 
 Os comentários não se perdem. Cada comentário `//` vira uma nota com o texto, o elemento a que está ligado e o lugar:
-nas linhas antes do elemento, depois dele ou na mesma linha. `parse` devolve as notas junto da política, e `print` e
+antes do elemento, depois dele, na mesma linha ou dentro dele. `parse` devolve as notas junto da política, e `print` e
 `convert` as escrevem de volta ao lado do mesmo elemento na nova sintaxe, como mostra o `// hi` acima.
 
 As notas pertencem ao texto, não à política. Não entram no JSON, então uma política carregada de JSON é impressa sem
@@ -344,6 +355,9 @@ Comum aos três tipos:
 - Comentários começam com `//` e vão até o fim da linha.
 - Identificadores como permissões (`doc.read`), papéis e tipos são palavras soltas. Textos usam aspas duplas.
 - Uma referência a recurso ou sujeito é `tipo:id`, por exemplo `project:apollo` ou `user:ana`.
+- Onde um campo recebe um recurso (`resource` e `on` nos invariantes), pode ser um caminho de passos ligados por `>`,
+  como `org:acme > doc`. Cada passo é `tipo` ou `tipo:id`, e os passos ficam na ordem escrita, que é a ordem de
+  `Resource::path`: o primeiro é o passo mais específico.
 - Datas são UTC: `2026-01-01` ou `2026-01-01T09:00:00Z`, com milissegundos opcionais.
 - Matchers de sujeito: `anyone`, `role <nome>`, `user <id>`, `principal <id>`, `relation <nome>`.
 - Condições usam `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `and` (ou `&&`), `or` (ou `||`), `not` (ou `!`),

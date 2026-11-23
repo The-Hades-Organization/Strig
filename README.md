@@ -114,7 +114,7 @@ A condition or relation that cannot be evaluated (missing attribute, engine with
 
 **ABAC.** `Grant::when(condition)` with a serializable `Condition`: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `is_in`, `exists`, `all`, `any`, `not` and `call`. Operands read `subject.*`, `resource.*` and `env.*`. Your own functions are added with `ConditionRegistry::register` and checked by `Engine::validate_grant`.
 
-**ReBAC.** `object#relation@subject` tuples in a `TupleStore` and per-type rules in a `RelationSchema` (`This`, `Computed`, `TupleToUserset`, `Union`, `Intersection`, `Exclusion`), Zanzibar style. `user:*` stands for every user. A grant with `SubjectMatcher::relation("editor")` applies to whoever holds `editor` on the step matched by the target. The search has a maximum depth (`max_relation_depth`, 32 by default) and cuts cycles.
+**ReBAC.** `object#relation@subject` tuples in a `TupleStore` and per-type rules in a `RelationSchema` (`This`, `Computed`, `TupleToUserset`, `Union`, `Intersection`, `Exclusion`), inspired by relationship-based access control. `user:*` stands for every user. A grant with `SubjectMatcher::relation("editor")` applies to whoever holds `editor` on the step matched by the target. The search has a maximum depth (`max_relation_depth`, 32 by default) and cuts cycles.
 
 ## Governance
 
@@ -252,7 +252,7 @@ assert_eq!(who, vec![SubjectRef::User { id: "ana".into() }]);
 
 ## Exclusive resources
 
-With the `exclusive` feature, a resource can have one holder at a time. `Terms::new(priority, lease_ms)` states how strong the claim is and for how long; a higher priority takes the resource over only when the claimant also holds `exclusive.preempt`. Permissions and time are checked by the same engine as any other decision.
+With the `exclusive` feature, a resource can have one holder at a time. `Terms::new(priority, ttl_ms)` states how strong the claim is and for how long; a higher priority takes the resource over only when the claimant also holds `exclusive.preempt`. Permissions and time are checked by the same engine as any other decision.
 
 ```rust
 let mut registry = ExclusiveRegistry::default();
@@ -300,7 +300,7 @@ Client protocol (JSON, identical over SSE and WebSocket): the server sends `hell
 `themis-server` answers decisions over HTTP, for services that do not embed the engine. `DecisionServer::router()` returns an axum `Router` with `POST /v1/check`, `/v1/check/batch`, `/v1/list`, `/v1/who` and `/v1/access`, plus `GET /health/live` and `/health/ready`. The server reads the grants through a `DecisionSource`; `MemorySource` holds a `Snapshot` you can `replace`. The time of a decision is the server's clock. The contract is in [`crates/themis-server/API.md`](crates/themis-server/API.md).
 
 ```rust
-let source = Arc::new(MemorySource::new(Snapshot::new(engine, grants)));
+let source = Arc::new(MemorySource::new(Snapshot::new(Arc::new(engine), grants)));
 let router = DecisionServer::new(source).router();
 let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
 axum::serve(listener, router).await?;
@@ -400,7 +400,7 @@ With `dsl-fs`, `themis::dsl::fs::read_dir` reads every `*.themis` file of a dire
 
 ## Macros
 
-`policy!` and `include_policy!` (crate `themis-macros`) check the policy while the crate compiles: a policy that does not validate does not build. They are not behind a `themis-auth` feature, because the macros use the parser and a re-export would make a package cycle.
+`policy!` and `include_policy!` (crate `themis-macros`) check the policy while the crate compiles: a policy that does not validate does not build. They are not behind a `themis-auth` feature; the guide explains [why](docs/dsl.md#macros).
 
 ```rust
 use themis_macros::{include_policy, policy};

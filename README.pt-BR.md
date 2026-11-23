@@ -114,7 +114,7 @@ Condição ou relação que não pode ser avaliada (atributo ausente, motor sem 
 
 **ABAC.** `Grant::when(condition)` com `Condition` serializável: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `is_in`, `exists`, `all`, `any`, `not` e `call`. Operandos leem `subject.*`, `resource.*` e `env.*`. Funções próprias entram por `ConditionRegistry::register` e são conferidas por `Engine::validate_grant`.
 
-**ReBAC.** Tuplas `objeto#relação@sujeito` num `TupleStore` e regras por tipo em `RelationSchema` (`This`, `Computed`, `TupleToUserset`, `Union`, `Intersection`, `Exclusion`), no estilo Zanzibar. `user:*` vale para todo usuário. Um grant com `SubjectMatcher::relation("editor")` se aplica a quem tem `editor` sobre o degrau casado pelo alvo. A busca tem profundidade máxima (`max_relation_depth`, padrão 32) e corta ciclos.
+**ReBAC.** Tuplas `objeto#relação@sujeito` num `TupleStore` e regras por tipo em `RelationSchema` (`This`, `Computed`, `TupleToUserset`, `Union`, `Intersection`, `Exclusion`), inspirado no controle de acesso baseado em relações. `user:*` vale para todo usuário. Um grant com `SubjectMatcher::relation("editor")` se aplica a quem tem `editor` sobre o degrau casado pelo alvo. A busca tem profundidade máxima (`max_relation_depth`, padrão 32) e corta ciclos.
 
 ## Governança
 
@@ -252,7 +252,7 @@ assert_eq!(who, vec![SubjectRef::User { id: "ana".into() }]);
 
 ## Recurso exclusivo
 
-Com a feature `exclusive`, um recurso tem um titular por vez. `Terms::new(prioridade, lease_ms)` diz a força do pedido e por quanto tempo; uma prioridade maior toma o recurso só quando quem pede também tem `exclusive.preempt`. Permissões e tempo passam pelo mesmo engine de qualquer outra decisão.
+Com a feature `exclusive`, um recurso tem um titular por vez. `Terms::new(prioridade, ttl_ms)` diz a força do pedido e por quanto tempo; uma prioridade maior toma o recurso só quando quem pede também tem `exclusive.preempt`. Permissões e tempo passam pelo mesmo engine de qualquer outra decisão.
 
 ```rust
 let mut registry = ExclusiveRegistry::default();
@@ -300,7 +300,7 @@ Protocolo com o cliente (JSON, igual em SSE e WebSocket): o servidor manda `hell
 O `themis-server` responde decisões por HTTP, para serviços que não embutem o engine. `DecisionServer::router()` devolve um `Router` do axum com `POST /v1/check`, `/v1/check/batch`, `/v1/list`, `/v1/who` e `/v1/access`, mais `GET /health/live` e `/health/ready`. O servidor lê os grants por uma `DecisionSource`; a `MemorySource` guarda um `Snapshot` que você pode trocar com `replace`. O instante de uma decisão é o relógio do servidor. O contrato está em [`crates/themis-server/API.md`](crates/themis-server/API.md).
 
 ```rust
-let source = Arc::new(MemorySource::new(Snapshot::new(engine, grants)));
+let source = Arc::new(MemorySource::new(Snapshot::new(Arc::new(engine), grants)));
 let router = DecisionServer::new(source).router();
 let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
 axum::serve(listener, router).await?;
@@ -400,7 +400,7 @@ Com `dsl-fs`, `themis::dsl::fs::read_dir` lê todos os arquivos `*.themis` de um
 
 ## Macros
 
-`policy!` e `include_policy!` (crate `themis-macros`) conferem a política enquanto o crate compila: uma política que não valida não compila. Elas não ficam atrás de uma feature do `themis-auth`, porque as macros usam o parser e um reexport criaria um ciclo de pacotes.
+`policy!` e `include_policy!` (crate `themis-macros`) conferem a política enquanto o crate compila: uma política que não valida não compila. Elas não ficam atrás de uma feature do `themis-auth`; o guia explica [o motivo](docs/dsl.pt-BR.md#macros).
 
 ```rust
 use themis_macros::{include_policy, policy};
@@ -422,19 +422,19 @@ let from_file: themis::dsl::Policy = include_policy!("policies/main.themis");
 Crate opcional, fora dos `default-members`: `cargo build -p themis-inspect`. A janela usa gpui (`gpui-pre =0.3.11` e `gpui-component =0.9.0`); sem a feature `gui` (`--no-default-features`) sobram a biblioteca e os comandos de terminal.
 
 ```sh
-themis-inspect --scenario cenario.json --audit trilha.jsonl     # janela
-themis-inspect --scenario cenario.json --subject beto --permission document.export --resource fatura-7 \
+themis-inspect --scenario scenario.json --audit trail.jsonl     # janela
+themis-inspect --scenario scenario.json --subject beto --permission document.export --resource fatura-7 \
                --disable pro-export --tab matriz                 # janela já numa seleção e aba
-themis-inspect explain --scenario cenario.json --subject beto --permission document.view --resource secret
-themis-inspect matrix  --scenario cenario.json --resource secret --disable no-secret --add grant.json
-themis-inspect audit   --audit trilha.jsonl --scenario cenario.json
+themis-inspect explain --scenario scenario.json --subject beto --permission document.view --resource secret
+themis-inspect matrix  --scenario scenario.json --resource secret --disable no-secret --add grant.json
+themis-inspect audit   --audit trail.jsonl --scenario scenario.json
 ```
 
-O cenário é um JSON com a política (`spec`, a mesma `EngineSpec`), os dados (`grants`, `tuples`, `env`) e os sujeitos e recursos a examinar, por nome. Exemplo em `crates/themis-inspect/examples/scenario.json`, com uma trilha forensic de seis decisões em `examples/audit.jsonl`, gerada por:
+O cenário é um JSON com a política (`spec`, a mesma `EngineSpec`), os dados (`grants`, `tuples`, `env`) e os sujeitos e recursos a examinar, por nome. Exemplo em `crates/themis-inspect/examples/sscenario.json`, com uma trilha forensic de seis decisões em `examples/audit.jsonl`, gerada por:
 
 ```sh
 cargo run -p themis-inspect --no-default-features --example trail -- \
-    crates/themis-inspect/examples/scenario.json > crates/themis-inspect/examples/audit.jsonl
+    crates/themis-inspect/examples/sscenario.json > crates/themis-inspect/examples/audit.jsonl
 ```
 
 - **Avaliação**: escolha sujeito, permissão e recurso e veja a decisão, o motivo, o caminho do recurso com o degrau decisivo, os papéis efetivos, cada override e o destino de cada grant (candidato, permissão não relacionada, fora do escopo, alvo fora do caminho, sujeito não casa, condição falsa ou não avaliável), com a árvore da condição e os valores resolvidos. A base é `Engine::explain`, disponível também em Rust e JS.
