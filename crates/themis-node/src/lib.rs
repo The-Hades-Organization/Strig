@@ -27,8 +27,28 @@ mod napi_binding;
 #[cfg(feature = "wasm")]
 mod wasm_binding;
 
+/// N-API entrega todo número JavaScript como float; os campos inteiros (instantes em ms, limites)
+/// só aceitam inteiro. Um float integral e seguro vira inteiro; o resto segue como veio e o serde recusa.
+fn integral(value: Value) -> Value {
+    match value {
+        Value::Number(n) if !n.is_u64() && !n.is_i64() => match n.as_f64() {
+            Some(f) if f.fract() == 0.0 && f.abs() <= MAX_SAFE_INT => {
+                if f >= 0.0 {
+                    Value::from(f as u64)
+                } else {
+                    Value::from(f as i64)
+                }
+            }
+            _ => Value::Number(n),
+        },
+        Value::Array(items) => Value::Array(items.into_iter().map(integral).collect()),
+        Value::Object(map) => Value::Object(map.into_iter().map(|(k, v)| (k, integral(v))).collect()),
+        other => other,
+    }
+}
+
 fn parse<T: for<'de> Deserialize<'de>>(what: &str, value: Value) -> BindingResult<T> {
-    serde_json::from_value(value).map_err(|e| BindingError::invalid_input(what, e))
+    serde_json::from_value(integral(value)).map_err(|e| BindingError::invalid_input(what, e))
 }
 
 fn to_value<T: serde::Serialize>(value: &T) -> Value {
@@ -718,5 +738,166 @@ mod tests {
         assert_eq!(err.code, "INVALID_SPEC");
         assert!(err.message.contains("chave inválida"));
         assert!(audit_estimate(json!("minimal"), 1e6).unwrap() > 1e8);
+    }
+    const T0: u64 = 1_700_000_000_000;
+
+    fn allow(id: &str, subject: Value, permission: &str, extra: Value) -> Value {
+        let mut grant = json!({"id": id, "subject": subject, "permission": permission,
+                               "target": {"kind": "project"}, "effect": "allow"});
+        if let (Some(map), Some(extra)) = (grant.as_object_mut(), extra.as_object()) {
+            map.extend(extra.clone());
+        }
+        grant
+    }
+
+    fn ana() -> Value {
+        json!({"kind": "user", "id": "ana"})
+    }
+
+    fn project(id: &str) -> Value {
+        json!({"path": [{"kind": "project", "id": id}]})
+    }
+
+    fn view(subject: &Value, id: &str) -> Value {
+        json!({"subject": subject, "permission": "project.view", "resource": project(id)})
+    }
+
+    #[test]
+    fn decide_honors_the_validity_window_at_now() {
+        let engine = EngineHandle::new(spec()).unwrap();
+        let grants = json!([
+            allow("future", ana_matcher(), "project.view", json!({"validFrom": T0 + 10})),
+        ]);
+        let mut ctx = ContextData::new(Some(json!({"grants": grants}))).unwrap();
+        ctx.set_now(json!(T0)).unwrap();
+        assert!(!engine.check(&ctx, view(&ana(), "p1")).unwrap(), "grant futuro não vale");
+        ctx.set_now(json!(T0 + 10)).unwrap();
+        assert!(engine.check(&ctx, view(&ana(), "p1")).unwrap(), "vale no início da janela");
+
+        let expiring = json!([allow("old", ana_matcher(), "project.view", json!({"validUntil": T0}))]);
+        let mut ctx = ContextData::new(Some(json!({"grants": expiring}))).unwrap();
+        ctx.set_now(json!(T0 - 1)).unwrap();
+        assert!(engine.check(&ctx, view(&ana(), "p1")).unwrap());
+        ctx.set_now(json!(T0)).unwrap();
+        assert!(!engine.check(&ctx, view(&ana(), "p1")).unwrap(), "validUntil é exclusivo");
+    }
+
+    fn ana_matcher() -> Value {
+        json!({"kind": "user", "id": "ana"})
+    }
+
+    #[test]
+    fn invalid_now_is_refused_with_a_code() {
+        let mut ctx = ContextData::new(None).unwrap();
+        for bad in [json!(-1), json!(1.5), json!("x")] {
+            assert_eq!(ctx.set_now(bad).unwrap_err().code, "INVALID_INPUT");
+        }
+    }
+
+    #[test]
+    fn apply_judges_the_actor_window_at_now() {
+        let engine = EngineHandle::new(spec()).unwrap();
+        let input = |now: u64| {
+            json!({
+                "actor": {"kind": "user", "id": "admin", "roles": [{"role": "owner", "validUntil": T0}]},
+                "current": [],
+                "mutation": {"add": allow("g", ana_matcher(), "project.view", json!({}))},
+                "invariants": [{"kind": "no_escalation"}],
+                "now": now
+            })
+        };
+        assert_eq!(engine.apply(input(T0 - 1), T0).unwrap()["ok"], false, "sem permissão o ator não escala");
+        assert_eq!(engine.apply(json!({"actor": 5}), T0).unwrap_err().code, "INVALID_INPUT");
+    }
+
+    #[test]
+    fn list_returns_the_filter_and_the_ids() {
+        let engine = EngineHandle::new(spec()).unwrap();
+        let grants = json!([allow("g", ana_matcher(), "project.edit", json!({"target": {"kind": "project", "id": "p1"}}))]);
+        let mut ctx = ContextData::new(Some(json!({"grants": grants}))).unwrap();
+        ctx.set_now(json!(T0)).unwrap();
+        let out = engine
+            .list(
+                &ctx,
+                json!({"kind": "user", "id": "ana"}),
+                "project.edit",
+                "project",
+                Some(json!({"resources": [project("p1"), project("p2")]})),
+            )
+            .unwrap();
+        assert_eq!(out["ids"], json!(["p1"]));
+        assert_eq!(out["kind"], "project");
+
+        let err = engine.list(&ctx, json!(5), "project.edit", "project", None).unwrap_err();
+        assert_eq!(err.code, "INVALID_INPUT");
+    }
+
+    #[test]
+    fn reverse_queries_answer_and_close_over_limits() {
+        let engine = EngineHandle::new(spec()).unwrap();
+        let grants = json!([allow("g", ana_matcher(), "project.view", json!({}))]);
+        let mut ctx = ContextData::new(Some(json!({"grants": grants}))).unwrap();
+        ctx.set_now(json!(T0)).unwrap();
+        assert_eq!(engine.who_can(&ctx, "project.view"), json!([{"type": "user", "id": "ana"}]));
+        let on = engine.who_can_on(&ctx, "project.view", project("p1")).unwrap();
+        assert_eq!(on["entries"][0]["via"]["type"], "grant");
+        let access = engine.access_of(&ctx, project("p1")).unwrap();
+        assert_eq!(access[0]["permissions"], json!(["project.view"]));
+        let checked = engine
+            .check_for(&ctx, json!({"type": "user", "id": "ana"}), "project.view", project("p1"), json!([{"kind": "user", "id": "ana"}]))
+            .unwrap();
+        assert_eq!(checked["allowed"], true);
+        let unknown = engine
+            .check_for(&ctx, json!({"type": "user", "id": "zed"}), "project.view", project("p1"), json!([]))
+            .unwrap_err();
+        assert_eq!(unknown.code, "UNKNOWN_SUBJECT");
+
+        ctx.set_limits(json!({"maxParties": 0})).unwrap();
+        assert_eq!(engine.who_can_on(&ctx, "project.view", project("p1")).unwrap_err().code, "QUERY_LIMIT_EXCEEDED");
+        assert_eq!(ctx.set_limits(json!(5)).unwrap_err().code, "INVALID_INPUT");
+    }
+
+    #[test]
+    fn exclusive_ownership_grants_preempts_and_refuses() {
+        let spec = json!({
+            "catalog": {
+                "targetKinds": ["slot"],
+                "broadTargets": ["org"],
+                "permissions": [
+                    {"key": "slot.hold", "targets": ["slot"]},
+                    {"key": "slot.preempt", "targets": ["slot"]}
+                ]
+            }
+        });
+        let engine = EngineHandle::new(spec).unwrap();
+        let mut ctx = ContextData::new(Some(json!({"grants": [
+            {"id": "h", "subject": {"kind": "any"}, "permission": "slot.hold", "target": {"kind": "slot"}, "effect": "allow"},
+        ]})))
+        .unwrap();
+        ctx.set_now(json!(T0)).unwrap();
+        let mut exclusive = ExclusiveHandle::new(Some(json!({"permissions": {"hold": "slot.hold", "preempt": "slot.preempt"}}))).unwrap();
+        exclusive.validate(&engine).unwrap();
+        let slot = json!({"path": [{"kind": "slot", "id": "s1"}]});
+        let low = json!({"kind": "user", "id": "low"});
+        let out = exclusive
+            .acquire(&engine, &ctx, low, slot.clone(), json!({"priority": 1, "ttlMs": 1000}), T0)
+            .unwrap();
+        assert_eq!(out["outcome"], "granted");
+        let high = json!({"kind": "user", "id": "high"});
+        let out = exclusive
+            .acquire(&engine, &ctx, high, slot.clone(), json!({"priority": 9, "ttlMs": 1000}), T0)
+            .unwrap();
+        assert_eq!(out["outcome"], "busy", "sem a permissão de preempção o mais forte não toma a posse");
+
+        let err = exclusive.release(json!({"kind": "slot", "id": "s1"}), json!({"kind": "user", "id": "high"}), T0).unwrap_err();
+        assert_eq!(err.code, "EXCLUSIVE_NOT_HOLDER");
+        let err = exclusive
+            .acquire(&engine, &ctx, json!({"kind": "user", "id": "x"}), slot, json!({"priority": 1, "ttlMs": 0}), T0)
+            .unwrap_err();
+        assert_eq!(err.code, "EXCLUSIVE_ZERO_TTL");
+        assert_eq!(exclusive.expire(T0 + 1000).unwrap().as_array().unwrap().len(), 1);
+
+        let missing = ExclusiveHandle::new(None).unwrap();
+        assert_eq!(missing.validate(&EngineHandle::new(spec()).unwrap()).unwrap_err().code, "EXCLUSIVE_UNKNOWN_PERMISSION");
     }
 }
