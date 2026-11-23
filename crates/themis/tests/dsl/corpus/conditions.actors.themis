@@ -1,0 +1,27 @@
+language actors
+
+role editor
+  // Legal may edit what is theirs.
+  allow document.edit on document when subject.dept == "legal" and subject.level >= 2 as g-dept
+
+anyone
+  deny document.edit on project:apollo when subject.active == false as g-freeze
+
+user ana
+  role editor
+  principal ana
+  attr active = true
+  attr dept = "legal"
+  attr level = 3
+  allow document.view on document:spec as g-user  // one document
+
+principal ana
+  allow document.view on project as g-principal
+
+catalog
+  kinds project, document
+  document.view on project, document
+  document.edit on project, document implied by document.view
+
+engine
+  strategy deny_overrides

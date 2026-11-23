@@ -1,0 +1,19 @@
+language rules
+
+kinds org, doc
+depth 4
+
+permission doc.read on doc
+
+role viewer
+
+g-read: allow relation viewer to doc.read on doc
+
+// Owners and viewers of a document.
+relation doc#owner = this
+relation doc#viewer = this | owner
+relation org#member = this
+
+tuple doc:d1#owner@user:bob
+tuple doc:d1#viewer@org:acme#member  // the whole organization
+tuple org:acme#member@user:ana

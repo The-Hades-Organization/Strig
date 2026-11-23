@@ -1,0 +1,25 @@
+language actors
+
+role viewer
+
+subject user:bob
+  role viewer
+
+catalog
+  kinds org, doc
+  doc.read on doc
+  doc.edit on doc implied by doc.read non-delegable
+  org.settings on org management-only
+  doc.purge on doc label "Purge for good" override-only meta risk = "high"
+
+engine
+  // The owner of a document may do anything to it.
+  override resource-owner "owner" except doc.purge
+  override permission-holder doc.read
+
+governance
+  no-self-management
+  catalog-conformance
+  require-permission permission doc.read resource org:acme > doc
+  no-lockout permissions [doc.read] members [user:bob] resource doc:d1 reserve_role viewer reserve_subjects [user:bob]
+  forbid subject anyone permissions [doc.edit]

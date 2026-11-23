@@ -244,10 +244,10 @@ fn an_unknown_language_is_refused_at_the_name() {
 }
 
 #[test]
-fn a_known_language_without_its_syntax_yet_is_refused_at_the_name() {
-    let (line, column, message) = first_error("// head\nlanguage rules\n");
-    assert_eq!((line, column), (2, 10));
-    assert!(message.contains("not available yet"), "{message}");
+fn every_known_language_is_read_from_its_declaration() {
+    for text in ["// head\nlanguage rules\n", "// head\nlanguage actors\n"] {
+        assert!(parse("empty.themis", text).is_ok(), "{text}");
+    }
 }
 
 #[test]
