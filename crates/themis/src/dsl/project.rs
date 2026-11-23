@@ -1,12 +1,12 @@
 //! A project: several sources, each in its own syntax, gathered into one validated policy.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::dsl::error::{Diagnostic, Diagnostics, Location};
+use crate::dsl::error::{Diagnostic, Diagnostics, Location, MAX_DIAGNOSTICS, capped};
 use crate::dsl::policy::{Language, Origins, Policy, ids};
 use crate::dsl::validate::{invariant_kind, validate};
-use crate::dsl::{Parsed, parse_unvalidated};
-use crate::{InvariantSpec, OverrideRule};
+use crate::dsl::{MAX_SOURCE_BYTES, Parsed, parse_unvalidated};
+use crate::OverrideRule;
 
 /// The policy a [`Project`] builds and where each of its elements was declared.
 #[derive(Debug, Clone, PartialEq)]
@@ -20,9 +20,11 @@ pub struct Built {
 
 /// Several sources, each in its own syntax, gathered into one policy.
 ///
-/// A source holds one syntax only. Two sources may not declare the same permission, grant,
-/// relation or override differently, and may not give one subject attributes that disagree: each
-/// such clash is reported with the position on both sides.
+/// A source holds one syntax only (its first line says which), and sources of different syntaxes
+/// join in one project. Two sources may not declare the same thing: a permission, role, grant,
+/// relation, override, tuple, invariant or kind, an attribute or role of one subject, or a
+/// setting. Repeating it word for word is a clash too. Each clash is reported with the position
+/// on both sides.
 ///
 /// ```
 /// use themis::dsl::Project;
@@ -43,7 +45,13 @@ pub struct Built {
 #[derive(Debug, Default)]
 pub struct Project {
     sources: Vec<Source>,
+    bytes: usize,
 }
+
+/// The most sources a project takes.
+pub const MAX_SOURCES: usize = 10_000;
+/// The most bytes all the sources of a project may hold together.
+pub const MAX_PROJECT_BYTES: usize = 16 * MAX_SOURCE_BYTES;
 
 #[derive(Debug)]
 struct Source {
@@ -82,7 +90,22 @@ impl Project {
             .with_hint("give each source of the project its own name");
             return Err(Diagnostics::new(vec![found]));
         }
+        if self.sources.len() >= MAX_SOURCES {
+            let found = Diagnostic::new(
+                Some(Location::new(name, 1, 1, 1)),
+                format!("a project holds at most {MAX_SOURCES} sources"),
+            );
+            return Err(Diagnostics::new(vec![found]));
+        }
+        if self.bytes.saturating_add(text.len()) > MAX_PROJECT_BYTES {
+            let found = Diagnostic::new(
+                Some(Location::new(name, 1, 1, 1)),
+                format!("the sources of a project hold at most {MAX_PROJECT_BYTES} bytes together"),
+            );
+            return Err(Diagnostics::new(vec![found]));
+        }
         let parsed = parse_unvalidated(name, text)?;
+        self.bytes += text.len();
         let language = parsed.language;
         self.sources.push(Source {
             name: name.to_string(),
@@ -102,7 +125,7 @@ impl Project {
             merge.add(&source.parsed);
         }
         if !merge.clashes.is_empty() {
-            return Err(Diagnostics::new(merge.clashes));
+            return Err(Diagnostics::new(capped(merge.clashes, merge.hidden)));
         }
         let found = validate(&merge.policy, Some(&merge.origins));
         if !found.is_empty() {
@@ -120,8 +143,21 @@ struct Merge {
     policy: Policy,
     origins: Origins,
     clashes: Vec<Diagnostic>,
-    /// The invariants kept, with the id each one has in the merged policy.
-    invariant_ids: Vec<String>,
+    /// Clashes past the cap: counted, not kept.
+    hidden: usize,
+    kinds: HashSet<String>,
+    broad: HashSet<String>,
+    permissions: HashSet<String>,
+    roles: HashSet<String>,
+    grants: HashSet<String>,
+    relations: HashSet<(String, String)>,
+    overrides: HashSet<String>,
+    tuples: HashSet<String>,
+    subjects: HashMap<(String, Option<String>), usize>,
+    /// The role of a subject, by the index of the subject in the merged policy.
+    assigned: HashSet<(usize, String)>,
+    /// The invariants kept, by what they say, with the id each one has in the merged policy.
+    invariants: HashMap<String, String>,
     invariants_per_kind: BTreeMap<&'static str, usize>,
 }
 
@@ -148,6 +184,10 @@ impl Merge {
     }
 
     fn clash(&mut self, id: &str, from: &Parsed, message: String, hint: &str) {
+        if self.clashes.len() > MAX_DIAGNOSTICS {
+            self.hidden += 1;
+            return;
+        }
         let at = from.origins.get(id).cloned();
         let first = self.origins.get(id).cloned();
         self.clashes
@@ -155,23 +195,29 @@ impl Merge {
     }
 
     fn kinds(&mut self, from: &Parsed) {
-        let catalog = &mut self.policy.catalog;
         for kind in &from.policy.catalog.target_kinds {
-            if !catalog.target_kinds.contains(kind) {
-                catalog.target_kinds.push(kind.clone());
+            if self.kinds.insert(kind.clone()) {
+                self.policy.catalog.target_kinds.push(kind.clone());
+            } else {
+                let message = format!("the kind `{kind}` is listed in target_kinds twice");
+                self.clash(ids::TARGET_KINDS, from, message, "list each kind in one source only");
             }
         }
         for target in &from.policy.catalog.broad_targets {
-            if !catalog.broad_targets.contains(target) {
-                catalog.broad_targets.push(target.clone());
+            if self.broad.insert(target.clone()) {
+                self.policy.catalog.broad_targets.push(target.clone());
+            } else {
+                let message = format!("the kind `{target}` is listed in broad_targets twice");
+                self.clash(ids::BROAD_TARGETS, from, message, "list each kind in one source only");
             }
         }
     }
 
     fn permissions(&mut self, from: &Parsed) {
         for def in &from.policy.catalog.permissions {
-            let declared = self.policy.catalog.permissions.iter().any(|known| known.key == def.key);
-            if declared {
+            if self.permissions.insert(def.key.clone()) {
+                self.policy.catalog.permissions.push(def.clone());
+            } else {
                 let message = format!("the permission `{}` is declared twice", def.key);
                 self.clash(
                     &ids::permission(&def.key),
@@ -179,26 +225,22 @@ impl Merge {
                     message,
                     "declare each permission in one source only",
                 );
-            } else {
-                self.policy.catalog.permissions.push(def.clone());
             }
         }
     }
 
     fn roles(&mut self, from: &Parsed) {
         for role in &from.policy.roles {
-            match self.policy.roles.iter().find(|known| known.role == role.role) {
-                None => self.policy.roles.push(role.clone()),
-                Some(known) if known == role => {}
-                Some(_) => {
-                    let message = format!("the role `{}` is declared twice, differently", role.role);
-                    self.clash(
-                        &ids::role(&role.role),
-                        from,
-                        message,
-                        "declare each role in one source only",
-                    );
-                }
+            if self.roles.insert(role.role.clone()) {
+                self.policy.roles.push(role.clone());
+            } else {
+                let message = format!("the role `{}` is declared twice", role.role);
+                self.clash(
+                    &ids::role(&role.role),
+                    from,
+                    message,
+                    "declare each role in one source only",
+                );
             }
         }
     }
@@ -210,43 +252,47 @@ impl Merge {
                 .as_deref()
                 .map(|sid| ids::subject(&subject.kind, sid))
                 .unwrap_or_default();
-            let known = self
-                .policy
-                .subjects
-                .iter()
-                .position(|s| s.kind == subject.kind && s.id == subject.id);
-            let Some(at) = known else {
+            let key = (subject.kind.clone(), subject.id.clone());
+            let Some(&at) = self.subjects.get(&key) else {
+                let at = self.policy.subjects.len();
+                for assignment in &subject.roles {
+                    self.assigned.insert((at, assignment.role.clone()));
+                }
+                self.subjects.insert(key, at);
                 self.policy.subjects.push(subject.clone());
                 continue;
             };
-            let disagreement = subject.attrs.iter().find_map(|(name, value)| {
-                self.policy.subjects[at]
-                    .attrs
-                    .get(name)
-                    .filter(|other| *other != value)
-                    .map(|_| name.clone())
-            });
-            if let Some(name) = disagreement {
-                let message = format!(
-                    "the subject `{}:{}` has two values for the attribute `{name}`",
-                    subject.kind,
-                    subject.id.as_deref().unwrap_or_default()
-                );
-                self.clash(&id, from, message, "give the attribute one value");
-                continue;
-            }
-            let merged = &mut self.policy.subjects[at];
-            for (name, value) in &subject.attrs {
-                merged.attrs.insert(name.clone(), value.clone());
+            let label = format!("{}:{}", subject.kind, subject.id.as_deref().unwrap_or_default());
+            for name in subject.attrs.keys() {
+                if self.policy.subjects[at].attrs.contains_key(name) {
+                    let message = format!("the subject `{label}` has the attribute `{name}` in two sources");
+                    self.clash(&id, from, message, "give each attribute in one source only");
+                } else if let Some(value) = subject.attrs.get(name) {
+                    self.policy.subjects[at].attrs.insert(name.clone(), value.clone());
+                }
             }
             for principal in &subject.principals {
-                if !merged.principals.contains(principal) {
-                    merged.principals.push(principal.clone());
+                if self.policy.subjects[at].principals.contains(principal) {
+                    let message = format!("the subject `{label}` has the principal `{principal}` in two sources");
+                    self.clash(&id, from, message, "list each principal in one source only");
+                } else {
+                    self.policy.subjects[at].principals.push(principal.clone());
                 }
             }
             for assignment in &subject.roles {
-                if !merged.roles.contains(assignment) {
-                    merged.roles.push(assignment.clone());
+                if self.assigned.insert((at, assignment.role.clone())) {
+                    self.policy.subjects[at].roles.push(assignment.clone());
+                } else {
+                    let message = format!(
+                        "the subject `{label}` is given the role `{}` in two sources",
+                        assignment.role
+                    );
+                    self.clash(
+                        &ids::assign(&id, &assignment.role),
+                        from,
+                        message,
+                        "assign each role to a subject in one source only",
+                    );
                 }
             }
         }
@@ -254,7 +300,9 @@ impl Merge {
 
     fn grants(&mut self, from: &Parsed) {
         for grant in &from.policy.grants {
-            if self.policy.grants.iter().any(|known| known.id == grant.id) {
+            if self.grants.insert(grant.id.clone()) {
+                self.policy.grants.push(grant.clone());
+            } else {
                 let message = format!("the grant `{}` is declared twice", grant.id);
                 self.clash(
                     &ids::grant(&grant.id),
@@ -262,8 +310,6 @@ impl Merge {
                     message,
                     "give each grant an id of its own",
                 );
-            } else {
-                self.policy.grants.push(grant.clone());
             }
         }
     }
@@ -274,10 +320,9 @@ impl Merge {
         };
         for relation in incoming {
             let known = self.policy.relations.get_or_insert_with(Vec::new);
-            let declared = known
-                .iter()
-                .any(|r| r.kind == relation.kind && r.relation == relation.relation);
-            if declared {
+            if self.relations.insert((relation.kind.clone(), relation.relation.clone())) {
+                known.push(relation.clone());
+            } else {
                 let message = format!(
                     "the relation `{}#{}` is declared twice",
                     relation.kind, relation.relation
@@ -288,36 +333,32 @@ impl Merge {
                     message,
                     "declare each relation in one source only",
                 );
-            } else {
-                known.push(relation.clone());
             }
         }
     }
 
-    /// `strategy` and `max_depth` count only where a source declares them.
+    /// `strategy` and `max_depth` count only where a source declares them, and only one may.
     fn settings(&mut self, from: &Parsed) {
         if from.origins.exact(ids::STRATEGY).is_some() {
-            let declared = self.origins.exact(ids::STRATEGY).is_some();
-            if !declared {
+            if self.origins.exact(ids::STRATEGY).is_none() {
                 self.policy.strategy = from.policy.strategy;
-            } else if self.policy.strategy != from.policy.strategy {
+            } else {
                 self.clash(
                     ids::STRATEGY,
                     from,
-                    "the strategy is set to two different values".to_string(),
+                    "the strategy is set in two sources".to_string(),
                     "set the strategy in one source only",
                 );
             }
         }
         if from.origins.exact(ids::MAX_DEPTH).is_some() {
-            let declared = self.origins.exact(ids::MAX_DEPTH).is_some();
-            if !declared {
+            if self.origins.exact(ids::MAX_DEPTH).is_none() {
                 self.policy.max_relation_depth = from.policy.max_relation_depth;
-            } else if self.policy.max_relation_depth != from.policy.max_relation_depth {
+            } else {
                 self.clash(
                     ids::MAX_DEPTH,
                     from,
-                    "max_depth is set to two different values".to_string(),
+                    "max_depth is set in two sources".to_string(),
                     "set max_depth in one source only",
                 );
             }
@@ -330,20 +371,23 @@ impl Merge {
                 OverrideRule::ResourceOwner { attr } => (ids::override_owner(attr), attr.clone()),
                 OverrideRule::PermissionHolder { permission } => (ids::override_holder(permission), permission.clone()),
             };
-            match self.policy.overrides.iter().find(|known| known.rule == spec.rule) {
-                None => self.policy.overrides.push(spec.clone()),
-                Some(known) if known == spec => {}
-                Some(_) => {
-                    let message = format!("the override on `{name}` is declared twice, differently");
-                    self.clash(&id, from, message, "declare each override in one source only");
-                }
+            if self.overrides.insert(id.clone()) {
+                self.policy.overrides.push(spec.clone());
+            } else {
+                let message = format!("the override on `{name}` is declared twice");
+                self.clash(&id, from, message, "declare each override in one source only");
             }
         }
     }
 
     fn tuples(&mut self, from: &Parsed) {
         for tuple in &from.policy.tuples {
-            if !self.policy.tuples.contains(tuple) {
+            let text = tuple.to_string();
+            if self.tuples.contains(&text) {
+                let message = format!("the tuple `{text}` is declared twice");
+                self.clash(&ids::tuple(&text), from, message, "declare each tuple in one source only");
+            } else {
+                self.tuples.insert(text);
                 self.policy.tuples.push(tuple.clone());
             }
         }
@@ -351,45 +395,47 @@ impl Merge {
 
     /// Keeps the invariants this policy does not hold yet and numbers them per kind across
     /// the sources. Returns how the ids of this source map to the merged ones.
-    fn invariants(&mut self, from: &Parsed) -> Vec<(String, String)> {
-        let mut renamed = Vec::new();
+    fn invariants(&mut self, from: &Parsed) -> HashMap<String, String> {
+        let mut renamed = HashMap::new();
         let mut local: BTreeMap<&'static str, usize> = BTreeMap::new();
         for spec in &from.policy.invariants {
             let kind = invariant_kind(spec);
             let ordinal = local.entry(kind).or_insert(0);
             *ordinal += 1;
             let old = ids::invariant(kind, *ordinal);
-            let kept = self
-                .policy
-                .invariants
-                .iter()
-                .position(|known: &InvariantSpec| known == spec);
-            let new = match kept.and_then(|at| self.invariant_ids.get(at)) {
-                Some(existing) => existing.clone(),
+            let said = format!("{spec:?}");
+            let new = match self.invariants.get(&said) {
+                Some(existing) => {
+                    let existing = existing.clone();
+                    let message = format!("the invariant `{kind}` is declared twice");
+                    self.clash(&old, from, message, "declare each invariant in one source only");
+                    existing
+                }
                 None => {
                     let count = self.invariants_per_kind.entry(kind).or_insert(0);
                     *count += 1;
                     let id = ids::invariant(kind, *count);
                     self.policy.invariants.push(spec.clone());
-                    self.invariant_ids.push(id.clone());
+                    self.invariants.insert(said, id.clone());
                     id
                 }
             };
-            renamed.push((old, new));
+            renamed.insert(old, new);
         }
         renamed
     }
 }
 
-/// The merged id of an element: the invariants are the only ones renumbered.
-fn remap(id: &str, renamed: &[(String, String)]) -> String {
-    for (old, new) in renamed {
-        if id == old {
-            return new.clone();
-        }
-        if let Some(rest) = id.strip_prefix(old.as_str()).and_then(|r| r.strip_prefix('/')) {
-            return format!("{new}/{rest}");
-        }
+/// The merged id of an element: the invariants are the only ones renumbered. An invariant id has
+/// no `/` of its own, so the element is what comes before the first one.
+fn remap(id: &str, renamed: &HashMap<String, String>) -> String {
+    let (element, rest) = match id.split_once('/') {
+        Some((element, rest)) => (element, Some(rest)),
+        None => (id, None),
+    };
+    match (renamed.get(element), rest) {
+        (Some(new), Some(rest)) => format!("{new}/{rest}"),
+        (Some(new), None) => new.clone(),
+        (None, _) => id.to_string(),
     }
-    id.to_string()
 }

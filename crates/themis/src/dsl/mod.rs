@@ -37,7 +37,7 @@ use grammar::Cursor;
 
 pub use error::{Diagnostic, Diagnostics, Location, PrintError};
 pub use policy::{Language, Note, NoteAnchor, NoteOrigin, Origins, Placement, Policy};
-pub use project::{Built, Project};
+pub use project::{Built, MAX_PROJECT_BYTES, MAX_SOURCES, Project};
 
 /// The largest source accepted: input is external and unbounded.
 pub const MAX_SOURCE_BYTES: usize = 4 * 1024 * 1024;

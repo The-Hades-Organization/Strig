@@ -41,7 +41,12 @@ pub(crate) fn print(policy: &Policy) -> Printed<String> {
         if note.text.contains('\n') || note.text.contains('\r') {
             return unrepresentable("a note", "a comment holds one line");
         }
-        let slots = notes.entry(note.anchor.element.clone()).or_default();
+        // A comment written next to a field goes back next to it; the anchor stays the element.
+        let key = match &note.origin.field {
+            Some(field) => ids::field(&note.anchor.element, field),
+            None => note.anchor.element.clone(),
+        };
+        let slots = notes.entry(key).or_default();
         match note.anchor.placement {
             Placement::Before => slots.before.push(note.text.clone()),
             Placement::After => slots.after.push(note.text.clone()),
@@ -50,12 +55,19 @@ pub(crate) fn print(policy: &Policy) -> Printed<String> {
             _ => slots.before.push(note.text.clone()),
         }
     }
+    if let Some(key) = notes.iter().find(|(_, slots)| slots.inline.len() > 1).map(|(key, _)| key) {
+        return unrepresentable(
+            format!("the comments of `{key}`"),
+            "two comments on the same line have no spelling",
+        );
+    }
     let mut printer = Printer {
         out: String::new(),
         notes,
     };
     printer.policy(policy)?;
-    printer.orphans();
+    printer.orphans()?;
+    printer.check_round_trip(policy)?;
     Ok(printer.out)
 }
 
@@ -369,18 +381,28 @@ impl Printer {
         self.finish(indent, id, last);
     }
 
-    fn orphans(&mut self) {
+    /// A comment whose element or field was not written has no place to go: refusing is better
+    /// than moving it to another element.
+    fn orphans(&mut self) -> Printed<()> {
         let left = std::mem::take(&mut self.notes);
-        let texts: Vec<String> = left
-            .into_values()
-            .flat_map(|s| s.before.into_iter().chain(s.inline).chain(s.after))
-            .collect();
-        if texts.is_empty() {
-            return;
+        let stray = left
+            .into_iter()
+            .find(|(_, slots)| !(slots.before.is_empty() && slots.inline.is_empty() && slots.after.is_empty()));
+        match stray {
+            Some((key, _)) => unrepresentable(
+                format!("the comments of `{key}`"),
+                "the element they belong to is not in the policy",
+            ),
+            None => Ok(()),
         }
-        self.blank();
-        for text in texts {
-            self.push(0, &Self::comment(&text));
+    }
+
+    /// The last line of defence: what was written must read back as the same policy with the same
+    /// comments, or the printer refuses instead of handing out a text that says something else.
+    fn check_round_trip(&self, policy: &Policy) -> Printed<()> {
+        match crate::dsl::parse_unvalidated("<printed>", &self.out) {
+            Ok(back) if policy.equivalent_unordered(&back.policy) => Ok(()),
+            _ => unrepresentable("the policy", "its text does not read back as the same policy"),
         }
     }
 
@@ -446,9 +468,12 @@ impl Printer {
         if p.strategy != StrategySpec::default() || self.has_notes(ids::STRATEGY) {
             lines.push((ids::STRATEGY, format!("strategy = {}", strategy_name(p.strategy)?)));
         }
-        if p.max_relation_depth.is_some() || self.has_notes(ids::MAX_DEPTH) {
-            let depth = p.max_relation_depth.unwrap_or_default();
-            lines.push((ids::MAX_DEPTH, format!("max_depth = {depth}")));
+        match p.max_relation_depth {
+            Some(depth) => lines.push((ids::MAX_DEPTH, format!("max_depth = {depth}"))),
+            None if self.has_notes(ids::MAX_DEPTH) => {
+                return unrepresentable("a comment on `max_depth`", "the policy sets no maximum depth");
+            }
+            None => {}
         }
         if lines.is_empty() {
             return Ok(());
