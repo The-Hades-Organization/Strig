@@ -12,7 +12,7 @@ use crate::decision::Request;
 use crate::engine::{Context, Engine};
 use crate::grant::{Effect, Grant, SubjectMatcher};
 use crate::rebac::TupleStore;
-use crate::resource::Resource;
+use crate::resource::{Anchor, Resource};
 use crate::subject::{RoleAssignment, Subject};
 
 /// Proposed change to the grant set or to a subject's roles.
@@ -128,10 +128,15 @@ impl<'a> Proposal<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Violation {
     pub invariant: String,
     pub message: String,
+    /// Compensating change the invariant proposes. Nothing is applied: the caller sends it as an
+    /// ordinary mutation (which goes through the invariants too) and then sends the refused one
+    /// again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<Box<Mutation>>,
 }
 
 impl Violation {
@@ -139,7 +144,15 @@ impl Violation {
         Self {
             invariant: invariant.into(),
             message: message.into(),
+            suggestion: None,
         }
+    }
+
+    /// Attaches the compensating change.
+    #[must_use]
+    pub fn with_suggestion(mut self, mutation: Mutation) -> Self {
+        self.suggestion = Some(Box::new(mutation));
+        self
     }
 }
 
@@ -420,10 +433,20 @@ impl Invariant for RequirePermission {
 /// exercise it on `resource`. Prevents locking a scope out of its own management. Each member
 /// is evaluated as they would be after the change ([`Proposal::subject_after`]), so revoking the
 /// role of the last one who exercises the permission is also refused.
+///
+/// With [`NoLockout::with_reserve`], the [`Violation`] also carries the compensating change:
+/// assigning the administrator role to the first reserve subject who would cover every
+/// permission left uncovered.
 pub struct NoLockout {
     critical: Vec<String>,
     members: Vec<Subject>,
     resource: Resource,
+    reserve: Option<Reserve>,
+}
+
+struct Reserve {
+    admin_role: RoleAssignment,
+    subjects: Vec<Subject>,
 }
 
 impl NoLockout {
@@ -436,7 +459,40 @@ impl NoLockout {
             critical: critical.into_iter().map(Into::into).collect(),
             members,
             resource,
+            reserve: None,
         }
+    }
+
+    /// Subjects held in reserve and the administrator role that the suggestion assigns to one of
+    /// them. A reserve subject that already has the role, or has no id, is never suggested.
+    #[must_use]
+    pub fn with_reserve<I>(mut self, admin_role: RoleAssignment, subjects: I) -> Self
+    where
+        I: IntoIterator<Item = Subject>,
+    {
+        self.reserve = Some(Reserve {
+            admin_role,
+            subjects: subjects.into_iter().collect(),
+        });
+        self
+    }
+
+    fn suggestion(&self, engine: &Engine, ctx: &Context<'_>, uncovered: &[&String]) -> Option<Mutation> {
+        let reserve = self.reserve.as_ref()?;
+        reserve
+            .subjects
+            .iter()
+            .filter(|s| s.id.is_some() && !s.roles.contains(&reserve.admin_role))
+            .find(|s| {
+                let promoted = with_role_change(s, &reserve.admin_role, true);
+                uncovered
+                    .iter()
+                    .all(|key| engine.check(ctx, &Request::new(&promoted, key, &self.resource)))
+            })
+            .map(|subject| Mutation::AssignRole {
+                subject: subject.clone(),
+                role: reserve.admin_role.clone(),
+            })
     }
 }
 
@@ -447,19 +503,27 @@ impl Invariant for NoLockout {
 
     fn check(&self, engine: &Engine, proposal: &Proposal<'_>) -> Result<(), Violation> {
         let ctx = proposal.after_context();
-        for key in &self.critical {
-            let covered = self.members.iter().any(|m| {
-                let member = proposal.subject_after(m);
-                engine.check(&ctx, &Request::new(&member, key, &self.resource))
-            });
-            if !covered {
-                return Err(Violation::new(
-                    self.name(),
-                    format!("a mudança deixaria ninguém com a permissão {key}"),
-                ));
-            }
-        }
-        Ok(())
+        let uncovered: Vec<&String> = self
+            .critical
+            .iter()
+            .filter(|key| {
+                !self.members.iter().any(|m| {
+                    let member = proposal.subject_after(m);
+                    engine.check(&ctx, &Request::new(&member, key, &self.resource))
+                })
+            })
+            .collect();
+        let Some(first) = uncovered.first() else {
+            return Ok(());
+        };
+        let violation = Violation::new(
+            self.name(),
+            format!("a mudança deixaria ninguém com a permissão {first}"),
+        );
+        Err(match self.suggestion(engine, &ctx, &uncovered) {
+            Some(fix) => violation.with_suggestion(fix),
+            None => violation,
+        })
     }
 }
 

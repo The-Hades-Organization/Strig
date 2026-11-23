@@ -8,7 +8,8 @@ use crate::catalog::Catalog;
 use crate::condition::{ConditionRegistry, EvalContext};
 use crate::decision::{Decision, Reason, Request};
 use crate::explain::{
-    ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, Verdict, trace_condition,
+    ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, PrerequisiteStep, Verdict,
+    trace_condition,
 };
 use crate::grant::{Effect, Grant, GrantSource, SubjectMatcher};
 use crate::overrides::Override;
@@ -24,6 +25,7 @@ static EMPTY_ENV: Attributes = Attributes::new();
 struct Recorder {
     overrides: Vec<OverrideStep>,
     grants: Vec<GrantTrace>,
+    prerequisites: Vec<PrerequisiteStep>,
 }
 
 struct Judged {
@@ -80,6 +82,8 @@ pub enum GrantError {
     UnknownTargetKind(String),
     #[error("a permissão {permission} não aceita alvo {target}")]
     TargetNotAllowed { permission: String, target: String },
+    #[error("a permissão {0} vale só por override e não pode ser citada em grant")]
+    OverrideOnly(String),
     #[error("grant por relação exige RelationSchema no motor")]
     RelationsDisabled,
     #[error("condição chama função não registrada: {0}")]
@@ -230,12 +234,55 @@ impl Engine {
                 .collect(),
             overrides: recorder.overrides,
             grants: recorder.grants,
+            prerequisites: recorder.prerequisites,
             strategy: self.strategy.name().to_string(),
             decision,
         }
     }
 
+    /// Decision of the request followed by the prerequisite check: an `allow` only stands if
+    /// every transitive prerequisite is also allowed on the same resource.
     fn decide_inner(
+        &self,
+        ctx: &Context<'_>,
+        request: &Request<'_>,
+        with_overrides: bool,
+        mut recorder: Option<&mut Recorder>,
+    ) -> Decision {
+        let mut decision = self.decide_core(ctx, request, with_overrides, recorder.as_deref_mut());
+        if !decision.is_allowed() || !self.catalog.has_prerequisites(request.permission) {
+            return decision;
+        }
+        // A flat pass over the transitive closure: each prerequisite is judged on its own grants,
+        // so the cost is bounded by the closure size and never recurses.
+        let mut missing = None;
+        for prerequisite in self.catalog.prerequisites(request.permission) {
+            let sub = Request::new(request.subject, prerequisite, request.resource);
+            let allowed = self.decide_core(ctx, &sub, with_overrides, None).is_allowed();
+            if let Some(r) = recorder.as_deref_mut() {
+                r.prerequisites.push(PrerequisiteStep {
+                    permission: prerequisite.to_string(),
+                    allowed,
+                });
+            }
+            if !allowed && missing.is_none() {
+                missing = Some(prerequisite.to_string());
+                if recorder.is_none() {
+                    break;
+                }
+            }
+        }
+        if let Some(prerequisite) = missing {
+            decision.effect = Effect::Deny;
+            decision.reason = Reason::MissingPrerequisite {
+                permission: request.permission.to_string(),
+                prerequisite,
+            };
+        }
+        decision
+    }
+
+    fn decide_core(
         &self,
         ctx: &Context<'_>,
         request: &Request<'_>,
@@ -364,6 +411,9 @@ impl Engine {
         if !effective.contains(&grant.permission) {
             return out(Verdict::PermissionUnrelated);
         }
+        if self.catalog.is_override_only(request.permission) || self.catalog.is_override_only(&grant.permission) {
+            return out(Verdict::OverrideOnly);
+        }
         if grant
             .scope
             .as_ref()
@@ -458,6 +508,9 @@ impl Engine {
         }
         if !self.catalog.contains(&grant.permission) {
             return Err(GrantError::UnknownPermission(grant.permission.clone()));
+        }
+        if self.catalog.is_override_only(&grant.permission) {
+            return Err(GrantError::OverrideOnly(grant.permission.clone()));
         }
         if !self.catalog.is_target_kind(&grant.target.kind) {
             return Err(GrantError::UnknownTargetKind(grant.target.kind.clone()));
