@@ -54,7 +54,8 @@ pub struct WindowPredicate {
 ///
 /// With `now`, a row passes when `valid_from <= now` and `now < valid_until` (null bounds are open).
 /// Without it the filter fails closed, like the engine: only rows with no window, and deny rows,
-/// pass.
+/// pass. Deny rows are recognised by the effect column holding the text `deny` (the serialized
+/// form of `Effect::Deny`); a table that stores the effect differently must filter on its own.
 ///
 /// # Errors
 /// [`InstantOutOfRange`] when `now` is above `i64::MAX`.

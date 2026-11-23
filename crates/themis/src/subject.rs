@@ -69,12 +69,12 @@ impl RoleAssignment {
         }
     }
 
-    /// # Errors
-    /// [`ValidityError::Inverted`] when the window ends before it starts.
     fn in_scope_of(&self, resource: &Resource) -> bool {
         self.scope.as_ref().is_none_or(|scope| resource.contains(scope))
     }
 
+    /// # Errors
+    /// [`ValidityError::Inverted`] when the window ends before it starts.
     pub fn check_window(&self) -> Result<(), ValidityError> {
         self.validity().check()
     }

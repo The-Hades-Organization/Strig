@@ -177,7 +177,8 @@ impl Hub {
             .expiries
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if pending.contains_key(&key) {
+        // A finished handle under the key means its runtime went away before the notice fired.
+        if pending.get(&key).is_some_and(|task| !task.is_finished()) {
             return true;
         }
         let wait = Duration::from_millis(boundary_ms.saturating_sub(now_ms).max(1));
@@ -397,5 +398,41 @@ mod tests {
     #[test]
     fn expiry_outside_a_runtime_schedules_nothing() {
         assert!(!Hub::new().schedule_expiry(2_000, 1_000, Change::expiry(None)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_boundary_already_passed_fires_at_once() {
+        let hub = Hub::new();
+        let mut rx = hub.subscribe();
+        assert!(hub.schedule_expiry(500, 1_000, Change::expiry(None)));
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        assert!(rx.try_recv().is_ok());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn each_subject_gets_its_own_notice_and_it_keeps_the_subject() {
+        let hub = Hub::new();
+        let mut rx = hub.subscribe();
+        hub.schedule_expiry(1_100, 1_000, Change::expiry(Some("alice".into())));
+        hub.schedule_expiry(1_100, 1_000, Change::expiry(Some("bob".into())));
+        tokio::time::sleep(Duration::from_millis(101)).await;
+        let mut subjects = vec![
+            rx.try_recv().unwrap().subject.unwrap(),
+            rx.try_recv().unwrap().subject.unwrap(),
+        ];
+        subjects.sort();
+        assert_eq!(subjects, ["alice", "bob"]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_same_boundary_can_be_scheduled_again_after_it_fired() {
+        let hub = Hub::new();
+        let mut rx = hub.subscribe();
+        hub.schedule_expiry(1_100, 1_000, Change::expiry(None));
+        tokio::time::sleep(Duration::from_millis(101)).await;
+        assert!(rx.try_recv().is_ok());
+        hub.schedule_expiry(1_100, 1_000, Change::expiry(None));
+        tokio::time::sleep(Duration::from_millis(101)).await;
+        assert!(rx.try_recv().is_ok());
     }
 }
