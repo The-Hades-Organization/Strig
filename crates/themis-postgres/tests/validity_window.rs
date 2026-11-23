@@ -41,7 +41,10 @@ fn an_effect_that_is_not_known_to_be_allow_is_kept_without_now() {
     // `<> 'allow'` would drop NULL and keep nothing unknown safe; IS DISTINCT FROM keeps both.
     let p = window_predicate(&WindowColumns::default(), 1, None).unwrap();
     assert!(p.sql.contains("IS DISTINCT FROM"));
-    assert!(!p.sql.contains("= 'deny'"), "a literal deny match drops other spellings of deny");
+    assert!(
+        !p.sql.contains("= 'deny'"),
+        "a literal deny match drops other spellings of deny"
+    );
 }
 
 #[test]
@@ -59,7 +62,10 @@ fn candidates_keep_future_starts_and_drop_only_what_expired() {
     let p = candidate_predicate(&WindowColumns::default(), 2, 1_000).unwrap();
     assert_eq!(p.param, Some(1_000));
     assert_eq!(p.sql, "(\"valid_until\" IS NULL OR \"valid_until\" > $2::bigint)");
-    assert!(!p.sql.contains("valid_from"), "a later start must stay visible to the scheduler");
+    assert!(
+        !p.sql.contains("valid_from"),
+        "a later start must stay visible to the scheduler"
+    );
     assert_eq!(
         candidate_predicate(&WindowColumns::default(), 1, u64::MAX).unwrap_err(),
         InstantOutOfRange(u64::MAX)

@@ -156,7 +156,12 @@ mod tests {
     }
 
     fn view() -> Grant {
-        Grant::allow("g", SubjectMatcher::Any, "project.view", TargetSelector::kind("project"))
+        Grant::allow(
+            "g",
+            SubjectMatcher::Any,
+            "project.view",
+            TargetSelector::kind("project"),
+        )
     }
 
     #[tokio::test]
