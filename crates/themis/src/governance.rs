@@ -735,19 +735,12 @@ impl Prerequisites {
     }
 
     fn violation(&self, key: &str, prerequisite: &str) -> Violation {
-        Violation::new(
-            self.name(),
-            format!("{key} exige {prerequisite} no mesmo recurso"),
-        )
+        Violation::new(self.name(), format!("{key} exige {prerequisite} no mesmo recurso"))
     }
 
     /// Allow grants that `subject` (after the change) picks up through its user id or its roles,
     /// each with the scope of the role assignment that carries it.
-    fn grants_of<'g>(
-        engine: &Engine,
-        subject: &Subject,
-        grants: &'g [Grant],
-    ) -> Vec<(&'g Grant, Option<Anchor>)> {
+    fn grants_of<'g>(engine: &Engine, subject: &Subject, grants: &'g [Grant]) -> Vec<(&'g Grant, Option<Anchor>)> {
         let mut found = Vec::new();
         for grant in grants.iter().filter(|g| g.effect == Effect::Allow) {
             match &grant.subject {
@@ -970,7 +963,10 @@ impl Invariant for NoEscalation {
     fn check(&self, engine: &Engine, proposal: &Proposal<'_>) -> Result<(), Violation> {
         let ctx = proposal.before_context();
         if let Some(bypass) = &self.bypass
-            && engine.check(&ctx, &Request::new(proposal.actor, &bypass.permission, &bypass.resource))
+            && engine.check(
+                &ctx,
+                &Request::new(proposal.actor, &bypass.permission, &bypass.resource),
+            )
         {
             return Ok(());
         }

@@ -9,9 +9,21 @@ fn catalog() -> Catalog {
     Catalog::builder()
         .target_kind("project")
         .permission(PermissionDef::new("doc.view").targets(["project"]))
-        .permission(PermissionDef::new("doc.edit").targets(["project"]).depends_on(["doc.view"]))
-        .permission(PermissionDef::new("doc.publish").targets(["project"]).depends_on(["doc.edit"]))
-        .permission(PermissionDef::new("doc.break_glass").targets(["project"]).override_only())
+        .permission(
+            PermissionDef::new("doc.edit")
+                .targets(["project"])
+                .depends_on(["doc.view"]),
+        )
+        .permission(
+            PermissionDef::new("doc.publish")
+                .targets(["project"])
+                .depends_on(["doc.edit"]),
+        )
+        .permission(
+            PermissionDef::new("doc.break_glass")
+                .targets(["project"])
+                .override_only(),
+        )
         .build()
         .expect("catalog")
 }
@@ -46,7 +58,12 @@ fn rejects_unknown_prerequisite() {
         .permission(PermissionDef::new("a").targets(["project"]).depends_on(["ghost"]))
         .build()
         .expect_err("unknown");
-    assert!(errors.0.iter().any(|e| matches!(e, CatalogError::UnknownPrerequisite { .. })));
+    assert!(
+        errors
+            .0
+            .iter()
+            .any(|e| matches!(e, CatalogError::UnknownPrerequisite { .. }))
+    );
 }
 
 #[test]
@@ -99,7 +116,12 @@ fn prerequisite_on_another_resource_does_not_count() {
     let engine = engine();
     let grants = vec![
         allow("g1", "ana", "doc.edit"),
-        Grant::allow("g2", SubjectMatcher::user("ana"), "doc.view", TargetSelector::exact("project", "p2")),
+        Grant::allow(
+            "g2",
+            SubjectMatcher::user("ana"),
+            "doc.view",
+            TargetSelector::exact("project", "p2"),
+        ),
     ];
     let ana = Subject::user("ana");
     assert!(!engine.check(&Context::new(&grants), &Request::new(&ana, "doc.edit", &project())));
@@ -109,7 +131,10 @@ fn prerequisite_on_another_resource_does_not_count() {
 fn override_only_grant_is_refused_and_ignored() {
     let engine = engine();
     let grant = allow("g", "ana", "doc.break_glass");
-    assert!(matches!(engine.validate_grant(&grant), Err(GrantError::OverrideOnly(_))));
+    assert!(matches!(
+        engine.validate_grant(&grant),
+        Err(GrantError::OverrideOnly(_))
+    ));
     let grants = vec![grant];
     let ana = Subject::user("ana");
     let resource = project();
@@ -129,7 +154,9 @@ fn governance_refuses_permission_without_prerequisite() {
     assert_eq!(violations[0].invariant, "prerequisites");
 
     let with_view = vec![allow("v", "ana", "doc.view")];
-    let after = governance.apply(&engine, &actor, &with_view, &add, None).expect("accepted");
+    let after = governance
+        .apply(&engine, &actor, &with_view, &add, None)
+        .expect("accepted");
     assert_eq!(after.len(), 2);
 }
 
@@ -140,9 +167,13 @@ fn governance_refuses_removing_a_prerequisite_in_use() {
     let actor = Subject::user("boss");
     let grants = vec![allow("v", "ana", "doc.view"), allow("e", "ana", "doc.edit")];
     let remove = Mutation::Remove { id: "v".into() };
-    let violations = governance.apply(&engine, &actor, &grants, &remove, None).expect_err("refused");
+    let violations = governance
+        .apply(&engine, &actor, &grants, &remove, None)
+        .expect_err("refused");
     assert_eq!(violations[0].invariant, "prerequisites");
 
     let remove_both = Mutation::Remove { id: "e".into() };
-    governance.apply(&engine, &actor, &grants, &remove_both, None).expect("dependent first");
+    governance
+        .apply(&engine, &actor, &grants, &remove_both, None)
+        .expect("dependent first");
 }

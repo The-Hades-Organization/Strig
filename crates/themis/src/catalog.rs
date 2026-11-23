@@ -672,7 +672,11 @@ mod tests {
         let cat = base()
             .permission(PermissionDef::new("a.view").targets(["project"]))
             .permission(PermissionDef::new("a.edit").targets(["project"]).depends_on(["a.view"]))
-            .permission(PermissionDef::new("a.publish").targets(["project"]).depends_on(["a.edit"]))
+            .permission(
+                PermissionDef::new("a.publish")
+                    .targets(["project"])
+                    .depends_on(["a.edit"]),
+            )
             .build()
             .unwrap();
         assert_eq!(cat.prerequisites("a.publish").collect::<Vec<_>>(), ["a.edit", "a.view"]);

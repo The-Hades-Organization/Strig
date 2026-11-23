@@ -155,9 +155,13 @@ pub enum InvariantSpec {
     /// [`Prerequisites`]: a permission is only held together with its `depends_on` ones.
     Prerequisites,
     /// [`NonDelegable`]: only whoever holds `manager` grants a non-delegable permission.
-    NonDelegable { manager: String },
+    NonDelegable {
+        manager: String,
+    },
     /// [`ManagementOnly`]: management-only permissions go only to the listed roles.
-    ManagementOnly { roles: Vec<String> },
+    ManagementOnly {
+        roles: Vec<String>,
+    },
     /// [`NoEscalation`]: the actor only grants what they hold, unless they hold the bypass.
     NoEscalation {
         #[serde(default, skip_serializing_if = "Option::is_none")]

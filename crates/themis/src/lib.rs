@@ -71,8 +71,7 @@ pub use rbac::{RbacError, RoleGraph};
 pub use rebac::{InMemoryTuples, RebacError, RelationSchema, Rewrite, Tuple, TupleStore, TupleSubject};
 pub use resource::{Anchor, GLOBAL, ObjectRef, Resource};
 pub use spec::{
-    EngineSpec, InvariantSpec, OverrideRule, OverrideSpec, RelationSpec, ReserveSpec, RoleSpec, SpecError,
-    StrategySpec,
+    EngineSpec, InvariantSpec, OverrideRule, OverrideSpec, RelationSpec, ReserveSpec, RoleSpec, SpecError, StrategySpec,
 };
 pub use strategy::{Candidate, DenyOverrides, FirstApplicable, MostSpecific, PermitOverrides, Strategy};
 pub use subject::{ANONYMOUS, AUTHENTICATED, RoleAssignment, Subject};

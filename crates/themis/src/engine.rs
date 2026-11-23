@@ -8,8 +8,7 @@ use crate::catalog::Catalog;
 use crate::condition::{ConditionRegistry, EvalContext};
 use crate::decision::{Decision, Reason, Request};
 use crate::explain::{
-    ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, PrerequisiteStep, Verdict,
-    trace_condition,
+    ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, PrerequisiteStep, Verdict, trace_condition,
 };
 use crate::grant::{Effect, Grant, GrantSource, SubjectMatcher};
 use crate::overrides::Override;
@@ -203,11 +202,7 @@ impl Engine {
 
     /// Decision of the request alone, overrides included but without the prerequisite check. Lets
     /// governance tell a plain `allow` from one that only stands because its prerequisites hold.
-    pub fn decide_ignoring_prerequisites(
-        &self,
-        ctx: &Context<'_>,
-        request: &Request<'_>,
-    ) -> Decision {
+    pub fn decide_ignoring_prerequisites(&self, ctx: &Context<'_>, request: &Request<'_>) -> Decision {
         self.decide_core(ctx, request, true, None)
     }
 
