@@ -86,20 +86,20 @@ pub enum GrantError {
     UnknownFunction(String),
 }
 
-struct OverrideEntry {
-    inner: Box<dyn Override>,
-    except: Vec<String>,
+pub(crate) struct OverrideEntry {
+    pub(crate) inner: Box<dyn Override>,
+    pub(crate) except: Vec<String>,
 }
 
 /// Decision engine. Immutable and shareable between threads once built.
 pub struct Engine {
-    catalog: Arc<Catalog>,
-    roles: RoleGraph,
-    relations: Option<RelationSchema>,
-    conditions: ConditionRegistry,
-    strategy: Box<dyn Strategy>,
-    overrides: Vec<OverrideEntry>,
-    max_relation_depth: usize,
+    pub(crate) catalog: Arc<Catalog>,
+    pub(crate) roles: RoleGraph,
+    pub(crate) relations: Option<RelationSchema>,
+    pub(crate) conditions: ConditionRegistry,
+    pub(crate) strategy: Arc<dyn Strategy>,
+    pub(crate) overrides: Vec<OverrideEntry>,
+    pub(crate) max_relation_depth: usize,
 }
 
 pub struct EngineBuilder {
@@ -123,7 +123,7 @@ impl EngineBuilder {
     }
 
     pub fn strategy(mut self, strategy: impl Strategy + 'static) -> Self {
-        self.engine.strategy = Box::new(strategy);
+        self.engine.strategy = Arc::new(strategy);
         self
     }
 
@@ -169,7 +169,7 @@ impl Engine {
                 roles: RoleGraph::default(),
                 relations: None,
                 conditions: ConditionRegistry::default(),
-                strategy: Box::new(MostSpecific),
+                strategy: Arc::new(MostSpecific),
                 overrides: Vec::new(),
                 max_relation_depth: DEFAULT_MAX_RELATION_DEPTH,
             },
@@ -200,8 +200,12 @@ impl Engine {
     /// The same decision as [`Engine::decide`], with the trace of each override and of each grant
     /// delivered by the source. More expensive: it evaluates the condition tree and clones the grants.
     pub fn explain(&self, ctx: &Context<'_>, request: &Request<'_>) -> Explanation {
+        self.explain_with(ctx, request, true)
+    }
+
+    pub(crate) fn explain_with(&self, ctx: &Context<'_>, request: &Request<'_>, with_overrides: bool) -> Explanation {
         let mut recorder = Recorder::default();
-        let decision = self.decide_inner(ctx, request, true, Some(&mut recorder));
+        let decision = self.decide_inner(ctx, request, with_overrides, Some(&mut recorder));
         if matches!(decision.reason, Reason::Override { .. }) {
             ctx.grants.visit(request.subject, request.resource, &mut |grant| {
                 recorder.grants.push(GrantTrace {

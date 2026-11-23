@@ -1,0 +1,1568 @@
+//! Listing and reverse queries: which resources a subject reaches, and who reaches a resource.
+//!
+//! [`Engine::check`] answers one question about one resource. This module answers the questions
+//! asked from the other side without enumerating a table:
+//!
+//! - [`Engine::list`] turns a subject, a permission and a resource kind into an [`AccessFilter`]:
+//!   a description of the reach (the whole kind, a set of ids, everything inside some scopes,
+//!   nothing) that a database turns into a `WHERE` clause and that [`AccessFilter::resolve`]
+//!   evaluates over in-memory resources. What cannot be decided without the resource (an ABAC
+//!   condition over a resource attribute, an override that is a closure) stays as an explicit
+//!   residue to check row by row; it is never read as an allow.
+//! - [`Engine::who_can`], [`Engine::who_can_on`] and [`Engine::access_of`] ask who holds a
+//!   permission, and [`Engine::check_for`] asks one subject by reference, with the path that
+//!   decided.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
+use std::sync::Arc;
+
+use crate::attr::{Attributes, Value};
+use crate::condition::{Condition, ConditionRegistry, EvalContext, Operand};
+use crate::decision::{Decision, Reason, Request};
+use crate::engine::{Context, Engine};
+use crate::explain::Explanation;
+use crate::grant::{Effect, Grant, GrantIndex, SubjectMatcher, TargetSelector};
+use crate::overrides::{Gate, OverrideReach, ReachRequest, SubjectsRequest};
+use crate::rebac::{TupleIndex, TupleStore, TupleSubject};
+use crate::resource::{Anchor, GLOBAL, ObjectRef, Resource};
+use crate::strategy::{Candidate, Strategy};
+use crate::subject::{AUTHENTICATED, RoleAssignment, Subject};
+
+static EMPTY_ENV: Attributes = Attributes::new();
+
+/// Name of the strategies whose combination the filter reproduces natively.
+const NATIVE_STRATEGIES: [&str; 4] = ["most_specific", "deny_overrides", "permit_overrides", "first_applicable"];
+
+/// Data for a listing or a reverse query: indexed grants, indexed ReBAC tuples and the
+/// environment attributes. The counterpart of [`Context`] for the queries that start without a
+/// resource.
+#[derive(Clone, Copy)]
+pub struct QueryContext<'a> {
+    pub grants: &'a dyn GrantIndex,
+    pub tuples: Option<&'a dyn TupleIndex>,
+    pub env: &'a Attributes,
+}
+
+impl<'a> QueryContext<'a> {
+    pub fn new(grants: &'a dyn GrantIndex) -> Self {
+        Self {
+            grants,
+            tuples: None,
+            env: &EMPTY_ENV,
+        }
+    }
+
+    pub fn with_tuples(mut self, tuples: &'a dyn TupleIndex) -> Self {
+        self.tuples = Some(tuples);
+        self
+    }
+
+    pub fn with_env(mut self, env: &'a Attributes) -> Self {
+        self.env = env;
+        self
+    }
+
+    /// The same data as a [`Context`], to run [`Engine::check`] over the same sources.
+    pub fn context(&self) -> Context<'a> {
+        let mut ctx = Context::new(self.grants).with_env(self.env);
+        if let Some(tuples) = self.tuples {
+            ctx = ctx.with_tuples(tuples);
+        }
+        ctx
+    }
+}
+
+/// Error of a query that names its subject by reference.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum QueryError {
+    /// The [`SubjectResolver`] does not know the subject, and it is not a kind that can be
+    /// represented without loading.
+    #[error("subject not found: {0}")]
+    UnknownSubject(SubjectRef),
+}
+
+/// A party named by a grant or a tuple, in the terms the queries use: it keeps the kind of the
+/// subject (a user, a role, a principal, a userset), so a grant to a role is reported as the role,
+/// not as each of its members.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SubjectRef {
+    /// A subject by id (`SubjectMatcher::User`).
+    User { id: String },
+    /// A direct object of a ReBAC tuple (`group:9`, `service:billing`).
+    Object { kind: String, id: String },
+    /// Whoever has the role, directly or inherited.
+    Role { id: String },
+    /// Whoever carries the principal.
+    Principal { name: String },
+    /// Everyone who has `relation` on `object` (`group:9#member`).
+    Userset { object: ObjectRef, relation: String },
+    /// Every subject of a kind (`user:*`).
+    Wildcard { kind: String },
+    /// Any subject.
+    Anyone,
+}
+
+impl fmt::Display for SubjectRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SubjectRef::User { id } => write!(f, "user:{id}"),
+            SubjectRef::Object { kind, id } => write!(f, "{kind}:{id}"),
+            SubjectRef::Role { id } => write!(f, "role:{id}"),
+            SubjectRef::Principal { name } => write!(f, "principal:{name}"),
+            SubjectRef::Userset { object, relation } => write!(f, "{object}#{relation}"),
+            SubjectRef::Wildcard { kind } => write!(f, "{kind}:*"),
+            SubjectRef::Anyone => f.write_str("anyone"),
+        }
+    }
+}
+
+/// Loads the [`Subject`] (roles, principals, attributes) behind a [`SubjectRef`].
+pub trait SubjectResolver {
+    fn resolve(&self, subject: &SubjectRef) -> Option<Subject>;
+}
+
+impl<F> SubjectResolver for F
+where
+    F: Fn(&SubjectRef) -> Option<Subject>,
+{
+    fn resolve(&self, subject: &SubjectRef) -> Option<Subject> {
+        self(subject)
+    }
+}
+
+/// Subjects kept in memory, by reference.
+#[derive(Debug, Clone, Default)]
+pub struct InMemorySubjects {
+    subjects: BTreeMap<SubjectRef, Subject>,
+}
+
+impl InMemorySubjects {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&mut self, reference: SubjectRef, subject: Subject) {
+        self.subjects.insert(reference, subject);
+    }
+
+    /// Registers an identified subject under the reference that names it.
+    pub fn with(mut self, subject: Subject) -> Self {
+        if let Some(id) = subject.id.clone() {
+            let reference = if subject.kind == "user" {
+                SubjectRef::User { id }
+            } else {
+                SubjectRef::Object {
+                    kind: subject.kind.clone(),
+                    id,
+                }
+            };
+            self.subjects.insert(reference, subject);
+        }
+        self
+    }
+}
+
+impl SubjectResolver for InMemorySubjects {
+    fn resolve(&self, subject: &SubjectRef) -> Option<Subject> {
+        self.subjects.get(subject).cloned()
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Expr
+// ---------------------------------------------------------------------------------------------
+
+/// A condition over a resource, built from what the listing could settle about the subject.
+///
+/// The atoms that talk about the path assume that a kind appears at most once in a resource's
+/// path (a document has one project), which is how the path is built.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Expr {
+    True,
+    False,
+    /// The resource path goes through this step (the implicit `global` always does).
+    Within(Anchor),
+    /// Some step of the path matches the selector.
+    OnPath(TargetSelector),
+    /// The step of this kind has one of these ids.
+    AnchorIn { kind: String, ids: BTreeSet<String> },
+    /// The resource attribute holds this string.
+    AttrEq { attr: String, value: String },
+    /// A part that only the resource can settle, by index into [`AccessFilter::residual`].
+    Residual(usize),
+    Not(Box<Expr>),
+    And(Vec<Expr>),
+    Or(Vec<Expr>),
+}
+
+impl Expr {
+    #[allow(clippy::should_implement_trait)]
+    pub fn not(expr: Expr) -> Expr {
+        Expr::Not(Box::new(expr))
+    }
+
+    fn id_of<'a>(resource: &'a Resource, kind: &str) -> Option<&'a str> {
+        resource
+            .anchors()
+            .find(|(_, anchor)| anchor.kind == kind)
+            .and_then(|(_, anchor)| anchor.id.as_deref())
+    }
+
+    /// Evaluates over a resource. `residual` settles the residual parts; `None` is unknown, and
+    /// the logic is three-valued (an unknown part does not hide what the rest decides).
+    pub fn holds(&self, resource: &Resource, residual: &dyn Fn(usize) -> Option<bool>) -> Option<bool> {
+        match self {
+            Expr::True => Some(true),
+            Expr::False => Some(false),
+            Expr::Within(anchor) => Some(resource.contains(anchor)),
+            Expr::OnPath(selector) => Some(resource.locate(selector).is_some()),
+            Expr::AnchorIn { kind, ids } => Some(Self::id_of(resource, kind).is_some_and(|id| ids.contains(id))),
+            Expr::AttrEq { attr, value } => Some(matches!(
+                resource.attrs.get(attr),
+                Some(Value::Str(held)) if held == value
+            )),
+            Expr::Residual(index) => residual(*index),
+            Expr::Not(inner) => inner.holds(resource, residual).map(|v| !v),
+            Expr::And(items) => {
+                let mut unknown = false;
+                for item in items {
+                    match item.holds(resource, residual) {
+                        Some(false) => return Some(false),
+                        Some(true) => {}
+                        None => unknown = true,
+                    }
+                }
+                (!unknown).then_some(true)
+            }
+            Expr::Or(items) => {
+                let mut unknown = false;
+                for item in items {
+                    match item.holds(resource, residual) {
+                        Some(true) => return Some(true),
+                        Some(false) => {}
+                        None => unknown = true,
+                    }
+                }
+                (!unknown).then_some(false)
+            }
+        }
+    }
+
+    /// Whether any residual part is left.
+    pub fn has_residual(&self) -> bool {
+        match self {
+            Expr::Residual(_) => true,
+            Expr::Not(inner) => inner.has_residual(),
+            Expr::And(items) | Expr::Or(items) => items.iter().any(Expr::has_residual),
+            _ => false,
+        }
+    }
+
+    /// The equivalent expression with constants folded, nesting flattened and the exact steps
+    /// (`project:42`) written as id sets, which merge.
+    #[must_use]
+    pub fn simplify(&self) -> Expr {
+        match self {
+            Expr::Within(anchor) if anchor.is_global() => Expr::True,
+            Expr::Within(Anchor { kind, id: Some(id) }) => Expr::AnchorIn {
+                kind: kind.clone(),
+                ids: BTreeSet::from([id.clone()]),
+            },
+            Expr::OnPath(selector) if selector.kind == GLOBAL => Expr::True,
+            Expr::OnPath(TargetSelector { kind, id: Some(id) }) => Expr::AnchorIn {
+                kind: kind.clone(),
+                ids: BTreeSet::from([id.clone()]),
+            },
+            Expr::AnchorIn { ids, .. } if ids.is_empty() => Expr::False,
+            Expr::Not(inner) => match inner.simplify() {
+                Expr::True => Expr::False,
+                Expr::False => Expr::True,
+                Expr::Not(twice) => *twice,
+                other => Expr::Not(Box::new(other)),
+            },
+            Expr::And(items) => Self::simplify_and(items),
+            Expr::Or(items) => Self::simplify_or(items),
+            other => other.clone(),
+        }
+    }
+
+    fn simplify_and(items: &[Expr]) -> Expr {
+        let mut flat: Vec<Expr> = Vec::new();
+        for item in items {
+            match item.simplify() {
+                Expr::True => {}
+                Expr::False => return Expr::False,
+                Expr::And(inner) => flat.extend(inner),
+                other => flat.push(other),
+            }
+        }
+        let mut merged: Vec<Expr> = Vec::new();
+        for item in flat {
+            if merged.contains(&item) {
+                continue;
+            }
+            if let Expr::AnchorIn { kind, ids } = &item
+                && let Some(Expr::AnchorIn { ids: held, .. }) = merged
+                    .iter_mut()
+                    .find(|e| matches!(e, Expr::AnchorIn { kind: k, .. } if k == kind))
+            {
+                held.retain(|id| ids.contains(id));
+                continue;
+            }
+            merged.push(item);
+        }
+        if merged.iter().any(|e| matches!(e, Expr::AnchorIn { ids, .. } if ids.is_empty())) {
+            return Expr::False;
+        }
+        match merged.len() {
+            0 => Expr::True,
+            1 => merged.remove(0),
+            _ => Expr::And(merged),
+        }
+    }
+
+    fn simplify_or(items: &[Expr]) -> Expr {
+        let mut flat: Vec<Expr> = Vec::new();
+        for item in items {
+            match item.simplify() {
+                Expr::False => {}
+                Expr::True => return Expr::True,
+                Expr::Or(inner) => flat.extend(inner),
+                other => flat.push(other),
+            }
+        }
+        let mut merged: Vec<Expr> = Vec::new();
+        for item in flat {
+            if merged.contains(&item) {
+                continue;
+            }
+            if let Expr::AnchorIn { kind, ids } = &item
+                && let Some(Expr::AnchorIn { ids: held, .. }) = merged
+                    .iter_mut()
+                    .find(|e| matches!(e, Expr::AnchorIn { kind: k, .. } if k == kind))
+            {
+                held.extend(ids.iter().cloned());
+                continue;
+            }
+            merged.push(item);
+        }
+        match merged.len() {
+            0 => Expr::False,
+            1 => merged.remove(0),
+            _ => Expr::Or(merged),
+        }
+    }
+
+    /// Bounds when every residual part is unknown: `lower` holds only where the expression
+    /// certainly holds, `upper` wherever it may hold. Without residue both are the expression.
+    pub fn bounds(&self) -> (Expr, Expr) {
+        match self {
+            Expr::Residual(_) => (Expr::False, Expr::True),
+            Expr::Not(inner) => {
+                let (lower, upper) = inner.bounds();
+                (Expr::not(upper), Expr::not(lower))
+            }
+            Expr::And(items) => {
+                let (lower, upper): (Vec<_>, Vec<_>) = items.iter().map(Expr::bounds).unzip();
+                (Expr::And(lower).simplify(), Expr::And(upper).simplify())
+            }
+            Expr::Or(items) => {
+                let (lower, upper): (Vec<_>, Vec<_>) = items.iter().map(Expr::bounds).unzip();
+                (Expr::Or(lower).simplify(), Expr::Or(upper).simplify())
+            }
+            other => (other.simplify(), other.simplify()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Layout and shape
+// ---------------------------------------------------------------------------------------------
+
+/// Order of the kinds in a resource path, most specific first: `PathLayout::new("document")
+/// .within("doc_type").within("project").within("org")`. The strategy reads specificity from the
+/// path position, so turning the filter into a structural [`Expr`] needs the order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathLayout {
+    kinds: Vec<String>,
+}
+
+impl PathLayout {
+    pub fn new(kind: impl Into<String>) -> Self {
+        Self {
+            kinds: vec![kind.into()],
+        }
+    }
+
+    /// Adds a broader step at the end.
+    #[must_use]
+    pub fn within(mut self, kind: impl Into<String>) -> Self {
+        self.kinds.push(kind.into());
+        self
+    }
+
+    pub fn kinds(&self) -> &[String] {
+        &self.kinds
+    }
+
+    fn rank(&self, kind: &str) -> Option<usize> {
+        if kind == GLOBAL {
+            return Some(self.kinds.len());
+        }
+        self.kinds.iter().position(|k| k == kind)
+    }
+}
+
+/// The reach of a listing, in the simplest terms that describe it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Shape {
+    /// No resource.
+    Nothing,
+    /// Every resource of the kind except the listed ids (empty: the whole kind).
+    Kind { except: BTreeSet<String> },
+    /// Exactly these ids.
+    Ids(BTreeSet<String>),
+    /// Everything inside any of these steps of the path.
+    Within(Vec<Anchor>),
+    /// Anything else, as a structural expression.
+    Compound(Expr),
+}
+
+/// What an [`AccessFilter`] knows about one resource.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    Allowed,
+    Denied,
+    /// Depends on something the filter cannot inspect (an override that is a closure).
+    Undecided,
+}
+
+/// Result of [`AccessFilter::resolve`].
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Resolution {
+    /// Ids of the resources the filter allows.
+    pub allowed: Vec<String>,
+    /// Ids of the resources the filter cannot decide: check them with [`Engine::check`] or
+    /// [`AccessFilter::resolve_with`].
+    pub undecided: Vec<String>,
+}
+
+/// A part of the decision that only the resource can settle.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Residual {
+    /// A condition over resource attributes, to evaluate row by row.
+    Condition { grant_id: String, condition: Condition },
+    /// An override that cannot describe where it decides.
+    Override { name: String },
+    /// A strategy the filter does not reproduce structurally.
+    Strategy { name: String },
+}
+
+// ---------------------------------------------------------------------------------------------
+// AccessFilter
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Clone)]
+struct Entry {
+    grant: Grant,
+    /// Scope and subject side, settled for this subject.
+    gate: Expr,
+    residual: Option<usize>,
+}
+
+#[derive(Clone)]
+struct OverridePlan {
+    reach: OverrideReach,
+    residual: Option<usize>,
+}
+
+/// The reach of one subject with one permission over the resources of one kind.
+///
+/// Built by [`Engine::list`]. It holds the grants that can apply to the subject, with the subject
+/// side already settled, so it never enumerates the resources.
+#[derive(Clone)]
+pub struct AccessFilter {
+    kind: String,
+    permission: String,
+    known: bool,
+    subject: Subject,
+    env: Attributes,
+    conditions: ConditionRegistry,
+    strategy: Arc<dyn Strategy>,
+    entries: Vec<Entry>,
+    overrides: Vec<OverridePlan>,
+    residuals: Vec<Residual>,
+    strategy_residual: Option<usize>,
+    warnings: Vec<String>,
+}
+
+impl fmt::Debug for AccessFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AccessFilter")
+            .field("kind", &self.kind)
+            .field("permission", &self.permission)
+            .field("grants", &self.entries.iter().map(|e| &e.grant.id).collect::<Vec<_>>())
+            .field("residuals", &self.residuals)
+            .field("strategy", &self.strategy.name())
+            .finish_non_exhaustive()
+    }
+}
+
+impl AccessFilter {
+    /// The resource kind the filter lists.
+    pub fn kind(&self) -> &str {
+        &self.kind
+    }
+
+    pub fn permission(&self) -> &str {
+        &self.permission
+    }
+
+    /// The parts that only the resource can settle.
+    pub fn residual(&self) -> &[Residual] {
+        &self.residuals
+    }
+
+    /// Problems found while planning (a relation grant with no tuple store, a condition that
+    /// failed for every resource). An allow with a problem is left out, a deny with a problem
+    /// applies, as in [`Engine::check`].
+    pub fn warnings(&self) -> &[String] {
+        &self.warnings
+    }
+
+    /// Whether the structural form over `layout` has no residue: the database alone settles it.
+    pub fn is_exact(&self, layout: &PathLayout) -> bool {
+        !self.expr(layout).has_residual()
+    }
+
+    /// Decides one resource from the filter alone (no engine, no sources). Resources of another
+    /// kind are denied.
+    pub fn allows(&self, resource: &Resource) -> Outcome {
+        if resource.primary().is_none_or(|anchor| anchor.kind != self.kind) {
+            return Outcome::Denied;
+        }
+        self.decide_row(resource, true)
+    }
+
+    /// Ids of the resources of the kind that the filter allows, evaluating it over `resources`
+    /// (for in-memory sources). The undecided ones are reported apart.
+    pub fn resolve<'r>(&self, resources: impl IntoIterator<Item = &'r Resource>) -> Resolution {
+        let mut out = Resolution::default();
+        for resource in resources {
+            let Some(id) = resource.primary().and_then(|a| a.id.clone()) else {
+                continue;
+            };
+            match self.allows(resource) {
+                Outcome::Allowed => out.allowed.push(id),
+                Outcome::Undecided => out.undecided.push(id),
+                Outcome::Denied => {}
+            }
+        }
+        out
+    }
+
+    /// Like [`AccessFilter::resolve`], settling the undecided resources with [`Engine::check`].
+    pub fn resolve_with<'r>(
+        &self,
+        engine: &Engine,
+        ctx: &Context<'_>,
+        resources: impl IntoIterator<Item = &'r Resource>,
+    ) -> Vec<String> {
+        let mut by_id: BTreeMap<String, &Resource> = BTreeMap::new();
+        let resolution = self.resolve(resources.into_iter().inspect(|r| {
+            if let Some(id) = r.primary().and_then(|a| a.id.clone()) {
+                by_id.insert(id, r);
+            }
+        }));
+        let mut allowed = resolution.allowed;
+        for id in resolution.undecided {
+            if let Some(resource) = by_id.get(&id)
+                && engine.check(ctx, &Request::new(&self.subject, &self.permission, resource))
+            {
+                allowed.push(id);
+            }
+        }
+        allowed
+    }
+
+    /// The structural form of the filter over `layout`, for a database. The expression assumes
+    /// the resource paths follow the layout.
+    pub fn expr(&self, layout: &PathLayout) -> Expr {
+        if !self.known {
+            return Expr::False;
+        }
+        self.full_expr(layout).simplify()
+    }
+
+    /// The reach in its simplest description.
+    pub fn shape(&self, layout: &PathLayout) -> Shape {
+        let expr = self.expr(layout);
+        let own = layout.kinds().first().map(String::as_str).unwrap_or_default();
+        match &expr {
+            Expr::False => Shape::Nothing,
+            Expr::True => Shape::Kind { except: BTreeSet::new() },
+            Expr::AnchorIn { kind, ids } if kind == own => Shape::Ids(ids.clone()),
+            Expr::Not(inner) => match inner.as_ref() {
+                Expr::AnchorIn { kind, ids } if kind == own => Shape::Kind { except: ids.clone() },
+                _ => Shape::Compound(expr),
+            },
+            Expr::AnchorIn { .. } => Shape::Within(Self::anchors_of(&expr)),
+            Expr::Or(items) if items.iter().all(|e| matches!(e, Expr::AnchorIn { kind, .. } if kind != own)) => {
+                Shape::Within(items.iter().flat_map(Self::anchors_of).collect())
+            }
+            _ => Shape::Compound(expr),
+        }
+    }
+
+    fn anchors_of(expr: &Expr) -> Vec<Anchor> {
+        match expr {
+            Expr::AnchorIn { kind, ids } => ids.iter().map(|id| Anchor::new(kind.clone(), id.clone())).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    // --- structural form -------------------------------------------------------------------
+
+    fn full_expr(&self, layout: &PathLayout) -> Expr {
+        let mut acc = self.grants_expr(layout);
+        for plan in self.overrides.iter().rev() {
+            match &plan.reach {
+                OverrideReach::Never => {}
+                OverrideReach::Opaque => {
+                    let unknown = plan.residual.map_or(Expr::False, Expr::Residual);
+                    acc = Expr::Or(vec![
+                        unknown.clone(),
+                        Expr::And(vec![Expr::not(unknown), acc]),
+                    ]);
+                }
+                OverrideReach::Allows(gate) => acc = Expr::Or(vec![Self::gate_expr(gate, layout), acc]),
+                OverrideReach::Denies(gate) => {
+                    acc = Expr::And(vec![Expr::not(Self::gate_expr(gate, layout)), acc]);
+                }
+            }
+        }
+        acc
+    }
+
+    fn gate_expr(gate: &Gate, layout: &PathLayout) -> Expr {
+        match gate {
+            Gate::Expr(expr) => expr.clone(),
+            Gate::Holds(filter) if filter.known => filter.grants_expr(layout),
+            Gate::Holds(_) => Expr::False,
+        }
+    }
+
+    fn applies_expr(&self, index: usize) -> Expr {
+        let entry = &self.entries[index];
+        let mut parts = vec![Expr::OnPath(entry.grant.target.clone()), entry.gate.clone()];
+        parts.extend(entry.residual.map(Expr::Residual));
+        Expr::And(parts)
+    }
+
+    /// Combination of the grants by the strategy, without overrides.
+    fn grants_expr(&self, layout: &PathLayout) -> Expr {
+        // (rank, effect, applies) in source order; a target outside the layout never matches.
+        let ranked: Vec<(usize, Effect, Expr)> = (0..self.entries.len())
+            .filter_map(|i| {
+                let rank = layout.rank(&self.entries[i].grant.target.kind)?;
+                Some((rank, self.entries[i].grant.effect, self.applies_expr(i)))
+            })
+            .collect();
+        let any = |effect: Effect, only_rank: Option<usize>| {
+            Expr::Or(
+                ranked
+                    .iter()
+                    .filter(|(r, e, _)| *e == effect && only_rank.is_none_or(|x| x == *r))
+                    .map(|(_, _, applies)| applies.clone())
+                    .collect(),
+            )
+        };
+        let allow_any = any(Effect::Allow, None);
+        let combined = match self.strategy.name() {
+            "most_specific" => {
+                let ranks: BTreeSet<usize> = ranked.iter().map(|(r, _, _)| *r).collect();
+                let mut none_before: Vec<Expr> = Vec::new();
+                let mut terms = Vec::new();
+                for rank in ranks {
+                    let allow = any(Effect::Allow, Some(rank));
+                    let deny = any(Effect::Deny, Some(rank));
+                    let mut term = none_before.clone();
+                    term.push(allow.clone());
+                    term.push(Expr::not(deny.clone()));
+                    terms.push(Expr::And(term));
+                    none_before.push(Expr::not(allow));
+                    none_before.push(Expr::not(deny));
+                }
+                Expr::Or(terms)
+            }
+            "deny_overrides" => Expr::And(vec![allow_any.clone(), Expr::not(any(Effect::Deny, None))]),
+            "permit_overrides" => allow_any.clone(),
+            "first_applicable" => {
+                let mut none_before: Vec<Expr> = Vec::new();
+                let mut terms = Vec::new();
+                for (_, effect, applies) in &ranked {
+                    if *effect == Effect::Allow {
+                        let mut term = none_before.clone();
+                        term.push(applies.clone());
+                        terms.push(Expr::And(term));
+                    }
+                    none_before.push(Expr::not(applies.clone()));
+                }
+                Expr::Or(terms)
+            }
+            _ => Expr::And(vec![self.strategy_residual.map_or(Expr::False, Expr::Residual), allow_any]),
+        };
+        combined
+    }
+
+    // --- row evaluation --------------------------------------------------------------------
+
+    fn residual_holds(&self, index: usize, resource: &Resource) -> Option<bool> {
+        match self.residuals.get(index)? {
+            Residual::Condition { condition, .. } => {
+                let ctx = EvalContext {
+                    subject: &self.subject,
+                    resource,
+                    env: &self.env,
+                };
+                condition.evaluate(&ctx, &self.conditions).ok()
+            }
+            Residual::Override { .. } | Residual::Strategy { .. } => None,
+        }
+    }
+
+    fn gate_holds(&self, gate: &Gate, resource: &Resource) -> Option<bool> {
+        match gate {
+            Gate::Expr(expr) => expr.holds(resource, &|i| self.residual_holds(i, resource)),
+            Gate::Holds(filter) => match filter.decide_row(resource, false) {
+                Outcome::Allowed => Some(true),
+                Outcome::Denied => Some(false),
+                Outcome::Undecided => None,
+            },
+        }
+    }
+
+    fn decide_row(&self, resource: &Resource, with_overrides: bool) -> Outcome {
+        if !self.known {
+            return Outcome::Denied;
+        }
+        if with_overrides {
+            for plan in &self.overrides {
+                let (gate, effect) = match &plan.reach {
+                    OverrideReach::Never => continue,
+                    OverrideReach::Opaque => return Outcome::Undecided,
+                    OverrideReach::Allows(gate) => (gate, Outcome::Allowed),
+                    OverrideReach::Denies(gate) => (gate, Outcome::Denied),
+                };
+                match self.gate_holds(gate, resource) {
+                    Some(true) => return effect,
+                    Some(false) => {}
+                    None => return Outcome::Undecided,
+                }
+            }
+        }
+        let mut candidates: Vec<(usize, Effect, usize)> = Vec::new();
+        for (index, entry) in self.entries.iter().enumerate() {
+            let Some((rank, _)) = resource.locate(&entry.grant.target) else {
+                continue;
+            };
+            if !entry.gate.holds(resource, &|_| None).unwrap_or(false) {
+                continue;
+            }
+            if let Some(residual) = entry.residual {
+                match self.residual_holds(residual, resource) {
+                    Some(true) => {}
+                    Some(false) => continue,
+                    // The condition failed: an error never opens access.
+                    None if entry.grant.effect == Effect::Allow => continue,
+                    None => {}
+                }
+            }
+            candidates.push((rank, entry.grant.effect, index));
+        }
+        match self.combine(&candidates) {
+            Some(Effect::Allow) => Outcome::Allowed,
+            _ => Outcome::Denied,
+        }
+    }
+
+    fn combine(&self, candidates: &[(usize, Effect, usize)]) -> Option<Effect> {
+        let has = |effect: Effect, rank: Option<usize>| {
+            candidates
+                .iter()
+                .any(|(r, e, _)| *e == effect && rank.is_none_or(|x| x == *r))
+        };
+        match self.strategy.name() {
+            "most_specific" => {
+                let best = candidates.iter().map(|(r, _, _)| *r).min()?;
+                if has(Effect::Deny, Some(best)) {
+                    Some(Effect::Deny)
+                } else {
+                    Some(Effect::Allow)
+                }
+            }
+            "deny_overrides" if has(Effect::Deny, None) => Some(Effect::Deny),
+            "permit_overrides" if has(Effect::Allow, None) => Some(Effect::Allow),
+            "deny_overrides" | "permit_overrides" => candidates.first().map(|(_, effect, _)| *effect),
+            "first_applicable" => candidates.first().map(|(_, effect, _)| *effect),
+            _ => {
+                let list: Vec<Candidate> = candidates
+                    .iter()
+                    .map(|(rank, _, index)| Candidate {
+                        grant: self.entries[*index].grant.clone(),
+                        rank: *rank,
+                    })
+                    .collect();
+                self.strategy.combine(&list).map(|i| list[i].grant.effect)
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Planning
+// ---------------------------------------------------------------------------------------------
+
+/// Whether the condition reads anything of the resource besides its kind.
+fn reads_resource(condition: &Condition) -> bool {
+    let operand = |o: &Operand| matches!(o, Operand::Attr { attr } if resource_attr(attr));
+    match condition {
+        Condition::Eq { left, right }
+        | Condition::Ne { left, right }
+        | Condition::Lt { left, right }
+        | Condition::Le { left, right }
+        | Condition::Gt { left, right }
+        | Condition::Ge { left, right } => operand(left) || operand(right),
+        Condition::In { item, set } => operand(item) || operand(set),
+        Condition::Exists { attr } => resource_attr(attr),
+        Condition::All { of } | Condition::Any { of } => of.iter().any(reads_resource),
+        Condition::Not { cond } => reads_resource(cond),
+        Condition::Call { args, .. } => args.iter().any(operand),
+    }
+}
+
+fn resource_attr(path: &str) -> bool {
+    path.split_once('.')
+        .is_some_and(|(root, name)| root == "resource" && name != "kind")
+}
+
+impl Engine {
+    /// The reach of `subject` with `permission` over the resources of `kind`.
+    ///
+    /// The filter is exact against [`Engine::check`]: deny, overrides, `implied_by`, role
+    /// inheritance, scoped roles, ReBAC and the configured strategy are all accounted for. A
+    /// permission outside the catalog lists nothing. What the resource alone can settle is left
+    /// in [`AccessFilter::residual`].
+    pub fn list(&self, ctx: &QueryContext<'_>, subject: &Subject, permission: &str, kind: &str) -> AccessFilter {
+        self.plan(ctx, subject, permission, kind, true)
+    }
+
+    pub(crate) fn plan(
+        &self,
+        ctx: &QueryContext<'_>,
+        subject: &Subject,
+        permission: &str,
+        kind: &str,
+        with_overrides: bool,
+    ) -> AccessFilter {
+        let strategy_native = NATIVE_STRATEGIES.contains(&self.strategy.name());
+        let mut filter = AccessFilter {
+            kind: kind.to_string(),
+            permission: permission.to_string(),
+            known: true,
+            subject: subject.clone(),
+            env: ctx.env.clone(),
+            conditions: self.conditions.clone(),
+            strategy: Arc::clone(&self.strategy),
+            entries: Vec::new(),
+            overrides: Vec::new(),
+            residuals: Vec::new(),
+            strategy_residual: None,
+            warnings: Vec::new(),
+        };
+        let Some(effective) = self.catalog.effective(permission) else {
+            filter.known = false;
+            return filter;
+        };
+        if !strategy_native {
+            filter.residuals.push(Residual::Strategy {
+                name: self.strategy.name().to_string(),
+            });
+            filter.strategy_residual = Some(filter.residuals.len() - 1);
+        }
+        let keys: Vec<&str> = effective.iter().map(String::as_str).collect();
+        let mut grants = Vec::new();
+        ctx.grants.visit_by_permission(&keys, &mut |g| {
+            if effective.contains(&g.permission) {
+                grants.push(g.clone());
+            }
+        });
+        let probe = Resource::new(kind, "");
+        for grant in grants {
+            self.plan_grant(&mut filter, ctx, subject, grant, &probe);
+        }
+        if with_overrides {
+            for entry in &self.overrides {
+                if entry.except.iter().any(|key| effective.contains(key)) {
+                    continue;
+                }
+                let name = entry.inner.name().to_string();
+                let reach = entry.inner.reach(&ReachRequest {
+                    engine: self,
+                    ctx,
+                    subject,
+                    permission,
+                    kind,
+                });
+                let residual = matches!(reach, OverrideReach::Opaque).then(|| {
+                    filter.residuals.push(Residual::Override { name: name.clone() });
+                    filter.residuals.len() - 1
+                });
+                filter.overrides.push(OverridePlan { reach, residual });
+            }
+        }
+        filter
+    }
+
+    /// Settles the subject side of one grant, and the condition when it does not read the resource.
+    fn plan_grant(&self, filter: &mut AccessFilter, ctx: &QueryContext<'_>, subject: &Subject, grant: Grant, probe: &Resource) {
+        let fail_safe = grant.effect == Effect::Deny;
+        let mut parts = Vec::new();
+        if let Some(scope) = &grant.scope {
+            parts.push(Expr::Within(scope.clone()));
+        }
+        match self.subject_gate(filter, ctx, subject, &grant) {
+            Some(gate) => parts.push(gate),
+            None => return,
+        }
+        let mut residual = None;
+        if let Some(condition) = &grant.condition {
+            if reads_resource(condition) {
+                filter.residuals.push(Residual::Condition {
+                    grant_id: grant.id.clone(),
+                    condition: condition.clone(),
+                });
+                residual = Some(filter.residuals.len() - 1);
+            } else {
+                let eval = EvalContext {
+                    subject,
+                    resource: probe,
+                    env: ctx.env,
+                };
+                match condition.evaluate(&eval, &self.conditions) {
+                    Ok(true) => {}
+                    Ok(false) => return,
+                    Err(error) => {
+                        filter.warnings.push(format!("grant {}: {error}", grant.id));
+                        if !fail_safe {
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        filter.entries.push(Entry {
+            gate: Expr::And(parts).simplify(),
+            grant,
+            residual,
+        });
+    }
+
+    /// The part of the grant's subject match that depends on the resource. `None`: the grant
+    /// never applies to this subject.
+    fn subject_gate(&self, filter: &mut AccessFilter, ctx: &QueryContext<'_>, subject: &Subject, grant: &Grant) -> Option<Expr> {
+        match &grant.subject {
+            SubjectMatcher::User { id } => (subject.id.as_deref() == Some(id.as_str())).then_some(Expr::True),
+            SubjectMatcher::Principal { name } => subject.has_principal(name).then_some(Expr::True),
+            SubjectMatcher::Any => Some(Expr::True),
+            SubjectMatcher::Role { id } => {
+                let alternatives: Vec<Expr> = subject
+                    .roles
+                    .iter()
+                    .filter(|held| self.roles.expand([held.role.as_str()]).contains(id))
+                    .map(|held| held.scope.clone().map_or(Expr::True, Expr::Within))
+                    .collect();
+                (!alternatives.is_empty()).then(|| Expr::Or(alternatives))
+            }
+            SubjectMatcher::Relation { relation } => self.relation_gate(filter, ctx, subject, grant, relation),
+        }
+    }
+
+    fn relation_gate(
+        &self,
+        filter: &mut AccessFilter,
+        ctx: &QueryContext<'_>,
+        subject: &Subject,
+        grant: &Grant,
+        relation: &str,
+    ) -> Option<Expr> {
+        let fail_safe = grant.effect == Effect::Deny;
+        let problem = |filter: &mut AccessFilter, error: &str| {
+            filter.warnings.push(format!("grant {}: {error}", grant.id));
+            fail_safe.then_some(Expr::True)
+        };
+        let Some(schema) = self.relations.as_ref() else {
+            return problem(filter, "ReBAC disabled in the engine");
+        };
+        let Some(tuples) = ctx.tuples else {
+            return problem(filter, "context without a tuple index");
+        };
+        let who = subject.object_ref()?;
+        let target = &grant.target;
+        if target.kind == GLOBAL {
+            return None;
+        }
+        if let Some(id) = &target.id {
+            let object = ObjectRef::new(target.kind.clone(), id.clone());
+            return match schema.check(tuples, &object, relation, &who, self.max_relation_depth) {
+                Ok(true) => Some(Expr::True),
+                Ok(false) => None,
+                Err(error) => problem(filter, &error.to_string()),
+            };
+        }
+        let (holds, failed) = schema.objects_with(tuples, &target.kind, relation, &who, self.max_relation_depth);
+        let mut ids: BTreeSet<String> = holds.into_iter().map(|o| o.id).collect();
+        if !failed.is_empty() {
+            filter
+                .warnings
+                .push(format!("grant {}: relation depth exceeded on {} object(s)", grant.id, failed.len()));
+            if fail_safe {
+                ids.extend(failed.into_iter().map(|o| o.id));
+            }
+        }
+        (!ids.is_empty()).then(|| Expr::AnchorIn {
+            kind: target.kind.clone(),
+            ids,
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Reverse queries
+// ---------------------------------------------------------------------------------------------
+
+/// How a decision was reached, in the terms of the question "why does this subject have access".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Via {
+    /// An override decided before the grants.
+    Override { name: String },
+    /// A grant to the subject itself, to a principal it carries or to everyone.
+    Grant { grant_id: String },
+    /// A grant to a role the subject holds directly.
+    Role { grant_id: String, role: String },
+    /// A grant to a role the subject holds through the inheritance of another role.
+    InheritedRole {
+        grant_id: String,
+        role: String,
+        from: String,
+    },
+    /// A grant to the subject through a relation on the matched object.
+    Relation {
+        grant_id: String,
+        relation: String,
+        object: ObjectRef,
+    },
+    /// Nothing applied: default-deny.
+    Nothing,
+}
+
+/// Decision of [`Engine::check_for`], with the path that led to it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Answer {
+    pub subject: SubjectRef,
+    pub decision: Decision,
+    pub via: Via,
+    pub explanation: Explanation,
+}
+
+impl Answer {
+    pub fn is_allowed(&self) -> bool {
+        self.decision.is_allowed()
+    }
+}
+
+/// A party that holds the permission, and how.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WhoCanEntry {
+    pub subject: SubjectRef,
+    pub via: Via,
+}
+
+/// Two parties that each hold the permission but are denied when one subject is both.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Except {
+    pub allowed: SubjectRef,
+    pub with: SubjectRef,
+}
+
+/// Parties that hold a permission, from [`Engine::who_can_on`].
+///
+/// An entry says that a subject that is exactly that party (and nothing else) is allowed. A subject
+/// that is several parties at once can be denied by a rule that targets one of them; the pairs that
+/// the grants make conflict are in [`WhoCan::except`], and [`WhoCan::admits`] applies them. Pairs
+/// are the approximation: [`Engine::check_for`] is the authority for one subject.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WhoCan {
+    pub permission: String,
+    pub resource: Option<Resource>,
+    pub entries: Vec<WhoCanEntry>,
+    pub except: Vec<Except>,
+}
+
+impl WhoCan {
+    pub fn subjects(&self) -> impl Iterator<Item = &SubjectRef> {
+        self.entries.iter().map(|e| &e.subject)
+    }
+
+    /// Whether the subject is one of the parties (and not in an excepted pair).
+    pub fn admits(&self, engine: &Engine, tuples: Option<&dyn TupleStore>, subject: &Subject) -> bool {
+        let is = |party: &SubjectRef| self.is_party(engine, tuples, subject, party);
+        self.entries.iter().any(|entry| is(&entry.subject))
+            && !self.except.iter().any(|pair| is(&pair.allowed) && is(&pair.with))
+    }
+
+    fn is_party(&self, engine: &Engine, tuples: Option<&dyn TupleStore>, subject: &Subject, party: &SubjectRef) -> bool {
+        match party {
+            SubjectRef::User { id } => subject.id.as_deref() == Some(id.as_str()),
+            SubjectRef::Object { kind, id } => subject.kind == *kind && subject.id.as_deref() == Some(id.as_str()),
+            SubjectRef::Role { id } => {
+                let empty = Resource::global();
+                let resource = self.resource.as_ref().unwrap_or(&empty);
+                engine.roles.expand(subject.roles_for(resource)).contains(id)
+            }
+            SubjectRef::Principal { name } => subject.has_principal(name),
+            SubjectRef::Anyone => true,
+            SubjectRef::Wildcard { kind } => subject.kind == *kind && subject.id.is_some(),
+            SubjectRef::Userset { object, relation } => {
+                let (Some(schema), Some(store), Some(who)) = (engine.relations.as_ref(), tuples, subject.object_ref())
+                else {
+                    return false;
+                };
+                schema
+                    .check(store, object, relation, &who, engine.max_relation_depth)
+                    .unwrap_or(false)
+            }
+        }
+    }
+}
+
+/// What a subject can do on a resource, from [`Engine::access_of`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Access {
+    pub subject: SubjectRef,
+    pub permissions: BTreeSet<String>,
+}
+
+/// A tuple store with one extra, made-up tuple set, to ask "would a member of this userset be
+/// allowed" without writing anything.
+struct Overlay<'a> {
+    inner: Option<&'a dyn TupleIndex>,
+    extra: Vec<(ObjectRef, String, TupleSubject)>,
+}
+
+impl TupleStore for Overlay<'_> {
+    fn visit(&self, object: &ObjectRef, relation: &str, visitor: &mut dyn FnMut(&TupleSubject)) {
+        if let Some(inner) = self.inner {
+            inner.visit(object, relation, visitor);
+        }
+        for (o, r, s) in &self.extra {
+            if o == object && r == relation {
+                visitor(s);
+            }
+        }
+    }
+}
+
+impl TupleIndex for Overlay<'_> {
+    fn visit_objects(&self, kind: &str, visitor: &mut dyn FnMut(&ObjectRef)) {
+        if let Some(inner) = self.inner {
+            inner.visit_objects(kind, visitor);
+        }
+        for (o, _, _) in self.extra.iter().filter(|(o, _, _)| o.kind == kind) {
+            visitor(o);
+        }
+    }
+
+    fn visit_subjects(&self, object: &ObjectRef, visitor: &mut dyn FnMut(&str, &TupleSubject)) {
+        if let Some(inner) = self.inner {
+            inner.visit_subjects(object, visitor);
+        }
+        for (o, r, s) in &self.extra {
+            if o == object {
+                visitor(r, s);
+            }
+        }
+    }
+}
+
+/// The subject a set of parties would be, all at once.
+fn archetype(parties: &[&SubjectRef]) -> (Subject, Vec<(ObjectRef, String)>) {
+    let mut subject = Subject {
+        kind: "party".to_string(),
+        id: None,
+        roles: Vec::new(),
+        principals: Vec::new(),
+        attrs: Attributes::new(),
+    };
+    let mut usersets = Vec::new();
+    for party in parties {
+        match party {
+            SubjectRef::User { id } => {
+                subject.kind = "user".to_string();
+                subject.id = Some(id.clone());
+                subject.principals.push(AUTHENTICATED.to_string());
+            }
+            SubjectRef::Object { kind, id } => {
+                subject.kind = kind.clone();
+                subject.id = Some(id.clone());
+                if kind == "user" {
+                    subject.principals.push(AUTHENTICATED.to_string());
+                }
+            }
+            SubjectRef::Wildcard { kind } => {
+                subject.kind = kind.clone();
+                subject.id = Some(crate::rebac::WILDCARD.to_string());
+            }
+            SubjectRef::Role { id } => subject.roles.push(RoleAssignment {
+                role: id.clone(),
+                scope: None,
+            }),
+            SubjectRef::Principal { name } => subject.principals.push(name.clone()),
+            SubjectRef::Userset { object, relation } => usersets.push((object.clone(), relation.clone())),
+            SubjectRef::Anyone => {}
+        }
+    }
+    if !usersets.is_empty() && subject.id.is_none() {
+        subject.kind = "probe".to_string();
+        subject.id = Some("1".to_string());
+    }
+    (subject, usersets)
+}
+
+impl Engine {
+    /// Explanation of the decision for a set of parties acting as one subject.
+    fn decide_parties(
+        &self,
+        ctx: &QueryContext<'_>,
+        parties: &[&SubjectRef],
+        permission: &str,
+        resource: &Resource,
+        with_overrides: bool,
+    ) -> Explanation {
+        let (subject, usersets) = archetype(parties);
+        let overlay = Overlay {
+            inner: ctx.tuples,
+            extra: match subject.object_ref() {
+                Some(who) => usersets
+                    .into_iter()
+                    .map(|(object, relation)| (object, relation, TupleSubject::Object(who.clone())))
+                    .collect(),
+                None => Vec::new(),
+            },
+        };
+        let mut data = ctx.context();
+        if ctx.tuples.is_some() || !overlay.extra.is_empty() {
+            data = data.with_tuples(&overlay);
+        }
+        self.explain_with(&data, &Request::new(&subject, permission, resource), with_overrides)
+    }
+
+    /// Parties named by the grants that can reach the resource, with the effects they have.
+    fn parties_on(
+        &self,
+        ctx: &QueryContext<'_>,
+        grants: &[Grant],
+        resource: &Resource,
+    ) -> (BTreeSet<SubjectRef>, BTreeSet<SubjectRef>) {
+        let mut all = BTreeSet::new();
+        let mut denied = BTreeSet::new();
+        for grant in grants {
+            if grant.scope.as_ref().is_some_and(|scope| !resource.contains(scope)) {
+                continue;
+            }
+            let Some((_, anchor)) = resource.locate(&grant.target) else {
+                continue;
+            };
+            let parties = match &grant.subject {
+                SubjectMatcher::User { id } => vec![SubjectRef::User { id: id.clone() }],
+                SubjectMatcher::Role { id } => vec![SubjectRef::Role { id: id.clone() }],
+                SubjectMatcher::Principal { name } => vec![SubjectRef::Principal { name: name.clone() }],
+                SubjectMatcher::Any => vec![SubjectRef::Anyone],
+                SubjectMatcher::Relation { relation } => self.relation_parties(ctx, anchor.object_ref(), relation),
+            };
+            if grant.effect == Effect::Deny {
+                denied.extend(parties.iter().cloned());
+            }
+            all.extend(parties);
+        }
+        (all, denied)
+    }
+
+    /// Parties that may hold `relation` on `object`: the direct subjects of the relation and of the
+    /// relations it derives from, usersets kept as usersets.
+    fn relation_parties(&self, ctx: &QueryContext<'_>, object: Option<ObjectRef>, relation: &str) -> Vec<SubjectRef> {
+        let (Some(schema), Some(tuples), Some(object)) = (self.relations.as_ref(), ctx.tuples, object) else {
+            return Vec::new();
+        };
+        let Ok(subjects) = schema.subjects_of(tuples, &object, relation, self.max_relation_depth) else {
+            return Vec::new();
+        };
+        subjects
+            .into_iter()
+            .map(|subject| match subject {
+                TupleSubject::Object(o) if o.id == crate::rebac::WILDCARD => SubjectRef::Wildcard { kind: o.kind },
+                TupleSubject::Object(o) => SubjectRef::Object { kind: o.kind, id: o.id },
+                TupleSubject::Userset(object, relation) => SubjectRef::Userset { object, relation },
+            })
+            .collect()
+    }
+
+    /// Grants of the permission (and the ones that imply it) that sit on the resource's path.
+    fn grants_on_path(&self, ctx: &QueryContext<'_>, permissions: Option<&[&str]>, resource: &Resource) -> Vec<Grant> {
+        let mut out: Vec<Grant> = Vec::new();
+        let mut seen = BTreeSet::new();
+        for (_, anchor) in resource.anchors() {
+            ctx.grants.visit_by_target_kind(&anchor.kind, &mut |g| {
+                if permissions.is_none_or(|keys| keys.contains(&g.permission.as_str())) && seen.insert(g.id.clone()) {
+                    out.push(g.clone());
+                }
+            });
+        }
+        out
+    }
+
+    fn who_can_inner(
+        &self,
+        ctx: &QueryContext<'_>,
+        permission: &str,
+        resource: &Resource,
+        with_overrides: bool,
+    ) -> WhoCan {
+        let mut result = WhoCan {
+            permission: permission.to_string(),
+            resource: Some(resource.clone()),
+            entries: Vec::new(),
+            except: Vec::new(),
+        };
+        let Some(effective) = self.catalog.effective(permission) else {
+            return result;
+        };
+        let keys: Vec<&str> = effective.iter().map(String::as_str).collect();
+        let grants = self.grants_on_path(ctx, Some(&keys), resource);
+        let (mut candidates, denied) = self.parties_on(ctx, &grants, resource);
+        if with_overrides {
+            let request = SubjectsRequest {
+                engine: self,
+                ctx,
+                permission,
+                resource,
+            };
+            for entry in &self.overrides {
+                if !entry.except.iter().any(|key| effective.contains(key)) {
+                    candidates.extend(entry.inner.subjects(&request));
+                }
+            }
+        }
+        for party in &candidates {
+            let explanation = self.decide_parties(ctx, &[party], permission, resource, with_overrides);
+            if explanation.decision.is_allowed() {
+                result.entries.push(WhoCanEntry {
+                    subject: party.clone(),
+                    via: self.via(&explanation),
+                });
+            }
+        }
+        let allowed: Vec<SubjectRef> = result.entries.iter().map(|e| e.subject.clone()).collect();
+        for party in &allowed {
+            for other in denied.iter().filter(|d| *d != party) {
+                let merged = self.decide_parties(ctx, &[party, other], permission, resource, with_overrides);
+                if !merged.decision.is_allowed() {
+                    result.except.push(Except {
+                        allowed: party.clone(),
+                        with: other.clone(),
+                    });
+                }
+            }
+        }
+        result
+    }
+
+    pub(crate) fn who_can_on_by_grants(&self, ctx: &QueryContext<'_>, permission: &str, resource: &Resource) -> WhoCan {
+        self.who_can_inner(ctx, permission, resource, false)
+    }
+
+    /// Parties that hold `permission` (or something that implies it) on `resource`, grants and
+    /// overrides included. See [`WhoCan`] for what an entry promises.
+    pub fn who_can_on(&self, ctx: &QueryContext<'_>, permission: &str, resource: &Resource) -> WhoCan {
+        self.who_can_inner(ctx, permission, resource, true)
+    }
+
+    /// Parties named by an allow grant of `permission` (or of something that implies it),
+    /// anywhere. Without a resource nothing is evaluated: a deny, an override or a condition can
+    /// still keep a party out of a given resource, which [`Engine::who_can_on`] settles.
+    pub fn who_can(&self, ctx: &QueryContext<'_>, permission: &str) -> Vec<SubjectRef> {
+        let Some(effective) = self.catalog.effective(permission) else {
+            return Vec::new();
+        };
+        let keys: Vec<&str> = effective.iter().map(String::as_str).collect();
+        let mut out = BTreeSet::new();
+        ctx.grants.visit_by_permission(&keys, &mut |grant| {
+            if grant.effect != Effect::Allow || !effective.contains(&grant.permission) {
+                return;
+            }
+            match &grant.subject {
+                SubjectMatcher::User { id } => {
+                    out.insert(SubjectRef::User { id: id.clone() });
+                }
+                SubjectMatcher::Role { id } => {
+                    out.insert(SubjectRef::Role { id: id.clone() });
+                }
+                SubjectMatcher::Principal { name } => {
+                    out.insert(SubjectRef::Principal { name: name.clone() });
+                }
+                SubjectMatcher::Any => {
+                    out.insert(SubjectRef::Anyone);
+                }
+                SubjectMatcher::Relation { relation } => {
+                    let Some(tuples) = ctx.tuples else { return };
+                    let mut objects = Vec::new();
+                    match &grant.target.id {
+                        Some(id) => objects.push(ObjectRef::new(grant.target.kind.clone(), id.clone())),
+                        None => tuples.visit_objects(&grant.target.kind, &mut |o| objects.push(o.clone())),
+                    }
+                    for object in objects {
+                        out.extend(self.relation_parties(ctx, Some(object), relation));
+                    }
+                }
+            }
+        });
+        out.into_iter().collect()
+    }
+
+    /// Who has access to the resource, with the permissions of each party. A party is listed with
+    /// what it holds alone; [`Engine::check_for`] is the authority for a subject that is several.
+    pub fn access_of(&self, ctx: &QueryContext<'_>, resource: &Resource) -> Vec<Access> {
+        let grants = self.grants_on_path(ctx, None, resource);
+        let (mut parties, _) = self.parties_on(ctx, &grants, resource);
+        for def in self.catalog.all() {
+            let request = SubjectsRequest {
+                engine: self,
+                ctx,
+                permission: &def.key,
+                resource,
+            };
+            for entry in &self.overrides {
+                parties.extend(entry.inner.subjects(&request));
+            }
+        }
+        let mut out = Vec::new();
+        for party in parties {
+            let permissions: BTreeSet<String> = self
+                .catalog
+                .all()
+                .iter()
+                .filter(|def| {
+                    self.decide_parties(ctx, &[&party], &def.key, resource, true)
+                        .decision
+                        .is_allowed()
+                })
+                .map(|def| def.key.clone())
+                .collect();
+            if !permissions.is_empty() {
+                out.push(Access {
+                    subject: party,
+                    permissions,
+                });
+            }
+        }
+        out
+    }
+
+    /// Does `subject` have `permission` on `resource`? The subject is loaded by `resolver` and the
+    /// answer carries the path: grant, inherited role, relation or override.
+    ///
+    /// A role, a principal, a userset, a wildcard or `Anyone` that the resolver does not know is
+    /// answered as the party alone.
+    ///
+    /// # Errors
+    ///
+    /// [`QueryError::UnknownSubject`] when a user or an object is not found by the resolver.
+    pub fn check_for(
+        &self,
+        ctx: &QueryContext<'_>,
+        resolver: &dyn SubjectResolver,
+        subject: &SubjectRef,
+        permission: &str,
+        resource: &Resource,
+    ) -> Result<Answer, QueryError> {
+        let loaded = resolver.resolve(subject);
+        let (decision, explanation) = match loaded {
+            Some(loaded) => {
+                let data = ctx.context();
+                let request = Request::new(&loaded, permission, resource);
+                let explanation = self.explain(&data, &request);
+                (explanation.decision.clone(), explanation)
+            }
+            None if matches!(subject, SubjectRef::User { .. } | SubjectRef::Object { .. }) => {
+                return Err(QueryError::UnknownSubject(subject.clone()));
+            }
+            None => {
+                let explanation = self.decide_parties(ctx, &[subject], permission, resource, true);
+                (explanation.decision.clone(), explanation)
+            }
+        };
+        let via = self.via(&explanation);
+        Ok(Answer {
+            subject: subject.clone(),
+            decision,
+            via,
+            explanation,
+        })
+    }
+
+    /// The path of a decision, from its explanation.
+    fn via(&self, explanation: &Explanation) -> Via {
+        match &explanation.decision.reason {
+            Reason::Override { name } => Via::Override { name: name.clone() },
+            Reason::Grant { grant_id, .. } => {
+                let Some(trace) = explanation.decisive() else {
+                    return Via::Nothing;
+                };
+                let grant_id = grant_id.clone();
+                match &trace.grant.subject {
+                    SubjectMatcher::Role { id } => {
+                        let held = explanation.subject.roles_for(&explanation.resource).any(|r| r == id);
+                        if held {
+                            return Via::Role {
+                                grant_id,
+                                role: id.clone(),
+                            };
+                        }
+                        let from = explanation
+                            .subject
+                            .roles_for(&explanation.resource)
+                            .find(|direct| self.roles.expand([*direct]).contains(id))
+                            .unwrap_or(id)
+                            .to_string();
+                        Via::InheritedRole {
+                            grant_id,
+                            role: id.clone(),
+                            from,
+                        }
+                    }
+                    SubjectMatcher::Relation { relation } => match trace.anchor.as_ref().and_then(Anchor::object_ref) {
+                        Some(object) => Via::Relation {
+                            grant_id,
+                            relation: relation.clone(),
+                            object,
+                        },
+                        None => Via::Grant { grant_id },
+                    },
+                    _ => Via::Grant { grant_id },
+                }
+            }
+            Reason::NoApplicableGrant | Reason::UnknownPermission => Via::Nothing,
+        }
+    }
+}
