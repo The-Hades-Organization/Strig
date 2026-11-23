@@ -2,7 +2,7 @@
 //! O tempo é sempre um parâmetro, em milissegundos UTC; quem chama é quem confere o relógio.
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 use themis::{
     Acquisition, Context, ExclusivePermissions, ExclusiveRegistry, MemoryExclusiveStore, ObjectRef, Resource, Subject,
     Terms,
@@ -92,11 +92,11 @@ impl ExclusiveHandle {
         )?;
         let target = resource.primary().and_then(|anchor| anchor.object_ref());
         Ok(match outcome {
-            Acquisition::Granted => json!({"outcome": "granted", "lease": self.lease_of(target, now)?}),
+            Acquisition::Granted => out!({"outcome": "granted", "lease": self.lease_of(target, now)?}),
             Acquisition::Preempted { previous } => {
-                json!({"outcome": "preempted", "lease": self.lease_of(target, now)?, "previous": previous})
+                out!({"outcome": "preempted", "lease": self.lease_of(target, now)?, "previous": previous})
             }
-            Acquisition::Busy { holder } => json!({"outcome": "busy", "holder": holder}),
+            Acquisition::Busy { holder } => out!({"outcome": "busy", "holder": holder}),
         })
     }
 
@@ -120,11 +120,31 @@ impl ExclusiveHandle {
         Ok(to_value(&self.registry.release(&resource, &holder, now)?))
     }
 
-    /// Estende a posse do holder para `now + ttl_ms`, mantendo a prioridade.
-    pub fn renew(&mut self, resource: Value, holder: Value, ttl_ms: u64, now: u64) -> BindingResult<Value> {
-        let resource: ObjectRef = parse("resource", resource)?;
-        let holder: ObjectRef = parse("holder", holder)?;
-        Ok(to_value(&self.registry.renew(&resource, &holder, now, ttl_ms)?))
+    /// Estende a posse de `subject` para `now + ttl_ms`, mantendo a prioridade. Confere no
+    /// instante `now` a permissão de posse: quem a perdeu não renova, e falha com
+    /// `EXCLUSIVE_DENIED` sem mexer na posse. `release` não confere nada, porque largar a posse é
+    /// sempre seguro.
+    pub fn renew(
+        &mut self,
+        engine: &EngineHandle,
+        ctx: &ContextData,
+        subject: Value,
+        resource: Value,
+        ttl_ms: u64,
+        now: u64,
+    ) -> BindingResult<Value> {
+        let subject: Subject = parse("subject", subject)?;
+        let resource: Resource = parse("resource", resource)?;
+        // O núcleo troca o instante do contexto por `now` ao conferir a permissão.
+        let data: Context<'_> = ctx.context();
+        Ok(to_value(&self.registry.renew_checked(
+            engine.engine(),
+            &data,
+            &subject,
+            &resource,
+            now,
+            ttl_ms,
+        )?))
     }
 
     /// Remove e devolve as posses que venceram.
@@ -135,6 +155,6 @@ impl ExclusiveHandle {
 
 /// `ttl_ms` que veio de um número JavaScript.
 #[cfg(any(feature = "napi", feature = "wasm"))]
-pub fn ttl(value: f64) -> BindingResult<u64> {
-    crate::millis("ttlMs", value)
+pub fn ttl(value: &Value) -> BindingResult<u64> {
+    crate::millis_value("ttlMs", value)
 }

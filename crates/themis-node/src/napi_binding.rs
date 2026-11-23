@@ -1,3 +1,5 @@
+use napi::bindgen_prelude::{FromNapiValue, Unknown};
+use napi::{Env, JsValue};
 use napi_derive::napi;
 use serde_json::Value;
 
@@ -11,19 +13,50 @@ fn err(error: BindingError) -> Error {
     Error::new(error.code.to_string(), error.message)
 }
 
-/// O instante da chamada: o do argumento, ou o relógio do sistema.
-fn instant(now: Option<f64>) -> Result<u64> {
-    match now {
-        Some(ms) => crate::millis("now", ms).map_err(err),
-        None => Ok(now_ms()),
+/// Um argumento JavaScript em `serde_json::Value`. O que não é JSON (`NaN`, `±Infinity`, função,
+/// símbolo, `undefined` solto) é `INVALID_ARGUMENT`, o mesmo código do alvo wasm: o napi-rs teria
+/// falhado com um `InvalidArg` próprio, fora do contrato.
+fn json(env: &Env, arg: Unknown<'_>) -> Result<Value> {
+    // SAFETY: `env` e `arg` são do mesmo escopo de chamada, e a conversão só lê o valor.
+    unsafe { Value::from_napi_value(env.raw(), arg.raw()) }
+        .map_err(|e| err(BindingError::invalid_argument("argumento", e)))
+}
+
+/// Um argumento opcional: `undefined` e `null` são "sem valor".
+fn optional(env: &Env, arg: Option<Unknown<'_>>) -> Result<Option<Value>> {
+    match arg {
+        None => Ok(None),
+        Some(arg) => match json(env, arg)? {
+            Value::Null => Ok(None),
+            value => Ok(Some(value)),
+        },
     }
 }
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
-        .unwrap_or(0)
+/// Um argumento de texto: qualquer outro tipo é `INVALID_ARGUMENT`, nunca coagido.
+fn text(env: &Env, what: &str, arg: Unknown<'_>) -> Result<String> {
+    match json(env, arg)? {
+        Value::String(text) => Ok(text),
+        _ => Err(err(BindingError::invalid_argument(what, "esperado um texto"))),
+    }
+}
+
+/// O `now` opcional de uma chamada: `undefined` e `null` são "sem instante"; qualquer outra coisa
+/// que não seja um inteiro em milissegundos é `INVALID_ARGUMENT`.
+fn now_of(env: &Env, now: Option<Unknown<'_>>) -> Result<Option<u64>> {
+    crate::now_arg(optional(env, now)?).map_err(err)
+}
+
+/// O instante da chamada: o do argumento, ou o relógio do sistema.
+fn instant(env: &Env, now: Option<Unknown<'_>>) -> Result<u64> {
+    match now_of(env, now)? {
+        Some(ms) => Ok(ms),
+        None => clock(),
+    }
+}
+
+fn clock() -> Result<u64> {
+    crate::clock_ms(std::time::SystemTime::now()).map_err(err)
 }
 
 #[napi(js_name = "Context")]
@@ -34,25 +67,25 @@ pub struct JsContext {
 #[napi]
 impl JsContext {
     #[napi(constructor)]
-    pub fn new(init: Option<Value>) -> Result<Self> {
+    pub fn new(env: &Env, init: Option<Unknown<'_>>) -> Result<Self> {
         Ok(Self {
-            inner: ContextData::new(init).map_err(err)?,
+            inner: ContextData::new(optional(env, init)?).map_err(err)?,
         })
     }
 
     #[napi]
-    pub fn set_grants(&mut self, grants: Value) -> Result<()> {
-        self.inner.set_grants(grants).map_err(err)
+    pub fn set_grants(&mut self, env: &Env, grants: Unknown<'_>) -> Result<()> {
+        self.inner.set_grants(json(env, grants)?).map_err(err)
     }
 
     #[napi]
-    pub fn add_grant(&mut self, grant: Value) -> Result<()> {
-        self.inner.add_grant(grant).map_err(err)
+    pub fn add_grant(&mut self, env: &Env, grant: Unknown<'_>) -> Result<()> {
+        self.inner.add_grant(json(env, grant)?).map_err(err)
     }
 
     #[napi]
-    pub fn remove_grant(&mut self, id: String) -> bool {
-        self.inner.remove_grant(&id)
+    pub fn remove_grant(&mut self, env: &Env, id: Unknown<'_>) -> Result<bool> {
+        Ok(self.inner.remove_grant(&text(env, "id", id)?))
     }
 
     #[napi]
@@ -66,34 +99,37 @@ impl JsContext {
     }
 
     #[napi]
-    pub fn add_tuple(&mut self, tuple: Value) -> Result<bool> {
-        self.inner.add_tuple(tuple).map_err(err)
+    pub fn add_tuple(&mut self, env: &Env, tuple: Unknown<'_>) -> Result<bool> {
+        self.inner.add_tuple(json(env, tuple)?).map_err(err)
     }
 
     #[napi]
-    pub fn remove_tuple(&mut self, tuple: Value) -> Result<bool> {
-        self.inner.remove_tuple(tuple).map_err(err)
+    pub fn remove_tuple(&mut self, env: &Env, tuple: Unknown<'_>) -> Result<bool> {
+        self.inner.remove_tuple(json(env, tuple)?).map_err(err)
     }
 
     #[napi]
-    pub fn set_env(&mut self, env: Value) -> Result<()> {
-        self.inner.set_env(env).map_err(err)
+    pub fn set_env(&mut self, env: &Env, attrs: Unknown<'_>) -> Result<()> {
+        self.inner.set_env(json(env, attrs)?).map_err(err)
     }
 
     #[napi]
-    pub fn load_capabilities(&mut self, set: Value) -> Result<Value> {
-        self.inner.load_capabilities(set).map_err(err)
+    pub fn load_capabilities(&mut self, env: &Env, set: Unknown<'_>) -> Result<Value> {
+        self.inner.load_capabilities(json(env, set)?).map_err(err)
     }
 
-    /// Instante das decisões e das consultas, em milissegundos UTC; `null` o remove.
+    /// Instante das decisões e das consultas, em milissegundos UTC; `null` o remove. Um valor que
+    /// não é um inteiro em milissegundos (`NaN`, texto, negativo) é recusado e não mexe no instante.
     #[napi]
-    pub fn set_now(&mut self, now: Option<f64>) -> Result<()> {
-        self.inner.set_now(now.map_or(Value::Null, Value::from)).map_err(err)
+    pub fn set_now(&mut self, env: &Env, now: Option<Unknown<'_>>) -> Result<()> {
+        self.inner
+            .set_now(optional(env, now)?.unwrap_or(Value::Null))
+            .map_err(err)
     }
 
     #[napi]
-    pub fn set_limits(&mut self, limits: Value) -> Result<()> {
-        self.inner.set_limits(limits).map_err(err)
+    pub fn set_limits(&mut self, env: &Env, limits: Unknown<'_>) -> Result<()> {
+        self.inner.set_limits(json(env, limits)?).map_err(err)
     }
 }
 
@@ -105,35 +141,68 @@ pub struct JsEngine {
 #[napi]
 impl JsEngine {
     #[napi(constructor)]
-    pub fn new(spec: Value) -> Result<Self> {
+    pub fn new(env: &Env, spec: Unknown<'_>) -> Result<Self> {
         Ok(Self {
-            inner: EngineHandle::new(spec).map_err(err)?,
+            inner: EngineHandle::new(json(env, spec)?).map_err(err)?,
         })
     }
 
     #[napi]
-    pub fn decide(&self, ctx: &JsContext, request: Value) -> Result<Value> {
-        self.inner.decide(&ctx.inner, request).map_err(err)
+    pub fn decide(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        request: Unknown<'_>,
+        now: Option<Unknown<'_>>,
+    ) -> Result<Value> {
+        self.inner
+            .decide(&ctx.inner, json(env, request)?, now_of(env, now)?)
+            .map_err(err)
     }
 
     #[napi]
-    pub fn check(&self, ctx: &JsContext, request: Value) -> Result<bool> {
-        self.inner.check(&ctx.inner, request).map_err(err)
+    pub fn check(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        request: Unknown<'_>,
+        now: Option<Unknown<'_>>,
+    ) -> Result<bool> {
+        self.inner
+            .check(&ctx.inner, json(env, request)?, now_of(env, now)?)
+            .map_err(err)
     }
 
     #[napi]
-    pub fn explain(&self, ctx: &JsContext, request: Value) -> Result<Value> {
-        self.inner.explain(&ctx.inner, request).map_err(err)
+    pub fn explain(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        request: Unknown<'_>,
+        now: Option<Unknown<'_>>,
+    ) -> Result<Value> {
+        self.inner
+            .explain(&ctx.inner, json(env, request)?, now_of(env, now)?)
+            .map_err(err)
     }
 
     #[napi]
-    pub fn capabilities(&self, ctx: &JsContext, subject: Value, scope: Value) -> Result<Value> {
-        self.inner.capabilities(&ctx.inner, subject, scope).map_err(err)
+    pub fn capabilities(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        subject: Unknown<'_>,
+        scope: Unknown<'_>,
+        now: Option<Unknown<'_>>,
+    ) -> Result<Value> {
+        self.inner
+            .capabilities(&ctx.inner, json(env, subject)?, json(env, scope)?, now_of(env, now)?)
+            .map_err(err)
     }
 
     #[napi]
-    pub fn validate_grant(&self, grant: Value) -> Result<()> {
-        self.inner.validate_grant(grant).map_err(err)
+    pub fn validate_grant(&self, env: &Env, grant: Unknown<'_>) -> Result<()> {
+        self.inner.validate_grant(json(env, grant)?).map_err(err)
     }
 
     #[napi]
@@ -142,60 +211,104 @@ impl JsEngine {
     }
 
     #[napi]
-    pub fn apply(&self, input: Value) -> Result<Value> {
-        self.inner.apply(input, now_ms()).map_err(err)
+    pub fn apply(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
+        self.inner.apply(json(env, input)?, crate::clock_ms(std::time::SystemTime::now())).map_err(err)
     }
 
     #[napi]
-    pub fn materialize(&self, input: Value) -> Result<Value> {
-        self.inner.materialize(input).map_err(err)
+    pub fn materialize(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
+        self.inner.materialize(json(env, input)?).map_err(err)
     }
 
     #[napi]
-    pub fn apply_template(&self, input: Value) -> Result<Value> {
-        self.inner.apply_template(input, now_ms()).map_err(err)
+    pub fn apply_template(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
+        self.inner
+            .apply_template(json(env, input)?, crate::clock_ms(std::time::SystemTime::now()))
+            .map_err(err)
     }
 
     #[napi]
     pub fn list(
         &self,
+        env: &Env,
         ctx: &JsContext,
-        subject: Value,
-        permission: String,
-        kind: String,
-        options: Option<Value>,
+        subject: Unknown<'_>,
+        permission: Unknown<'_>,
+        kind: Unknown<'_>,
+        options: Option<Unknown<'_>>,
+        now: Option<Unknown<'_>>,
     ) -> Result<Value> {
         self.inner
-            .list(&ctx.inner, subject, &permission, &kind, options)
+            .list(
+                &ctx.inner,
+                json(env, subject)?,
+                &text(env, "permission", permission)?,
+                &text(env, "kind", kind)?,
+                optional(env, options)?,
+                now_of(env, now)?,
+            )
             .map_err(err)
     }
 
     #[napi]
-    pub fn who_can(&self, ctx: &JsContext, permission: String) -> Value {
-        self.inner.who_can(&ctx.inner, &permission)
+    pub fn who_can(&self, env: &Env, ctx: &JsContext, permission: Unknown<'_>, now: Option<Unknown<'_>>) -> Result<Value> {
+        Ok(self
+            .inner
+            .who_can(&ctx.inner, &text(env, "permission", permission)?, now_of(env, now)?))
     }
 
     #[napi]
-    pub fn who_can_on(&self, ctx: &JsContext, permission: String, resource: Value) -> Result<Value> {
-        self.inner.who_can_on(&ctx.inner, &permission, resource).map_err(err)
+    pub fn who_can_on(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        permission: Unknown<'_>,
+        resource: Unknown<'_>,
+        now: Option<Unknown<'_>>,
+    ) -> Result<Value> {
+        self.inner
+            .who_can_on(
+                &ctx.inner,
+                &text(env, "permission", permission)?,
+                json(env, resource)?,
+                now_of(env, now)?,
+            )
+            .map_err(err)
     }
 
     #[napi]
-    pub fn access_of(&self, ctx: &JsContext, resource: Value) -> Result<Value> {
-        self.inner.access_of(&ctx.inner, resource).map_err(err)
+    pub fn access_of(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        resource: Unknown<'_>,
+        now: Option<Unknown<'_>>,
+    ) -> Result<Value> {
+        self.inner
+            .access_of(&ctx.inner, json(env, resource)?, now_of(env, now)?)
+            .map_err(err)
     }
 
     #[napi]
     pub fn check_for(
         &self,
+        env: &Env,
         ctx: &JsContext,
-        subject_ref: Value,
-        permission: String,
-        resource: Value,
-        subjects: Value,
+        subject_ref: Unknown<'_>,
+        permission: Unknown<'_>,
+        resource: Unknown<'_>,
+        subjects: Unknown<'_>,
+        now: Option<Unknown<'_>>,
     ) -> Result<Value> {
         self.inner
-            .check_for(&ctx.inner, subject_ref, &permission, resource, subjects)
+            .check_for(
+                &ctx.inner,
+                json(env, subject_ref)?,
+                &text(env, "permission", permission)?,
+                json(env, resource)?,
+                json(env, subjects)?,
+                now_of(env, now)?,
+            )
             .map_err(err)
     }
 }
@@ -208,9 +321,9 @@ pub struct JsExclusive {
 #[napi]
 impl JsExclusive {
     #[napi(constructor)]
-    pub fn new(options: Option<Value>) -> Result<Self> {
+    pub fn new(env: &Env, options: Option<Unknown<'_>>) -> Result<Self> {
         Ok(Self {
-            inner: ExclusiveHandle::new(options).map_err(err)?,
+            inner: ExclusiveHandle::new(optional(env, options)?).map_err(err)?,
         })
     }
 
@@ -222,44 +335,79 @@ impl JsExclusive {
     #[napi]
     pub fn acquire(
         &mut self,
+        env: &Env,
         engine: &JsEngine,
         ctx: &JsContext,
-        subject: Value,
-        resource: Value,
-        terms: Value,
-        now: Option<f64>,
+        subject: Unknown<'_>,
+        resource: Unknown<'_>,
+        terms: Unknown<'_>,
+        now: Option<Unknown<'_>>,
     ) -> Result<Value> {
-        let now = instant(now)?;
+        let now = instant(env, now)?;
         self.inner
-            .acquire(&engine.inner, &ctx.inner, subject, resource, terms, now)
+            .acquire(
+                &engine.inner,
+                &ctx.inner,
+                json(env, subject)?,
+                json(env, resource)?,
+                json(env, terms)?,
+                now,
+            )
             .map_err(err)
     }
 
     #[napi]
-    pub fn holder(&self, resource: Value, now: Option<f64>) -> Result<Value> {
-        self.inner.holder(resource, instant(now)?).map_err(err)
+    pub fn holder(&self, env: &Env, resource: Unknown<'_>, now: Option<Unknown<'_>>) -> Result<Value> {
+        self.inner.holder(json(env, resource)?, instant(env, now)?).map_err(err)
     }
 
     #[napi]
-    pub fn release(&mut self, resource: Value, holder: Value, now: Option<f64>) -> Result<Value> {
-        self.inner.release(resource, holder, instant(now)?).map_err(err)
+    pub fn release(
+        &mut self,
+        env: &Env,
+        resource: Unknown<'_>,
+        holder: Unknown<'_>,
+        now: Option<Unknown<'_>>,
+    ) -> Result<Value> {
+        self.inner
+            .release(json(env, resource)?, json(env, holder)?, instant(env, now)?)
+            .map_err(err)
     }
 
     #[napi]
-    pub fn renew(&mut self, resource: Value, holder: Value, ttl_ms: f64, now: Option<f64>) -> Result<Value> {
-        let ttl = crate::exclusive::ttl(ttl_ms).map_err(err)?;
-        self.inner.renew(resource, holder, ttl, instant(now)?).map_err(err)
+    pub fn renew(
+        &mut self,
+        env: &Env,
+        engine: &JsEngine,
+        ctx: &JsContext,
+        subject: Unknown<'_>,
+        resource: Unknown<'_>,
+        ttl_ms: Unknown<'_>,
+        now: Option<Unknown<'_>>,
+    ) -> Result<Value> {
+        let ttl = crate::exclusive::ttl(&json(env, ttl_ms)?).map_err(err)?;
+        let now = instant(env, now)?;
+        self.inner
+            .renew(
+                &engine.inner,
+                &ctx.inner,
+                json(env, subject)?,
+                json(env, resource)?,
+                ttl,
+                now,
+            )
+            .map_err(err)
     }
 
     #[napi]
-    pub fn expire(&mut self, now: Option<f64>) -> Result<Value> {
-        self.inner.expire(instant(now)?).map_err(err)
+    pub fn expire(&mut self, env: &Env, now: Option<Unknown<'_>>) -> Result<Value> {
+        self.inner.expire(instant(env, now)?).map_err(err)
     }
 }
 
 #[napi]
-pub fn audit_estimate(level: Value, records: f64) -> Result<f64> {
-    crate::audit_estimate(level, records).map_err(err)
+pub fn audit_estimate(env: &Env, level: Unknown<'_>, records: Unknown<'_>) -> Result<f64> {
+    crate::audit_estimate(json(env, level)?, json(env, records)?).map_err(err)
 }
 
 #[napi]
