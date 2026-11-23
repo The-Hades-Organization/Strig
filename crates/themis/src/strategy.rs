@@ -7,11 +7,30 @@ pub struct Candidate {
     pub rank: usize,
 }
 
+/// The strategies of this crate, which a listing ([`crate::Engine::list`]) reproduces as a
+/// structural expression.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum NativeStrategy {
+    MostSpecific,
+    DenyOverrides,
+    PermitOverrides,
+    FirstApplicable,
+}
+
 /// Combines the applicable grants into a decision. Returns the index of the deciding candidate, or
 /// `None` to fall back to default-deny.
 pub trait Strategy: Send + Sync {
     fn name(&self) -> &'static str;
     fn combine(&self, candidates: &[Candidate]) -> Option<usize>;
+
+    /// Which strategy of this crate this is, if it is one. A listing reproduces only the strategies
+    /// that answer here; any other is left as a residue to check row by row, whatever its
+    /// [`Strategy::name`] says. The default is `None`: a strategy of yours, or a wrapper around one
+    /// of these, stays residue unless it answers on purpose.
+    fn native(&self) -> Option<NativeStrategy> {
+        None
+    }
 }
 
 fn first(candidates: &[Candidate], effect: Effect, filter: impl Fn(&Candidate) -> bool) -> Option<usize> {
@@ -24,6 +43,10 @@ fn first(candidates: &[Candidate], effect: Effect, filter: impl Fn(&Candidate) -
 pub struct MostSpecific;
 
 impl Strategy for MostSpecific {
+    fn native(&self) -> Option<NativeStrategy> {
+        Some(NativeStrategy::MostSpecific)
+    }
+
     fn name(&self) -> &'static str {
         "most_specific"
     }
@@ -40,6 +63,10 @@ impl Strategy for MostSpecific {
 pub struct DenyOverrides;
 
 impl Strategy for DenyOverrides {
+    fn native(&self) -> Option<NativeStrategy> {
+        Some(NativeStrategy::DenyOverrides)
+    }
+
     fn name(&self) -> &'static str {
         "deny_overrides"
     }
@@ -54,6 +81,10 @@ impl Strategy for DenyOverrides {
 pub struct PermitOverrides;
 
 impl Strategy for PermitOverrides {
+    fn native(&self) -> Option<NativeStrategy> {
+        Some(NativeStrategy::PermitOverrides)
+    }
+
     fn name(&self) -> &'static str {
         "permit_overrides"
     }
@@ -68,6 +99,10 @@ impl Strategy for PermitOverrides {
 pub struct FirstApplicable;
 
 impl Strategy for FirstApplicable {
+    fn native(&self) -> Option<NativeStrategy> {
+        Some(NativeStrategy::FirstApplicable)
+    }
+
     fn name(&self) -> &'static str {
         "first_applicable"
     }

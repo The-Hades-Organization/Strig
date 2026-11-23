@@ -26,18 +26,10 @@ use crate::grant::{Effect, Grant, GrantIndex, SubjectMatcher, TargetSelector};
 use crate::overrides::{OverrideGate, OverrideReach, ReachRequest, SubjectsRequest};
 use crate::rebac::{TupleIndex, TupleStore, TupleSubject};
 use crate::resource::{Anchor, GLOBAL, ObjectRef, Resource};
-use crate::strategy::{Candidate, Strategy};
+use crate::strategy::{Candidate, NativeStrategy, Strategy};
 use crate::subject::{AUTHENTICATED, RoleAssignment, Subject};
 
 static EMPTY_ENV: Attributes = Attributes::new();
-
-/// Name of the strategies whose combination the filter reproduces natively.
-const NATIVE_STRATEGIES: [&str; 4] = [
-    "most_specific",
-    "deny_overrides",
-    "permit_overrides",
-    "first_applicable",
-];
 
 /// Data for a listing or a reverse query: indexed grants, indexed ReBAC tuples and the
 /// environment attributes. The counterpart of [`Context`] for the queries that start without a
@@ -510,6 +502,8 @@ pub struct AccessFilter {
     env: Attributes,
     conditions: ConditionRegistry,
     strategy: Arc<dyn Strategy>,
+    /// The strategy as a crate strategy, when it really is one (not decided by its name).
+    native: Option<NativeStrategy>,
     entries: Vec<Entry>,
     overrides: Vec<OverridePlan>,
     residuals: Vec<FilterResidual>,
@@ -708,8 +702,8 @@ impl AccessFilter {
             )
         };
         let allow_any = any(Effect::Allow, None);
-        match self.strategy.name() {
-            "most_specific" => {
+        match self.native {
+            Some(NativeStrategy::MostSpecific) => {
                 let ranks: BTreeSet<usize> = ranked.iter().map(|(r, _, _)| *r).collect();
                 let mut none_before: Vec<Expr> = Vec::new();
                 let mut terms = Vec::new();
@@ -725,9 +719,11 @@ impl AccessFilter {
                 }
                 Expr::Or(terms)
             }
-            "deny_overrides" => Expr::And(vec![allow_any.clone(), Expr::not(any(Effect::Deny, None))]),
-            "permit_overrides" => allow_any.clone(),
-            "first_applicable" => {
+            Some(NativeStrategy::DenyOverrides) => {
+                Expr::And(vec![allow_any.clone(), Expr::not(any(Effect::Deny, None))])
+            }
+            Some(NativeStrategy::PermitOverrides) => allow_any.clone(),
+            Some(NativeStrategy::FirstApplicable) => {
                 let mut none_before: Vec<Expr> = Vec::new();
                 let mut terms = Vec::new();
                 for (_, effect, applies) in &ranked {
@@ -824,8 +820,8 @@ impl AccessFilter {
                 .iter()
                 .any(|(r, e, _)| *e == effect && rank.is_none_or(|x| x == *r))
         };
-        match self.strategy.name() {
-            "most_specific" => {
+        match self.native {
+            Some(NativeStrategy::MostSpecific) => {
                 let best = candidates.iter().map(|(r, _, _)| *r).min()?;
                 if has(Effect::Deny, Some(best)) {
                     Some(Effect::Deny)
@@ -833,10 +829,11 @@ impl AccessFilter {
                     Some(Effect::Allow)
                 }
             }
-            "deny_overrides" if has(Effect::Deny, None) => Some(Effect::Deny),
-            "permit_overrides" if has(Effect::Allow, None) => Some(Effect::Allow),
-            "deny_overrides" | "permit_overrides" => candidates.first().map(|(_, effect, _)| *effect),
-            "first_applicable" => candidates.first().map(|(_, effect, _)| *effect),
+            Some(NativeStrategy::DenyOverrides) if has(Effect::Deny, None) => Some(Effect::Deny),
+            Some(NativeStrategy::PermitOverrides) if has(Effect::Allow, None) => Some(Effect::Allow),
+            Some(NativeStrategy::DenyOverrides | NativeStrategy::PermitOverrides | NativeStrategy::FirstApplicable) => {
+                candidates.first().map(|(_, effect, _)| *effect)
+            }
             _ => {
                 let list: Vec<Candidate> = candidates
                     .iter()
@@ -897,7 +894,7 @@ impl Engine {
         kind: &str,
         with_overrides: bool,
     ) -> AccessFilter {
-        let strategy_native = NATIVE_STRATEGIES.contains(&self.strategy.name());
+        let native = self.strategy.native();
         let mut filter = AccessFilter {
             kind: kind.to_string(),
             permission: permission.to_string(),
@@ -906,6 +903,7 @@ impl Engine {
             env: ctx.env.clone(),
             conditions: self.conditions.clone(),
             strategy: Arc::clone(&self.strategy),
+            native,
             entries: Vec::new(),
             overrides: Vec::new(),
             residuals: Vec::new(),
@@ -916,7 +914,7 @@ impl Engine {
             filter.known = false;
             return filter;
         };
-        if !strategy_native {
+        if native.is_none() {
             filter.residuals.push(FilterResidual::Strategy {
                 name: self.strategy.name().to_string(),
             });
@@ -1536,12 +1534,14 @@ impl Engine {
     /// Does `subject` have `permission` on `resource`? The subject is loaded by `resolver` and the
     /// answer carries the path: grant, inherited role, relation or override.
     ///
-    /// A role, a principal, a userset, a wildcard or `Anyone` that the resolver does not know is
-    /// answered as the party alone.
+    /// Whatever the resolver cannot load is an error, whatever the kind of the reference: a role, a
+    /// principal or `Anyone` is not answered "as the party alone", because a failed load (a database
+    /// error mapped to `None`) would then read as a permission. To ask about a party alone, have the
+    /// resolver return the [`Subject`] that stands for it, or use [`Engine::who_can_on`].
     ///
     /// # Errors
     ///
-    /// [`QueryError::UnknownSubject`] when a user or an object is not found by the resolver.
+    /// [`QueryError::UnknownSubject`] when the resolver returns `None` for the reference.
     pub fn check_for(
         &self,
         ctx: &QueryContext<'_>,
@@ -1558,13 +1558,9 @@ impl Engine {
                 let explanation = self.explain(&data, &request);
                 (explanation.decision.clone(), explanation)
             }
-            None if matches!(subject, SubjectRef::User { .. } | SubjectRef::Object { .. }) => {
-                return Err(QueryError::UnknownSubject(subject.clone()));
-            }
-            None => {
-                let explanation = self.decide_parties(ctx, &[subject], permission, resource, true);
-                (explanation.decision.clone(), explanation)
-            }
+            // A resolver that cannot load the subject says nothing about what the subject holds, and
+            // it cannot tell "unknown" from "failed to load": deny, never answer as a made-up party.
+            None => return Err(QueryError::UnknownSubject(subject.clone())),
         };
         let via = self.via(&explanation);
         Ok(CheckAnswer {

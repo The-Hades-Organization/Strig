@@ -79,5 +79,7 @@ pub use resource::{Anchor, GLOBAL, ObjectRef, Resource};
 pub use spec::{
     EngineSpec, InvariantSpec, OverrideRule, OverrideSpec, RelationSpec, RoleSpec, SpecError, StrategySpec,
 };
-pub use strategy::{Candidate, DenyOverrides, FirstApplicable, MostSpecific, PermitOverrides, Strategy};
+pub use strategy::{
+    Candidate, DenyOverrides, FirstApplicable, MostSpecific, NativeStrategy, PermitOverrides, Strategy,
+};
 pub use subject::{ANONYMOUS, AUTHENTICATED, RoleAssignment, Subject};
