@@ -201,6 +201,16 @@ impl Engine {
         self.decide_inner(ctx, request, false, None)
     }
 
+    /// Decision of the request alone, overrides included but without the prerequisite check. Lets
+    /// governance tell a plain `allow` from one that only stands because its prerequisites hold.
+    pub fn decide_ignoring_prerequisites(
+        &self,
+        ctx: &Context<'_>,
+        request: &Request<'_>,
+    ) -> Decision {
+        self.decide_core(ctx, request, true, None)
+    }
+
     /// The same decision as [`Engine::decide`], with the trace of each override and of each grant
     /// delivered by the source. More expensive: it evaluates the condition tree and clones the grants.
     pub fn explain(&self, ctx: &Context<'_>, request: &Request<'_>) -> Explanation {
