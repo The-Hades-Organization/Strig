@@ -1,10 +1,10 @@
 //! What every syntax builds into: the policy under construction, the positions of its elements,
 //! the errors found so far and the extents that anchor the comments of the source.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use crate::dsl::error::{Diagnostic, Location, Raw, Span};
+use crate::dsl::error::{Diagnostic, Location, MAX_DIAGNOSTICS, Raw, Span, capped};
 use crate::dsl::lex::Comment;
 use crate::dsl::policy::{Language, Note, NoteAnchor, NoteOrigin, Origins, Placement, Policy, ids};
 
@@ -24,6 +24,7 @@ pub(crate) struct Builder {
     pub policy: Policy,
     pub origins: Origins,
     diagnostics: Vec<Diagnostic>,
+    hidden: usize,
     extents: Vec<Extent>,
     open: Vec<usize>,
     invariants: BTreeMap<String, usize>,
@@ -37,6 +38,7 @@ impl Builder {
             policy: Policy::default(),
             origins: Origins::default(),
             diagnostics: Vec::new(),
+            hidden: 0,
             extents: Vec::new(),
             open: Vec::new(),
             invariants: BTreeMap::new(),
@@ -48,11 +50,19 @@ impl Builder {
     }
 
     pub fn report(&mut self, raw: Raw) {
+        if self.diagnostics.len() >= MAX_DIAGNOSTICS {
+            self.hidden += 1;
+            return;
+        }
         self.diagnostics.push(raw.locate(&self.file));
     }
 
     /// An error that has a second side: where the clashing declaration lives.
     pub fn conflict(&mut self, raw: Raw, first: Option<Location>) {
+        if self.diagnostics.len() >= MAX_DIAGNOSTICS {
+            self.hidden += 1;
+            return;
+        }
         let mut diagnostic = raw.locate(&self.file);
         diagnostic.related = first;
         self.diagnostics.push(diagnostic);
@@ -86,11 +96,14 @@ impl Builder {
     /// by a field of its own body.
     pub fn rename(&mut self, from: &str, to: &str) {
         let below = format!("{from}/");
-        for extent in &mut self.extents {
+        // The element was the last one opened, so it and what hangs under it end the vector.
+        for extent in self.extents.iter_mut().rev() {
             if extent.id == from {
                 extent.id = to.to_string();
             } else if let Some(rest) = extent.id.strip_prefix(&below) {
                 extent.id = format!("{to}/{rest}");
+            } else {
+                break;
             }
         }
         self.origins.rename_prefix(from, to);
@@ -117,18 +130,19 @@ impl Builder {
         self.policy.notes = self.anchor_notes(comments);
         let mut diagnostics = self.diagnostics;
         diagnostics.sort_by_key(|d| d.location.as_ref().map(|at| (at.line, at.column)));
-        (self.policy, self.origins, diagnostics)
+        (self.policy, self.origins, capped(diagnostics, self.hidden))
     }
 
     fn anchor_notes(&self, comments: &[Comment]) -> Vec<Note> {
+        let index = Index::new(&self.extents);
         let mut notes = Vec::new();
         let mut at = 0;
         while let Some(comment) = comments.get(at) {
             if !comment.own_line {
                 at += 1;
-                let anchor = self
-                    .inline_anchor(comment.span.line)
-                    .or_else(|| self.own_line_anchor(comment.span.line, comment.span.line));
+                let anchor = index
+                    .inline_anchor(&self.extents, comment.span.line)
+                    .or_else(|| index.own_line_anchor(&self.extents, comment.span.line, comment.span.line));
                 notes.extend(anchor.map(|a| self.note(comment, a)));
                 continue;
             }
@@ -143,7 +157,7 @@ impl Builder {
             }
             let first = comments[start].span.line;
             let last = comments[end].span.line;
-            let anchor = self.own_line_anchor(first, last);
+            let anchor = index.own_line_anchor(&self.extents, first, last);
             for comment in &comments[start..=end] {
                 notes.extend(anchor.clone().map(|a| self.note(comment, a)));
             }
@@ -152,7 +166,7 @@ impl Builder {
         notes
     }
 
-    fn note(&self, comment: &Comment, anchor: NoteAnchor) -> Note {
+    fn note(&self, comment: &Comment, (anchor, field): (NoteAnchor, Option<String>)) -> Note {
         Note {
             text: comment.text.clone(),
             anchor,
@@ -161,37 +175,84 @@ impl Builder {
                 language: self.language,
                 line: comment.span.line,
                 column: comment.span.col,
+                field,
             },
+        }
+    }
+}
+
+/// Where a comment is anchored: the element and its side, and the field of the element it was
+/// written next to, kept as a hint for the printer.
+type Anchored = (NoteAnchor, Option<String>);
+
+/// The extents looked up by line: building it is linear and each question costs a binary search, so
+/// anchoring the comments of a source takes n·log n however many there are.
+struct Index {
+    /// The extents that start on a line, in order of appearance.
+    starting: HashMap<u32, Vec<usize>>,
+    /// The extents that end on a line, in order of appearance.
+    ending: HashMap<u32, Vec<usize>>,
+    /// The children of each extent, in source order; the extra last entry holds the roots.
+    children: Vec<Vec<usize>>,
+}
+
+impl Index {
+    fn new(extents: &[Extent]) -> Self {
+        let mut starting: HashMap<u32, Vec<usize>> = HashMap::new();
+        let mut ending: HashMap<u32, Vec<usize>> = HashMap::new();
+        let mut children = vec![Vec::new(); extents.len() + 1];
+        for (at, extent) in extents.iter().enumerate() {
+            starting.entry(extent.first).or_default().push(at);
+            ending.entry(extent.last).or_default().push(at);
+            children[extent.parent.unwrap_or(extents.len())].push(at);
+        }
+        Self {
+            starting,
+            ending,
+            children,
         }
     }
 
     /// A comment after code: it belongs to the deepest element that starts on its line, or else
     /// (`} // text`) to the one that ends there.
-    fn inline_anchor(&self, line: u32) -> Option<NoteAnchor> {
-        let deepest = |matches: &dyn Fn(&Extent) -> bool| {
-            self.extents
+    fn inline_anchor(&self, extents: &[Extent], line: u32) -> Option<Anchored> {
+        let deepest = |found: Option<&Vec<usize>>| {
+            found?
                 .iter()
-                .filter(|e| matches(e))
+                .map(|at| &extents[*at])
                 .max_by_key(|e| (e.depth, std::cmp::Reverse(e.first)))
         };
-        if let Some(extent) = deepest(&|e| e.first == line) {
+        if let Some(extent) = deepest(self.starting.get(&line)) {
             return Some(anchor(&extent.id, Placement::Inline));
         }
-        deepest(&|e| e.last == line).map(|e| anchor(&e.id, Placement::After))
+        deepest(self.ending.get(&line)).map(|e| anchor(&e.id, Placement::After))
+    }
+
+    /// The deepest extent that holds the lines `first..=last` strictly inside it.
+    fn container(&self, extents: &[Extent], first: u32, last: u32) -> Option<usize> {
+        let mut found = None;
+        let mut level = &self.children[extents.len()];
+        loop {
+            let below = level.partition_point(|at| extents[*at].first < first);
+            let Some(candidate) = below.checked_sub(1).map(|i| level[i]) else {
+                return found;
+            };
+            if extents[candidate].last <= last {
+                return found;
+            }
+            found = Some(candidate);
+            level = &self.children[candidate];
+        }
     }
 
     /// Comments on their own lines `first..=last`: they stay with the element they touch.
-    fn own_line_anchor(&self, first: u32, last: u32) -> Option<NoteAnchor> {
-        let container = self
-            .extents
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| e.first < first && e.last > last)
-            .max_by_key(|(_, e)| e.depth)
-            .map(|(i, _)| i);
-        let siblings = || self.extents.iter().filter(move |e| e.parent == container);
-        let previous = siblings().filter(|e| e.last < first).max_by_key(|e| e.last);
-        let next = siblings().filter(|e| e.first > last).min_by_key(|e| e.first);
+    fn own_line_anchor(&self, extents: &[Extent], first: u32, last: u32) -> Option<Anchored> {
+        let container = self.container(extents, first, last);
+        let siblings = &self.children[container.unwrap_or(extents.len())];
+        let before = siblings.partition_point(|at| extents[*at].last < first);
+        let previous = before.checked_sub(1).map(|i| &extents[siblings[i]]);
+        let after = siblings.partition_point(|at| extents[*at].first <= last);
+        let next = siblings.get(after).map(|at| &extents[*at]);
         let glued_above = previous.is_some_and(|p| p.last + 1 == first);
         let blank_below = next.is_none_or(|n| n.first != last + 1);
         match (previous, next) {
@@ -199,15 +260,21 @@ impl Builder {
             (_, Some(n)) => Some(anchor(&n.id, Placement::Before)),
             (Some(p), None) => Some(anchor(&p.id, Placement::After)),
             (None, None) => container
-                .and_then(|c| self.extents.get(c))
+                .and_then(|c| extents.get(c))
                 .map(|c| anchor(&c.id, Placement::Before)),
         }
     }
 }
 
-fn anchor(element: &str, placement: Placement) -> NoteAnchor {
-    NoteAnchor {
-        element: element.to_string(),
-        placement,
-    }
+/// The anchor of an extent: its element, with no field in it, so every syntax anchors alike. The
+/// field the comment sits next to goes along as a hint.
+fn anchor(extent_id: &str, placement: Placement) -> Anchored {
+    let (element, field) = ids::split(extent_id);
+    (
+        NoteAnchor {
+            element: element.to_string(),
+            placement,
+        },
+        field.map(str::to_string),
+    )
 }

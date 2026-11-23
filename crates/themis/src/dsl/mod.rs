@@ -103,7 +103,7 @@ pub(crate) fn parse_unvalidated(file: &str, text: &str) -> Result<Parsed, Diagno
     let lexed = lex::lex(text);
     if !lexed.errors.is_empty() {
         let found = lexed.errors.into_iter().map(|raw| raw.locate(&file)).collect();
-        return Err(Diagnostics::new(found));
+        return Err(Diagnostics::new(error::capped(found, lexed.hidden)));
     }
     let mut cursor = Cursor::new(lexed.tokens);
     let language = match header(&mut cursor) {

@@ -4,13 +4,19 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use crate::dsl::error::{Diagnostic, Location};
+use crate::dsl::error::{Diagnostic, Location, MAX_DIAGNOSTICS, capped};
 use crate::dsl::policy::{Origins, Policy, ids};
-use crate::{Catalog, CatalogError, InvariantSpec, OverrideRule, Rewrite, RoleAssignment, SubjectMatcher};
+use crate::{
+    Catalog, CatalogError, Condition, InvariantSpec, Operand, OverrideRule, Rewrite, RoleAssignment, SubjectMatcher,
+};
+
+/// More than this many problems are only counted: the report sorts and cuts them afterwards.
+const KEPT: usize = MAX_DIAGNOSTICS * 10;
 
 struct Report<'a> {
     origins: Option<&'a Origins>,
     out: Vec<Diagnostic>,
+    hidden: usize,
 }
 
 impl Report<'_> {
@@ -19,6 +25,10 @@ impl Report<'_> {
     }
 
     fn error(&mut self, id: &str, message: impl Into<String>, hint: Option<String>) {
+        if self.out.len() >= KEPT {
+            self.hidden += 1;
+            return;
+        }
         let mut diagnostic = Diagnostic::new(self.at(id), message);
         diagnostic.hint = hint;
         self.out.push(diagnostic);
@@ -30,6 +40,7 @@ pub(crate) fn validate(policy: &Policy, origins: Option<&Origins>) -> Vec<Diagno
     let mut report = Report {
         origins,
         out: Vec::new(),
+        hidden: 0,
     };
     let catalog = catalog(policy, &mut report);
     roles(policy, &mut report);
@@ -38,9 +49,10 @@ pub(crate) fn validate(policy: &Policy, origins: Option<&Origins>) -> Vec<Diagno
     assignments(policy, &mut report);
     overrides(policy, catalog.as_ref(), &mut report);
     invariants(policy, catalog.as_ref(), &mut report);
+    let hidden = report.hidden;
     let mut out = report.out;
     out.sort_by_key(|d| d.location.as_ref().map(|at| (at.file.clone(), at.line, at.column)));
-    out
+    capped(out, hidden)
 }
 
 fn catalog(policy: &Policy, report: &mut Report<'_>) -> Option<Catalog> {
@@ -145,48 +157,81 @@ fn roles(policy: &Policy, report: &mut Report<'_>) {
         .iter()
         .map(|r| (r.role.as_str(), r.inherits.iter().map(String::as_str).collect()))
         .collect();
-    let mut reported: HashSet<&str> = HashSet::new();
-    for role in &policy.roles {
-        if let Some(path) = find_cycle(&role.role, &parents) {
-            let head = path.first().copied().unwrap_or_default();
-            if reported.insert(head) {
-                report.error(
-                    &ids::role(head),
-                    format!("roles inherit in a cycle: {}", path.join(" -> ")),
-                    None,
-                );
-            }
-        }
+    let order: Vec<&str> = policy.roles.iter().map(|r| r.role.as_str()).collect();
+    for path in find_cycles(&order, &parents) {
+        let head = path.first().copied().unwrap_or_default();
+        report.error(
+            &ids::role(head),
+            format!("roles inherit in a cycle: {}", path.join(" -> ")),
+            None,
+        );
     }
 }
 
-/// A path that starts and ends at `start` through `edges`, if there is one.
-fn find_cycle<'a>(start: &'a str, edges: &HashMap<&'a str, Vec<&'a str>>) -> Option<Vec<&'a str>> {
-    let mut path = vec![start];
-    let mut visited: HashSet<&str> = HashSet::new();
-    fn walk<'a>(
-        node: &'a str,
-        start: &'a str,
-        edges: &HashMap<&'a str, Vec<&'a str>>,
-        path: &mut Vec<&'a str>,
-        visited: &mut HashSet<&'a str>,
-    ) -> bool {
-        for next in edges.get(node).into_iter().flatten() {
-            if *next == start {
-                path.push(start);
-                return true;
-            }
-            if visited.insert(next) {
-                path.push(next);
-                if walk(next, start, edges, path, visited) {
-                    return true;
-                }
+/// Every cycle that a depth-first walk finds, one path per back edge, each starting and ending at
+/// the same role. Iterative with colors shared across the roots, so it is O(V + E) and a long
+/// chain of roles cannot exhaust the stack.
+fn find_cycles<'a>(order: &[&'a str], edges: &HashMap<&'a str, Vec<&'a str>>) -> Vec<Vec<&'a str>> {
+    /// `Gray(depth)`: on the current path at that depth. `Black`: finished.
+    #[derive(Clone, Copy)]
+    enum Color {
+        Gray(usize),
+        Black,
+    }
+    /// A cycle is reported once per head and the report stops here, so a hostile graph cannot
+    /// make the diagnostics grow with the input.
+    const MAX_CYCLES: usize = 100;
+    /// Names shown at most per cycle: the rest is elided.
+    const SHOWN: usize = 12;
+    let mut color: HashMap<&str, Color> = HashMap::new();
+    let mut cycles = Vec::new();
+    let mut reported: HashSet<&str> = HashSet::new();
+    for &root in order {
+        if color.contains_key(root) {
+            continue;
+        }
+        color.insert(root, Color::Gray(0));
+        let mut path: Vec<&str> = vec![root];
+        let mut next: Vec<usize> = vec![0];
+        while let (Some(&node), Some(index)) = (path.last(), next.last_mut()) {
+            let children = edges.get(node).map_or(&[][..], Vec::as_slice);
+            let Some(&child) = children.get(*index) else {
+                color.insert(node, Color::Black);
                 path.pop();
+                next.pop();
+                continue;
+            };
+            *index += 1;
+            match color.get(child) {
+                None => {
+                    color.insert(child, Color::Gray(path.len()));
+                    path.push(child);
+                    next.push(0);
+                }
+                Some(Color::Gray(from)) => {
+                    if cycles.len() >= MAX_CYCLES {
+                        return cycles;
+                    }
+                    if !reported.insert(child) {
+                        continue;
+                    }
+                    let loop_path = &path[*from..];
+                    let mut cycle: Vec<&str> = if loop_path.len() > SHOWN {
+                        let mut head = loop_path[..SHOWN / 2].to_vec();
+                        head.push("...");
+                        head.extend_from_slice(&loop_path[loop_path.len() - SHOWN / 2..]);
+                        head
+                    } else {
+                        loop_path.to_vec()
+                    };
+                    cycle.push(child);
+                    cycles.push(cycle);
+                }
+                Some(Color::Black) => {}
             }
         }
-        false
     }
-    walk(start, start, edges, &mut path, &mut visited).then_some(path)
+    cycles
 }
 
 fn relations(policy: &Policy, report: &mut Report<'_>) {
@@ -243,6 +288,9 @@ fn grants(policy: &Policy, catalog: Option<&Catalog>, report: &mut Report<'_>) {
                 Some("the window starts at valid_from and ends, exclusive, at valid_until".into()),
             );
         }
+        if let Some(condition) = &grant.condition {
+            condition_names(condition, &ids::field(&id, "when"), report);
+        }
         if matches!(grant.subject, SubjectMatcher::Relation { .. }) && policy.relations.is_none() {
             report.error(
                 &ids::field(&id, "subject"),
@@ -280,11 +328,87 @@ fn grants(policy: &Policy, catalog: Option<&Catalog>, report: &mut Report<'_>) {
     }
 }
 
+/// A word the language reads back as one name: letters, digits and `_`, joined by `.` or `-`.
+fn is_name(text: &str) -> bool {
+    let mut previous_joiner = true;
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            previous_joiner = false;
+        } else if (c == '.' || c == '-') && !previous_joiner {
+            previous_joiner = true;
+        } else {
+            return false;
+        }
+    }
+    !previous_joiner
+}
+
+/// An attribute path is `subject.`, `resource.` or `env.` and a name.
+pub(crate) fn is_attr_path(text: &str) -> bool {
+    text.split_once('.')
+        .is_some_and(|(root, rest)| matches!(root, "subject" | "resource" | "env") && is_name(rest))
+}
+
+fn operand_names(operand: &Operand, id: &str, report: &mut Report<'_>) {
+    if let Operand::Attr { attr } = operand {
+        attr_name(attr, id, report);
+    }
+}
+
+fn attr_name(attr: &str, id: &str, report: &mut Report<'_>) {
+    if !is_attr_path(attr) {
+        report.error(
+            id,
+            format!("`{attr}` is not an attribute path"),
+            Some("attributes start with subject., resource. or env. and are made of words".into()),
+        );
+    }
+}
+
+/// The names a condition uses: attribute paths and function names.
+fn condition_names(condition: &Condition, id: &str, report: &mut Report<'_>) {
+    match condition {
+        Condition::Eq { left, right }
+        | Condition::Ne { left, right }
+        | Condition::Lt { left, right }
+        | Condition::Le { left, right }
+        | Condition::Gt { left, right }
+        | Condition::Ge { left, right } => {
+            operand_names(left, id, report);
+            operand_names(right, id, report);
+        }
+        Condition::In { item, set } => {
+            operand_names(item, id, report);
+            operand_names(set, id, report);
+        }
+        Condition::Exists { attr } => attr_name(attr, id, report),
+        Condition::All { of } | Condition::Any { of } => {
+            for inner in of {
+                condition_names(inner, id, report);
+            }
+        }
+        Condition::Not { cond } => condition_names(cond, id, report),
+        Condition::Call { func, args } => {
+            if !is_name(func) {
+                report.error(id, format!("`{func}` is not a function name"), None);
+            }
+            for arg in args {
+                operand_names(arg, id, report);
+            }
+        }
+    }
+}
+
 fn assignments(policy: &Policy, report: &mut Report<'_>) {
     let declared: BTreeSet<&str> = policy.roles.iter().map(|r| r.role.as_str()).collect();
+    let mut subjects: HashSet<(&str, &str)> = HashSet::new();
     for subject in &policy.subjects {
         let Some(sid) = &subject.id else { continue };
         let subject_id = ids::subject(&subject.kind, sid);
+        if !subjects.insert((&subject.kind, sid)) {
+            report.error(&subject_id, format!("subject `{}:{sid}` is declared twice", subject.kind), None);
+        }
+        let mut assigned: HashSet<&str> = HashSet::new();
         for RoleAssignment {
             role,
             valid_from,
@@ -293,6 +417,9 @@ fn assignments(policy: &Policy, report: &mut Report<'_>) {
         } in &subject.roles
         {
             let id = ids::assign(&subject_id, role);
+            if !assigned.insert(role) {
+                report.error(&id, format!("the assignment of `{role}` is declared twice"), None);
+            }
             if !declared.contains(role.as_str()) {
                 report.error(
                     &id,
@@ -312,11 +439,20 @@ fn assignments(policy: &Policy, report: &mut Report<'_>) {
 }
 
 fn overrides(policy: &Policy, catalog: Option<&Catalog>, report: &mut Report<'_>) {
+    let mut seen: HashSet<String> = HashSet::new();
     for spec in &policy.overrides {
         let id = match &spec.rule {
             OverrideRule::ResourceOwner { attr } => ids::override_owner(attr),
             OverrideRule::PermissionHolder { permission } => ids::override_holder(permission),
         };
+        if !seen.insert(id.clone()) {
+            report.error(&id, format!("`{id}` is declared twice"), None);
+        }
+        if let OverrideRule::ResourceOwner { attr } = &spec.rule
+            && attr.contains('/')
+        {
+            report.error(&id, format!("`{attr}` is not an attribute name"), Some("it cannot hold `/`".into()));
+        }
         let Some(catalog) = catalog else { continue };
         let mut named: Vec<&String> = spec.except.iter().collect();
         if let OverrideRule::PermissionHolder { permission } = &spec.rule {
@@ -331,6 +467,7 @@ fn overrides(policy: &Policy, catalog: Option<&Catalog>, report: &mut Report<'_>
 }
 
 fn invariants(policy: &Policy, catalog: Option<&Catalog>, report: &mut Report<'_>) {
+    let declared: HashSet<&str> = policy.roles.iter().map(|r| r.role.as_str()).collect();
     let mut ordinals: HashMap<&'static str, usize> = HashMap::new();
     for spec in &policy.invariants {
         let kind = invariant_kind(spec);
@@ -364,7 +501,7 @@ fn invariants(policy: &Policy, catalog: Option<&Catalog>, report: &mut Report<'_
             }
             InvariantSpec::ManagementOnly { roles } => {
                 for role in roles {
-                    if !policy.roles.iter().any(|r| &r.role == role) {
+                    if !declared.contains(role.as_str()) {
                         report.error(&id, format!("role `{role}` is not declared"), None);
                     }
                 }

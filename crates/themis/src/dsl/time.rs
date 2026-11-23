@@ -107,15 +107,17 @@ pub(crate) fn parse(text: &str) -> Result<u64, String> {
     u64::try_from(ms).map_err(|_| "dates before 1970-01-01 cannot be represented".to_string())
 }
 
+/// The last instant the language can write: the end of the year 9999 (dates have four digits).
+const MAX_MS: i64 = 253_402_300_799_999;
+
 /// Writes a date the way the language reads it: a bare date at midnight, else date and time in UTC.
-pub(crate) fn format(ms: u64) -> String {
-    let Ok(ms) = i64::try_from(ms) else {
-        return ms.to_string();
-    };
+/// `None` for an instant past the year 9999, which the language has no spelling for.
+pub(crate) fn format(ms: u64) -> Option<String> {
+    let ms = i64::try_from(ms).ok().filter(|ms| *ms <= MAX_MS)?;
     let (days, rest) = (ms.div_euclid(MS_PER_DAY), ms.rem_euclid(MS_PER_DAY));
     let (year, month, day) = civil_from_days(days);
     if rest == 0 {
-        return format!("{year:04}-{month:02}-{day:02}");
+        return Some(format!("{year:04}-{month:02}-{day:02}"));
     }
     let (secs, millis) = (rest / MS_PER_SECOND, rest % MS_PER_SECOND);
     let (h, mi, s) = (secs / 3_600, secs % 3_600 / 60, secs % 60);
@@ -124,7 +126,7 @@ pub(crate) fn format(ms: u64) -> String {
     } else {
         format!(".{millis:03}")
     };
-    format!("{year:04}-{month:02}-{day:02}T{h:02}:{mi:02}:{s:02}{fraction}Z")
+    Some(format!("{year:04}-{month:02}-{day:02}T{h:02}:{mi:02}:{s:02}{fraction}Z"))
 }
 
 #[cfg(test)]
@@ -150,6 +152,13 @@ mod tests {
     }
 
     #[test]
+    fn refuses_to_write_what_has_no_spelling() {
+        assert_eq!(format(253_402_300_799_999).as_deref(), Some("9999-12-31T23:59:59.999Z"));
+        assert_eq!(format(253_402_300_800_000), None);
+        assert_eq!(format(u64::MAX), None);
+    }
+
+    #[test]
     fn formats_back_what_it_reads() {
         for text in [
             "1970-01-01",
@@ -157,7 +166,7 @@ mod tests {
             "2026-12-31T23:59:59Z",
             "2028-02-29T01:02:03.004Z",
         ] {
-            assert_eq!(format(parse(text).unwrap()), text);
+            assert_eq!(format(parse(text).unwrap()).as_deref(), Some(text));
         }
     }
 }
