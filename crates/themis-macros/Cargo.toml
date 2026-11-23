@@ -1,6 +1,7 @@
 [package]
 name = "themis-macros"
 description = "Compile-time macros for the Themis policy language."
+readme = "README.md"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -20,3 +21,4 @@ syn = { version = "2", default-features = false, features = ["parsing", "proc-ma
 
 [dev-dependencies]
 serde_json.workspace = true
+trybuild = "=1.0.125"
