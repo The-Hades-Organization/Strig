@@ -12,19 +12,71 @@ export interface Subject {
   attrs?: Record<string, unknown>;
 }
 
+/** Who a grant names. */
+export type SubjectMatcher =
+  | { kind: 'user' | 'role'; id: string }
+  | { kind: 'principal'; name: string }
+  | { kind: 'relation'; relation: string }
+  | { kind: 'any' };
+
+/** A reference to an object, by kind and id. */
+export interface ObjectRef {
+  kind: string;
+  id: string;
+}
+
+/**
+ * Stable `code` of every error the binding throws (`error.code`), the same on both backends.
+ * `INVALID_ARGUMENT` is a scalar argument that is not accepted (wrong type, `NaN`, `Infinity`, a
+ * negative or fractional instant, a text where a number goes): it is never coerced. `INVALID_INPUT`
+ * is a payload (an object) that does not have the expected shape. `EXCLUSIVE_ERROR` is what an
+ * `Exclusive` failure without a code of its own falls into; today none does. `INTERNAL` is a result
+ * that could not be turned into a JavaScript value; only the wasm backend reports it. A `Context`,
+ * `Engine` or `Exclusive` argument of the wrong class fails in the native layer, before the binding.
+ */
+export type ErrorCode =
+  | 'INVALID_ARGUMENT'
+  | 'INVALID_INPUT'
+  | 'INVALID_SPEC'
+  | 'INVALID_GRANT'
+  | 'UNKNOWN_SUBJECT'
+  | 'QUERY_LIMIT_EXCEEDED'
+  | 'RELATION_DEPTH_EXCEEDED'
+  | 'QUERY_ERROR'
+  | 'EXCLUSIVE_ZERO_TTL'
+  | 'EXCLUSIVE_NOT_HELD'
+  | 'EXCLUSIVE_NOT_HOLDER'
+  | 'EXCLUSIVE_ANONYMOUS_SUBJECT'
+  | 'EXCLUSIVE_UNIDENTIFIED_RESOURCE'
+  | 'EXCLUSIVE_TTL_TOO_LONG'
+  | 'EXCLUSIVE_DENIED'
+  | 'EXCLUSIVE_UNKNOWN_PERMISSION'
+  | 'EXCLUSIVE_STORE'
+  | 'EXCLUSIVE_ERROR'
+  | 'INTERNAL';
+
+/** What the binding throws: an `Error` with a stable `code`. */
+export interface BindingError extends Error {
+  code: ErrorCode;
+}
+
 export interface Grant {
   id: string;
-  subject: { kind: 'user' | 'role'; id: string } | { kind: 'principal'; name: string } | { kind: 'relation'; relation: string } | { kind: 'any' };
+  subject: SubjectMatcher;
   permission: string;
   target: { kind: string; id?: string };
   effect: 'allow' | 'deny';
   scope?: { kind: string; id?: string };
   condition?: unknown;
+  /** Milliseconds since the Unix epoch. The grant counts from this instant (inclusive). */
+  validFrom?: number;
+  /** Milliseconds since the Unix epoch. The grant stops counting at this instant (exclusive). */
+  validUntil?: number;
 }
 
 export type Reason =
   | { kind: 'override'; name: string }
-  | { kind: 'grant'; grant_id: string; permission: string; rank: number; strategy: string }
+  | { kind: 'grant'; grantId: string; permission: string; rank: number; strategy: string }
   | { kind: 'no_applicable_grant' }
   | { kind: 'unknown_permission' }
   /** The permission would be allowed, but a `depends_on` prerequisite is not allowed on the same resource. */
@@ -40,6 +92,8 @@ export type Verdict =
   | { kind: 'subject_unresolved'; problem: string }
   | { kind: 'condition_false' }
   | { kind: 'condition_unresolved'; problem: string }
+  /** The grant is outside its `validFrom`/`validUntil` window at the context's `now`. */
+  | { kind: 'outside_window' }
   /** The grant, or the requested permission, is `override_only`: grants are ignored. */
   | { kind: 'override_only' }
   | { kind: 'not_reached' };
@@ -92,7 +146,39 @@ export interface DecisionRequest {
 export interface RoleAssignment {
   role: string;
   scope?: { kind: string; id?: string };
+  /** Milliseconds since the Unix epoch, inclusive. */
+  validFrom?: number;
+  /** Milliseconds since the Unix epoch, exclusive. */
+  validUntil?: number;
 }
+
+export interface Bypass {
+  permission: string;
+  resource: Resource;
+}
+
+/** Invariants `apply` and `applyTemplate` check, by `kind`. */
+export type InvariantSpec =
+  | { kind: 'catalog_conformance' }
+  | { kind: 'no_self_management' }
+  | { kind: 'require_permission'; permission: string; resource: Resource }
+  | {
+      kind: 'no_lockout';
+      permissions: string[];
+      members: Subject[];
+      resource: Resource;
+      /** The administrator role and the subjects that may receive it; makes a refusal carry a `suggestion`. */
+      reserve?: { adminRole: RoleAssignment; subjects: Subject[] };
+    }
+  /** A permission is only held together with its `depends_on` ones. */
+  | { kind: 'prerequisites' }
+  /** Only whoever holds `manager` grants a non-delegable permission. */
+  | { kind: 'non_delegable'; manager: string }
+  /** Management-only permissions go only to the listed roles. */
+  | { kind: 'management_only'; roles: string[] }
+  /** The actor only grants what they hold, unless they hold the bypass. */
+  | { kind: 'no_escalation'; bypass?: Bypass }
+  | { kind: 'forbid'; subject: SubjectMatcher; permissions: string[] };
 
 export interface ApplyInput {
   actor: Subject;
@@ -102,10 +188,177 @@ export interface ApplyInput {
     | { remove: { id: string } }
     | { assign_role: { subject: Subject; role: RoleAssignment } }
     | { revoke_role: { subject: Subject; role: RoleAssignment } };
-  invariants?: unknown[];
+  invariants?: InvariantSpec[];
   tuples?: unknown[];
   audit?: { level: AuditLevel; prevHash?: string };
   meta?: Record<string, unknown>;
+  /** Instant the governance judges the actor's windows at, in ms UTC. Defaults to the system clock; an invalid one (`NaN`, negative, text) throws `INVALID_ARGUMENT`, and a clock before 1970 is an error, never `0`. Never take it from a client: a past instant revives expired windows. */
+  now?: number | bigint;
+}
+
+export interface TemplateGrant {
+  id: string;
+  permission: string;
+  target: { kind: string; id?: string };
+  effect?: 'allow' | 'deny';
+  scope?: { kind: string; id?: string };
+  condition?: unknown;
+}
+
+/** A versioned set of model grants; materializing it copies them, with no link back to the template. */
+export interface RoleTemplate {
+  id: string;
+  version: number;
+  grants: TemplateGrant[];
+}
+
+export interface MaterializeInput {
+  template: RoleTemplate;
+  subject: SubjectMatcher;
+  scope?: { kind: string; id?: string };
+  /** Materialized grant ids are `<idPrefix>:<template grant id>`. */
+  idPrefix: string;
+}
+
+export interface Materialized {
+  template: string;
+  templateVersion: number;
+  mutations: ApplyInput['mutation'][];
+  meta: Record<string, unknown>;
+}
+
+export interface ApplyTemplateInput extends MaterializeInput {
+  actor: Subject;
+  current: Grant[];
+  invariants?: InvariantSpec[];
+  tuples?: unknown[];
+  audit?: { level: AuditLevel; prevHash?: string };
+  meta?: Record<string, unknown>;
+  now?: number | bigint;
+}
+
+export interface ApplyTemplateResult {
+  ok: boolean;
+  grants?: Grant[];
+  violations?: Violation[];
+  /** One record per change when accepted; only the refusal when not. Nothing is written by the binding. */
+  audits: Array<Record<string, unknown>>;
+}
+
+export type Violation = { invariant: string; message: string; suggestion?: Suggestion };
+
+/** How a party reaches a permission. */
+export type AccessVia =
+  | { type: 'override'; name: string }
+  | { type: 'grant'; grantId: string }
+  | { type: 'role'; grantId: string; role: string }
+  | { type: 'inherited_role'; grantId: string; role: string; from: string }
+  | { type: 'relation'; grantId: string; relation: string; object: ObjectRef }
+  | { type: 'nothing' }
+  | { type: 'unknown' };
+
+/** A party a query names. */
+export type SubjectRef =
+  | { type: 'user'; id: string }
+  | { type: 'object'; kind: string; id: string }
+  | { type: 'role'; id: string }
+  | { type: 'principal'; name: string }
+  | { type: 'userset'; object: ObjectRef; relation: string }
+  | { type: 'wildcard'; kind: string }
+  | { type: 'anyone' }
+  | { type: 'unknown' };
+
+/**
+ * Filter expression `list` returns, for the caller's own query language. Treat `unknown` as
+ * "check each row", never as `true`.
+ */
+export type FilterExpr =
+  | { op: 'true' | 'false' | 'unknown' }
+  | { op: 'within'; anchor: { kind: string; id?: string } }
+  | { op: 'on_path'; selector: { kind: string; id?: string } }
+  | { op: 'anchor_in'; kind: string; ids: string[] }
+  | { op: 'attr_eq'; attr: string; value: unknown }
+  | { op: 'residual'; index: number }
+  | { op: 'not'; expr: FilterExpr }
+  | { op: 'and' | 'or'; exprs: FilterExpr[] };
+
+export type FilterShape =
+  | { type: 'nothing' | 'unknown' }
+  | { type: 'kind'; except: unknown[] }
+  | { type: 'ids'; ids: string[] }
+  | { type: 'within'; anchors: unknown[] }
+  | { type: 'compound'; expr: FilterExpr };
+
+/** What only the resource, not the filter, decides. Never counts as permission. */
+export type FilterResidual =
+  | { type: 'condition'; grantId: string; condition: unknown }
+  | { type: 'override'; name: string }
+  | { type: 'strategy'; name: string }
+  | { type: 'outside_layout'; grantIds: string[] }
+  | { type: 'unknown' };
+
+export interface ListOptions {
+  /** Path steps from the listed `kind` to the widest (`['document', 'project', 'org']`). */
+  layout?: string[];
+  /** Resources to evaluate against the filter, to get back the allowed ids. */
+  resources?: Resource[];
+}
+
+export interface ListResult {
+  kind: string;
+  permission: string;
+  exact: boolean;
+  shape: FilterShape;
+  expr: FilterExpr;
+  residual: FilterResidual[];
+  warnings: string[];
+  /** Allowed ids of `options.resources`; `null` without them. */
+  ids: string[] | null;
+}
+
+export interface WhoCanOnResult {
+  permission: string;
+  resource: Resource;
+  entries: Array<{ subject: SubjectRef; via: AccessVia }>;
+  /** Parties allowed, but denied when they act together with `with`. */
+  except: Array<{ allowed: SubjectRef; with: SubjectRef }>;
+}
+
+export interface CheckForResult {
+  subject: SubjectRef;
+  allowed: boolean;
+  decision: Decision;
+  via: AccessVia;
+  explanation: Explanation;
+}
+
+/** Ceilings of the reverse queries; what is missing keeps the default. Over the ceiling the query throws `QUERY_LIMIT_EXCEEDED`. */
+export interface QueryLimits {
+  maxParties?: number;
+  maxDecisions?: number;
+}
+
+export interface Lease {
+  resource: ObjectRef;
+  holder: ObjectRef;
+  priority: number;
+  /** Milliseconds since the Unix epoch. */
+  acquiredAt: number;
+  /** Milliseconds since the Unix epoch; the lease is over at this instant. */
+  expiresAt: number;
+}
+
+export type Acquisition =
+  | { outcome: 'granted'; lease: Lease }
+  /** `previous` is the lease taken from its holder, to warn them. */
+  | { outcome: 'preempted'; lease: Lease; previous: Lease }
+  | { outcome: 'busy'; holder: Lease };
+
+export interface ExclusiveOptions {
+  /** Ceiling of a lease's duration, in ms. */
+  maxTtlMs?: number;
+  /** Names of the hold and preempt permissions in the catalog. */
+  permissions?: { hold: string; preempt: string };
 }
 
 /**
@@ -113,20 +366,20 @@ export interface ApplyInput {
  * nothing is applied. Send it back as an `assign_role` or `revoke_role` change with the stored subject.
  */
 export type Suggestion =
-  | { kind: 'assign_role'; subject_id: string; role: RoleAssignment }
-  | { kind: 'revoke_role'; subject_id: string; role: RoleAssignment };
+  | { kind: 'assign_role'; subjectId: string; role: RoleAssignment }
+  | { kind: 'revoke_role'; subjectId: string; role: RoleAssignment };
 
 export interface ApplyResult {
   ok: boolean;
   grants?: Grant[];
   /** Subject with the role applied, on an accepted role change. */
   subject?: Subject;
-  violations?: Array<{ invariant: string; message: string; suggestion?: Suggestion }>;
+  violations?: Violation[];
   audit?: Record<string, unknown> | null;
 }
 
 export declare class Context {
-  constructor(init?: { grants?: Grant[]; tuples?: unknown[]; env?: Record<string, unknown> });
+  constructor(init?: { grants?: Grant[]; tuples?: unknown[]; env?: Record<string, unknown>; now?: number | bigint | null; limits?: QueryLimits });
   setGrants(grants: Grant[]): void;
   addGrant(grant: Grant): void;
   removeGrant(id: string): boolean;
@@ -136,24 +389,89 @@ export declare class Context {
   removeTuple(tuple: unknown): boolean;
   setEnv(env: Record<string, unknown>): void;
   loadCapabilities(set: CapabilitySet): Subject;
+  /**
+   * The instant, in ms UTC, that validity windows and queries judge at. `null` or `undefined` clears
+   * it: without it the engine fails closed. Anything that is not a non-negative integer up to 2^53
+   * (`NaN`, `Infinity`, a text, a negative) throws `INVALID_ARGUMENT` and leaves the instant as it was.
+   * The instant persists: a long-lived `Context` must be given `setNow` on every request, or pass
+   * `now` to each call below, which wins over this one.
+   */
+  setNow(now: number | bigint | null): void;
+  /** Ceilings of the reverse queries; `null` restores the defaults. */
+  setLimits(limits: QueryLimits | null): void;
 }
 
+/**
+ * Every method that decides or lists takes an optional trailing `now` (ms UTC) for that call, which
+ * wins over the `Context` instant. The system clock is never used by these: without any `now` the
+ * engine fails closed on windows.
+ */
 export declare class Engine {
   /** `EngineSpec` da Themis: catálogo, papéis, relações, estratégia, overrides. */
   constructor(spec: unknown);
-  decide(context: Context, request: DecisionRequest): Decision;
-  check(context: Context, request: DecisionRequest): boolean;
+  decide(context: Context, request: DecisionRequest, now?: number | bigint): Decision;
+  check(context: Context, request: DecisionRequest, now?: number | bigint): boolean;
   /** A decisão com o rastro: overrides, destino de cada grant e árvore das condições. */
-  explain(context: Context, request: DecisionRequest): Explanation;
-  capabilities(context: Context, subject: Subject, scope: Resource): CapabilitySet;
+  explain(context: Context, request: DecisionRequest, now?: number | bigint): Explanation;
+  capabilities(context: Context, subject: Subject, scope: Resource, now?: number | bigint): CapabilitySet;
   validateGrant(grant: Grant): void;
   catalog(): unknown;
   apply(input: ApplyInput): ApplyResult;
+  /** The template's changes as plain data, with no link to the template; nothing is applied. */
+  materialize(input: MaterializeInput): Materialized;
+  /** Materializes and applies the batch through the governance, in `depends_on` order. */
+  applyTemplate(input: ApplyTemplateInput): ApplyTemplateResult;
+  /** The filter of what `subject` holds `permission` on, among `kind` resources. */
+  list(context: Context, subject: Subject, permission: string, kind: string, options?: ListOptions, now?: number | bigint): ListResult;
+  /** Parties named by an allow grant of the permission, anywhere. */
+  whoCan(context: Context, permission: string, now?: number | bigint): SubjectRef[];
+  /** Who holds the permission on the resource, and how. */
+  whoCanOn(context: Context, permission: string, resource: Resource, now?: number | bigint): WhoCanOnResult;
+  /** What each party can do on the resource. */
+  accessOf(context: Context, resource: Resource, now?: number | bigint): Array<{ subject: SubjectRef; permissions: string[] }>;
+  /** The decision for a named party; `subjects` are those the resolver knows. An unknown one throws `UNKNOWN_SUBJECT`. */
+  checkFor(context: Context, subject: SubjectRef, permission: string, resource: Resource, subjects: Subject[], now?: number | bigint): CheckForResult;
+}
+
+/**
+ * In-memory exclusive ownership of resources, with priority and preemption. `acquire` checks the
+ * permissions at the `now` of the call, and so does `renew`: a holder who lost the permission cannot
+ * keep the resource by renewing. `release` checks nothing, because giving the resource up is always
+ * safe; the caller vouches for `holder`, so it must come from the server's own identity, never from a
+ * client. Revoking a grant does not drop a lease that exists; it stops its renewal. A bad `now`
+ * throws `INVALID_ARGUMENT`; the system clock is used only when `now` is omitted.
+ */
+export declare class Exclusive {
+  constructor(options?: ExclusiveOptions);
+  /** Checks that the catalog declares both permissions; throws `EXCLUSIVE_UNKNOWN_PERMISSION`. */
+  validate(engine: Engine): void;
+  acquire(
+    engine: Engine,
+    context: Context,
+    subject: Subject,
+    resource: Resource,
+    terms: { priority: number; ttlMs: number },
+    now?: number | bigint,
+  ): Acquisition;
+  holder(resource: ObjectRef, now?: number | bigint): Lease | null;
+  release(resource: ObjectRef, holder: ObjectRef, now?: number | bigint): Lease;
+  /** Extends the lease of `subject` to `now + ttlMs`, keeping its priority. Throws `EXCLUSIVE_DENIED` when the hold permission no longer holds at `now`. */
+  renew(
+    engine: Engine,
+    context: Context,
+    subject: Subject,
+    resource: Resource,
+    ttlMs: number,
+    now?: number | bigint,
+  ): Lease;
+  /** Removes and returns the leases that ran out. */
+  expire(now?: number | bigint): Lease[];
 }
 
 export interface Themis {
   Engine: typeof Engine;
   Context: typeof Context;
+  Exclusive: typeof Exclusive;
   auditEstimate(level: AuditLevel, records: number): number;
   backend: 'native' | 'wasm';
 }

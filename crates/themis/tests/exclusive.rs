@@ -248,6 +248,76 @@ fn renew_extends_the_lease_and_keeps_the_priority() {
 }
 
 #[test]
+fn checked_renew_needs_the_ownership_permission_at_the_instant() {
+    let (engine, grants) = (engine(), grants());
+    let ctx = Context::new(&grants);
+    let mut registry = ExclusiveRegistry::default();
+    registry
+        .acquire_checked(&engine, &ctx, &editor("alice"), &document(), terms(3), 0)
+        .unwrap();
+
+    let renewed = registry
+        .renew_checked(&engine, &ctx, &editor("alice"), &document(), 400, TTL)
+        .unwrap();
+    assert_eq!((renewed.expires_at, renewed.priority), (400 + TTL, 3));
+
+    // The grant was revoked: the lease is not renewed and stays as it was.
+    let revoked: Vec<Grant> = grants.iter().filter(|g| g.id != "g1").cloned().collect();
+    let after = Context::new(&revoked);
+    assert!(matches!(
+        registry.renew_checked(&engine, &after, &editor("alice"), &document(), 500, TTL),
+        Err(ExclusiveError::Denied(permission)) if permission == "exclusive.hold"
+    ));
+    assert_eq!(registry.holder(&doc_ref(), 500).unwrap().unwrap().expires_at, 400 + TTL);
+}
+
+#[test]
+fn checked_renew_judges_the_grant_window_at_now_not_at_the_context_instant() {
+    let (engine, mut grants) = (engine(), grants());
+    grants[0] = grants[0].clone().valid_until(1_200);
+    let ctx = Context::new(&grants).at(100);
+    let mut registry = ExclusiveRegistry::default();
+    registry
+        .acquire_checked(&engine, &ctx, &editor("alice"), &document(), terms(1), 100)
+        .unwrap();
+
+    // The context still says 100, but the renewal happens at 1_300: the window is over.
+    assert!(
+        registry
+            .renew_checked(&engine, &ctx, &editor("alice"), &document(), 1_000, 500)
+            .is_ok()
+    );
+    assert!(matches!(
+        registry.renew_checked(&engine, &ctx, &editor("alice"), &document(), 1_300, 500),
+        Err(ExclusiveError::Denied(_))
+    ));
+}
+
+#[test]
+fn checked_renew_refuses_anonymous_unidentified_and_foreign_holders() {
+    let (engine, grants) = (engine(), grants());
+    let ctx = Context::new(&grants);
+    let mut registry = ExclusiveRegistry::default();
+    registry
+        .acquire_checked(&engine, &ctx, &editor("alice"), &document(), terms(1), 0)
+        .unwrap();
+
+    let anonymous = Subject::anonymous();
+    assert!(matches!(
+        registry.renew_checked(&engine, &ctx, &anonymous, &document(), 10, TTL),
+        Err(ExclusiveError::AnonymousSubject)
+    ));
+    assert!(matches!(
+        registry.renew_checked(&engine, &ctx, &editor("bob"), &document(), 10, TTL),
+        Err(ExclusiveError::NotHolder { .. })
+    ));
+    assert!(matches!(
+        registry.renew_checked(&engine, &ctx, &editor("alice"), &document(), 10, 0),
+        Err(ExclusiveError::ZeroTtl)
+    ));
+}
+
+#[test]
 fn renew_fails_after_expiry_for_another_holder_and_with_zero_ttl() {
     let mut registry = ExclusiveRegistry::default();
     registry
