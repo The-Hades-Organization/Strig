@@ -155,6 +155,7 @@ fn apply_orders_prerequisites_before_their_dependents() {
     assert_eq!(applied.len(), 2);
 }
 
+#[cfg(feature = "audit")]
 #[test]
 fn audit_never_records_applied_for_a_batch_that_was_refused() {
     use std::sync::Arc;
@@ -180,6 +181,7 @@ fn audit_never_records_applied_for_a_batch_that_was_refused() {
     assert_eq!(outcomes, [AuditOutcome::Rejected]);
 }
 
+#[cfg(feature = "audit")]
 #[test]
 fn audit_records_every_change_of_an_accepted_batch() {
     use std::sync::Arc;
