@@ -416,6 +416,42 @@ pub fn audit_estimate(env: &Env, level: Unknown<'_>, records: Unknown<'_>) -> Re
     crate::audit_estimate(json(env, level)?, json(env, records)?).map_err(err)
 }
 
+/// Um argumento da linguagem: o que não é JSON vira o `INVALID_ARGUMENT` do envelope.
+fn dsl_arg(env: &Env, arg: Unknown<'_>) -> std::result::Result<Value, crate::dsl::DslFailure> {
+    json(env, arg).map_err(|e| BindingError::new("INVALID_ARGUMENT", e.reason.clone()).into())
+}
+
+#[napi]
+pub fn dsl_compile(env: &Env, text: Unknown<'_>, options: Option<Unknown<'_>>) -> Value {
+    crate::dsl::envelope((|| {
+        let options = match options {
+            Some(o) => Some(dsl_arg(env, o)?),
+            None => None,
+        };
+        crate::dsl::compile(&dsl_arg(env, text)?, options.as_ref())
+    })())
+}
+
+#[napi]
+pub fn dsl_print(env: &Env, policy: Unknown<'_>, language: Unknown<'_>) -> Value {
+    crate::dsl::envelope((|| crate::dsl::print(&dsl_arg(env, policy)?, &dsl_arg(env, language)?))())
+}
+
+#[napi]
+pub fn dsl_convert(env: &Env, text: Unknown<'_>, language: Unknown<'_>) -> Value {
+    crate::dsl::envelope((|| crate::dsl::convert(&dsl_arg(env, text)?, &dsl_arg(env, language)?))())
+}
+
+#[napi]
+pub fn dsl_load_project(env: &Env, sources: Unknown<'_>) -> Value {
+    crate::dsl::envelope((|| crate::dsl::load_project(&dsl_arg(env, sources)?))())
+}
+
+#[napi]
+pub fn dsl_load_project_dir(env: &Env, dir: Unknown<'_>) -> Value {
+    crate::dsl::envelope((|| crate::dsl::load_project_dir(&dsl_arg(env, dir)?))())
+}
+
 #[napi]
 pub fn backend() -> &'static str {
     "native"

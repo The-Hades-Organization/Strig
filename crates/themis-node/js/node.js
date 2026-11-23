@@ -3,12 +3,13 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { makeDsl } from './dsl.js';
 
 const require = createRequire(import.meta.url);
 const cache = new Map();
 
 function wrap(mod, backend) {
-  return { Engine: mod.Engine, Context: mod.Context, auditEstimate: mod.auditEstimate, Exclusive: mod.Exclusive, backend };
+  return { Engine: mod.Engine, Context: mod.Context, auditEstimate: mod.auditEstimate, Exclusive: mod.Exclusive, ...makeDsl(mod), backend };
 }
 
 async function loadWasm() {

@@ -465,6 +465,44 @@ pub fn audit_estimate(level: JsValue, records: JsValue) -> Result<f64, JsFailure
     crate::audit_estimate(from_js(level)?, from_js(records)?).map_err(err)
 }
 
+/// Um argumento da linguagem: o que não é JSON vira o `INVALID_ARGUMENT` do envelope.
+fn dsl_arg(value: JsValue) -> Result<Value, crate::dsl::DslFailure> {
+    Strict::deserialize(serde_wasm_bindgen::Deserializer::from(value))
+        .map(|strict| strict.0)
+        .map_err(|e| BindingError::invalid_argument("argumento", e).into())
+}
+
+fn dsl_out(result: crate::dsl::DslResult<impl Into<Value>>) -> Result<JsValue, JsFailure> {
+    to_js(&crate::dsl::envelope(result))
+}
+
+#[wasm_bindgen(js_name = dslCompile)]
+pub fn dsl_compile(text: JsValue, options: JsValue) -> Result<JsValue, JsFailure> {
+    dsl_out((|| {
+        let options = if options.is_undefined() || options.is_null() {
+            None
+        } else {
+            Some(dsl_arg(options)?)
+        };
+        crate::dsl::compile(&dsl_arg(text)?, options.as_ref())
+    })())
+}
+
+#[wasm_bindgen(js_name = dslPrint)]
+pub fn dsl_print(policy: JsValue, language: JsValue) -> Result<JsValue, JsFailure> {
+    dsl_out((|| crate::dsl::print(&dsl_arg(policy)?, &dsl_arg(language)?))())
+}
+
+#[wasm_bindgen(js_name = dslConvert)]
+pub fn dsl_convert(text: JsValue, language: JsValue) -> Result<JsValue, JsFailure> {
+    dsl_out((|| crate::dsl::convert(&dsl_arg(text)?, &dsl_arg(language)?))())
+}
+
+#[wasm_bindgen(js_name = dslLoadProject)]
+pub fn dsl_load_project(sources: JsValue) -> Result<JsValue, JsFailure> {
+    dsl_out((|| crate::dsl::load_project(&dsl_arg(sources)?))())
+}
+
 #[wasm_bindgen]
 pub fn backend() -> String {
     "wasm".to_string()
