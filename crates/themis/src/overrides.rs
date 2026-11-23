@@ -20,8 +20,7 @@ impl ReachRequest<'_> {
     /// Listing of another permission by the grants only, without overrides (what
     /// [`Engine::decide_without_overrides`] answers resource by resource).
     pub fn holds(&self, permission: &str) -> AccessFilter {
-        self.engine
-            .plan(self.ctx, self.subject, permission, self.kind, false)
+        self.engine.plan(self.ctx, self.subject, permission, self.kind, false)
     }
 }
 

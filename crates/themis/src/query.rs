@@ -32,7 +32,12 @@ use crate::subject::{AUTHENTICATED, RoleAssignment, Subject};
 static EMPTY_ENV: Attributes = Attributes::new();
 
 /// Name of the strategies whose combination the filter reproduces natively.
-const NATIVE_STRATEGIES: [&str; 4] = ["most_specific", "deny_overrides", "permit_overrides", "first_applicable"];
+const NATIVE_STRATEGIES: [&str; 4] = [
+    "most_specific",
+    "deny_overrides",
+    "permit_overrides",
+    "first_applicable",
+];
 
 /// Data for a listing or a reverse query: indexed grants, indexed ReBAC tuples and the
 /// environment attributes. The counterpart of [`Context`] for the queries that start without a
@@ -186,9 +191,15 @@ pub enum Expr {
     /// Some step of the path matches the selector.
     OnPath(TargetSelector),
     /// The step of this kind has one of these ids.
-    AnchorIn { kind: String, ids: BTreeSet<String> },
+    AnchorIn {
+        kind: String,
+        ids: BTreeSet<String>,
+    },
     /// The resource attribute holds this string.
-    AttrEq { attr: String, value: String },
+    AttrEq {
+        attr: String,
+        value: String,
+    },
     /// A part that only the resource can settle, by index into [`AccessFilter::residual`].
     Residual(usize),
     Not(Box<Expr>),
@@ -312,7 +323,10 @@ impl Expr {
             }
             merged.push(item);
         }
-        if merged.iter().any(|e| matches!(e, Expr::AnchorIn { ids, .. } if ids.is_empty())) {
+        if merged
+            .iter()
+            .any(|e| matches!(e, Expr::AnchorIn { ids, .. } if ids.is_empty()))
+        {
             return Expr::False;
         }
         match merged.len() {
@@ -601,14 +615,20 @@ impl AccessFilter {
         let own = layout.kinds().first().map(String::as_str).unwrap_or_default();
         match &expr {
             Expr::False => Shape::Nothing,
-            Expr::True => Shape::Kind { except: BTreeSet::new() },
+            Expr::True => Shape::Kind {
+                except: BTreeSet::new(),
+            },
             Expr::AnchorIn { kind, ids } if kind == own => Shape::Ids(ids.clone()),
             Expr::Not(inner) => match inner.as_ref() {
                 Expr::AnchorIn { kind, ids } if kind == own => Shape::Kind { except: ids.clone() },
                 _ => Shape::Compound(expr),
             },
             Expr::AnchorIn { .. } => Shape::Within(Self::anchors_of(&expr)),
-            Expr::Or(items) if items.iter().all(|e| matches!(e, Expr::AnchorIn { kind, .. } if kind != own)) => {
+            Expr::Or(items)
+                if items
+                    .iter()
+                    .all(|e| matches!(e, Expr::AnchorIn { kind, .. } if kind != own)) =>
+            {
                 Shape::Within(items.iter().flat_map(Self::anchors_of).collect())
             }
             _ => Shape::Compound(expr),
@@ -631,10 +651,7 @@ impl AccessFilter {
                 OverrideReach::Never => {}
                 OverrideReach::Opaque => {
                     let unknown = plan.residual.map_or(Expr::False, Expr::Residual);
-                    acc = Expr::Or(vec![
-                        unknown.clone(),
-                        Expr::And(vec![Expr::not(unknown), acc]),
-                    ]);
+                    acc = Expr::Or(vec![unknown.clone(), Expr::And(vec![Expr::not(unknown), acc])]);
                 }
                 OverrideReach::Allows(gate) => acc = Expr::Or(vec![Self::gate_expr(gate, layout), acc]),
                 OverrideReach::Denies(gate) => {
@@ -711,7 +728,10 @@ impl AccessFilter {
                 }
                 Expr::Or(terms)
             }
-            _ => Expr::And(vec![self.strategy_residual.map_or(Expr::False, Expr::Residual), allow_any]),
+            _ => Expr::And(vec![
+                self.strategy_residual.map_or(Expr::False, Expr::Residual),
+                allow_any,
+            ]),
         };
         combined
     }
@@ -926,7 +946,14 @@ impl Engine {
     }
 
     /// Settles the subject side of one grant, and the condition when it does not read the resource.
-    fn plan_grant(&self, filter: &mut AccessFilter, ctx: &QueryContext<'_>, subject: &Subject, grant: Grant, probe: &Resource) {
+    fn plan_grant(
+        &self,
+        filter: &mut AccessFilter,
+        ctx: &QueryContext<'_>,
+        subject: &Subject,
+        grant: Grant,
+        probe: &Resource,
+    ) {
         let fail_safe = grant.effect == Effect::Deny;
         let mut parts = Vec::new();
         if let Some(scope) = &grant.scope {
@@ -971,7 +998,13 @@ impl Engine {
 
     /// The part of the grant's subject match that depends on the resource. `None`: the grant
     /// never applies to this subject.
-    fn subject_gate(&self, filter: &mut AccessFilter, ctx: &QueryContext<'_>, subject: &Subject, grant: &Grant) -> Option<Expr> {
+    fn subject_gate(
+        &self,
+        filter: &mut AccessFilter,
+        ctx: &QueryContext<'_>,
+        subject: &Subject,
+        grant: &Grant,
+    ) -> Option<Expr> {
         match &grant.subject {
             SubjectMatcher::User { id } => (subject.id.as_deref() == Some(id.as_str())).then_some(Expr::True),
             SubjectMatcher::Principal { name } => subject.has_principal(name).then_some(Expr::True),
@@ -1024,9 +1057,11 @@ impl Engine {
         let (holds, failed) = schema.objects_with(tuples, &target.kind, relation, &who, self.max_relation_depth);
         let mut ids: BTreeSet<String> = holds.into_iter().map(|o| o.id).collect();
         if !failed.is_empty() {
-            filter
-                .warnings
-                .push(format!("grant {}: relation depth exceeded on {} object(s)", grant.id, failed.len()));
+            filter.warnings.push(format!(
+                "grant {}: relation depth exceeded on {} object(s)",
+                grant.id,
+                failed.len()
+            ));
             if fail_safe {
                 ids.extend(failed.into_iter().map(|o| o.id));
             }
@@ -1122,7 +1157,13 @@ impl WhoCan {
             && !self.except.iter().any(|pair| is(&pair.allowed) && is(&pair.with))
     }
 
-    fn is_party(&self, engine: &Engine, tuples: Option<&dyn TupleStore>, subject: &Subject, party: &SubjectRef) -> bool {
+    fn is_party(
+        &self,
+        engine: &Engine,
+        tuples: Option<&dyn TupleStore>,
+        subject: &Subject,
+        party: &SubjectRef,
+    ) -> bool {
         match party {
             SubjectRef::User { id } => subject.id.as_deref() == Some(id.as_str()),
             SubjectRef::Object { kind, id } => subject.kind == *kind && subject.id.as_deref() == Some(id.as_str()),
@@ -1312,6 +1353,7 @@ impl Engine {
             .into_iter()
             .map(|subject| match subject {
                 TupleSubject::Object(o) if o.id == crate::rebac::WILDCARD => SubjectRef::Wildcard { kind: o.kind },
+                TupleSubject::Object(o) if o.kind == "user" => SubjectRef::User { id: o.id },
                 TupleSubject::Object(o) => SubjectRef::Object { kind: o.kind, id: o.id },
                 TupleSubject::Userset(object, relation) => SubjectRef::Userset { object, relation },
             })
