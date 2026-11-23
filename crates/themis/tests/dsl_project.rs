@@ -138,15 +138,57 @@ fn a_subject_with_two_values_for_an_attribute_clashes() {
 }
 
 #[test]
-fn the_same_invariant_in_two_files_is_kept_once_and_the_others_are_numbered() {
+fn the_same_invariant_in_two_files_clashes_with_both_positions() {
     let one = "language blocks\n\ninvariant no_self_management {\n}\n\ninvariant prerequisites {\n}\n";
-    let two = "language blocks\n\ninvariant prerequisites {\n}\n\ninvariant catalog_conformance {\n}\n";
+    let two = "language blocks\n\ninvariant prerequisites {\n}\n";
+    let errors = project(&[("one.themis", one), ("two.themis", two)]).build().unwrap_err();
+    let first = errors.first().unwrap();
+    let at = first.location.as_ref().unwrap();
+    assert_eq!((&*at.file, at.line), ("two.themis", 3));
+    let related = first.related.as_ref().unwrap();
+    assert_eq!((&*related.file, related.line), ("one.themis", 6));
+}
+
+#[test]
+fn different_invariants_of_two_files_are_numbered_per_kind() {
+    let one = "language blocks\n\ninvariant no_self_management {\n}\n\ninvariant prerequisites {\n}\n";
+    let two = "language blocks\n\ninvariant catalog_conformance {\n}\n";
     let built = project(&[("one.themis", one), ("two.themis", two)]).build().unwrap();
     assert_eq!(built.policy.invariants.len(), 3);
     let at = built.origins.exact("invariant:catalog_conformance:1").unwrap();
-    assert_eq!((&*at.file, at.line), ("two.themis", 6));
-    let kept = built.origins.exact("invariant:prerequisites:1").unwrap();
-    assert_eq!(&*kept.file, "one.themis");
+    assert_eq!((&*at.file, at.line), ("two.themis", 3));
+}
+
+#[test]
+fn a_repeat_word_for_word_across_files_is_a_clash() {
+    let role = "language blocks\n\nrole r {\n}\n";
+    let errors = project(&[("a.themis", role), ("b.themis", role)]).build().unwrap_err();
+    let first = errors.first().unwrap();
+    assert_eq!(&*first.location.as_ref().unwrap().file, "b.themis");
+    assert_eq!(&*first.related.as_ref().unwrap().file, "a.themis");
+
+    let errors = project(&[("a.themis", KINDS), ("b.themis", KINDS)]).build().unwrap_err();
+    assert!(errors.first().unwrap().message.contains("target_kinds"));
+}
+
+#[test]
+fn the_same_role_for_one_subject_in_two_files_clashes() {
+    let subject = "language blocks\n\nsubject user:ana {\n  assign admin {\n  }\n}\n";
+    let errors = project(&[("a.themis", subject), ("b.themis", subject)])
+        .build()
+        .unwrap_err();
+    assert!(errors.first().unwrap().message.contains("admin"));
+}
+
+#[test]
+fn a_project_takes_a_bounded_number_of_sources() {
+    let mut project = Project::new();
+    for at in 0..themis::dsl::MAX_SOURCES {
+        project.add_source(&format!("{at}.themis"), "language blocks\n").unwrap();
+    }
+    let errors = project.add_source("one-more.themis", "language blocks\n").unwrap_err();
+    assert!(errors.first().unwrap().message.contains("at most"));
+    assert_eq!(project.len(), themis::dsl::MAX_SOURCES);
 }
 
 #[test]

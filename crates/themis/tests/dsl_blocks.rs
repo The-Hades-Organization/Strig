@@ -88,7 +88,7 @@ fn every_comment_becomes_a_note_with_its_anchor_and_origin() {
                 "permission:org.read",
                 Placement::Before
             ),
-            ("never alone", "permission:project.write/depends_on", Placement::Inline,),
+            ("never alone", "permission:project.write", Placement::Inline),
         ]
     );
     let origin = &policy.notes[1].origin;
@@ -97,6 +97,8 @@ fn every_comment_becomes_a_note_with_its_anchor_and_origin() {
         ("policy.themis", 7, 1)
     );
     assert_eq!(origin.language, Language::Blocks);
+    assert_eq!(origin.field, None);
+    assert_eq!(policy.notes[2].origin.field.as_deref(), Some("depends_on"));
 }
 
 #[test]
