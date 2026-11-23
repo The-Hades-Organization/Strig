@@ -260,7 +260,7 @@ fn no_lockout_proposes_the_reserve_and_the_proposal_passes_once_applied() {
         .apply(&engine, &actor, &grants, &revoke, None)
         .expect_err("refused");
     assert_eq!(violations[0].invariant, "no_lockout");
-    let suggestion = violations[0].suggestion.clone().expect("suggestion");
+    let suggestion = *violations[0].suggestion.clone().expect("suggestion");
     assert_eq!(
         suggestion,
         Suggestion::AssignRole {
@@ -330,7 +330,7 @@ fn suggestion_of(governance: &Governance, actor: &Subject, boss: &Subject) -> Op
         .apply(&engine(), actor, &grants, &revoke, None)
         .expect_err("refused");
     assert_eq!(violations[0].invariant, "no_lockout");
-    violations[0].suggestion.clone()
+    violations[0].suggestion.as_deref().cloned()
 }
 
 #[test]
@@ -403,7 +403,7 @@ fn no_lockout_accounts_for_the_change_when_it_touches_the_reserve() {
     let violations = governance
         .apply(&engine(), &Subject::user("actor"), &grants, &revoke, None)
         .expect_err("refused");
-    assert_eq!(violations[0].suggestion, None);
+    assert!(violations[0].suggestion.is_none());
 }
 
 #[test]
