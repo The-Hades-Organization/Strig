@@ -24,6 +24,8 @@
 //! TLS: [`PgTransport::with_tls`] accepts any `tokio-postgres` connector
 //! (`postgres-native-tls`, `tokio-postgres-rustls`).
 
+pub mod query;
+
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
