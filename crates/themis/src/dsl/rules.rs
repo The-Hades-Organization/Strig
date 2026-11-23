@@ -577,7 +577,12 @@ pub(crate) fn override_line(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
         }
     };
     let argument = if owner {
-        cur.string("the owner attribute")?
+        // A plain word, or a string for a path a word cannot hold.
+        if matches!(cur.current().tok, Tok::Str(_)) {
+            cur.string("the owner attribute")?
+        } else {
+            cur.word("the owner attribute")?
+        }
     } else {
         cur.word("a permission")?
     };
@@ -696,8 +701,8 @@ fn lines(p: &mut Printer, policy: &Policy) -> Printed<()> {
     let mut section = Section::default();
     for def in &policy.catalog.permissions {
         section.start(p);
-        let (id, text) = permission_text(def)?;
-        p.leaf(0, &id, &format!("permission {text}"), false);
+        let (id, head, clauses) = permission_parts(def)?;
+        p.leaf(0, &id, &wrap_clauses(&format!("permission {head}"), &clauses), false);
     }
     section = Section::default();
     for role in &policy.roles {
@@ -827,20 +832,47 @@ pub(crate) fn header_items(p: &Printer, policy: &Policy) -> Printed<Vec<(&'stati
     Ok(found)
 }
 
-pub(crate) fn permission_text(def: &PermissionDef) -> Printed<(String, String)> {
+/// The longest a line of a printed rule gets before its clauses move to continuation lines.
+const LINE_WIDTH: usize = 100;
+
+/// `head clause clause ...` on one line when it fits, otherwise the clauses one per line,
+/// indented four spaces under the head.
+fn wrap_clauses(head: &str, clauses: &[String]) -> String {
+    let one = std::iter::once(head)
+        .chain(clauses.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ");
+    if one.chars().count() <= LINE_WIDTH || clauses.is_empty() {
+        return one;
+    }
+    let mut text = head.to_string();
+    for clause in clauses {
+        text.push_str("\n    ");
+        text.push_str(clause);
+    }
+    text
+}
+
+/// The pieces of a permission line: its id, what comes before the clauses, and the clauses in the
+/// order `implied by`, `needs`, `label`, `about`, `meta`, then the flags.
+fn permission_parts(def: &PermissionDef) -> Printed<(String, String, Vec<String>)> {
     let key = bp::word(&def.key, "permission key")?;
-    let mut text = format!("{key} on {}", list(&def.targets, "kind")?);
+    let head = format!("{key} on {}", list(&def.targets, "kind")?);
+    let mut clauses = Vec::new();
     if !def.implied_by.is_empty() {
-        text.push_str(&format!(" implied by {}", list(&def.implied_by, "permission")?));
+        clauses.push(format!("implied by {}", list(&def.implied_by, "permission")?));
     }
     if !def.depends_on.is_empty() {
-        text.push_str(&format!(" needs {}", list(&def.depends_on, "permission")?));
+        clauses.push(format!("needs {}", list(&def.depends_on, "permission")?));
     }
     if let Some(label) = &def.label {
-        text.push_str(&format!(" label {}", bp::quote(label)));
+        clauses.push(format!("label {}", bp::quote(label)));
     }
     if let Some(about) = &def.description {
-        text.push_str(&format!(" about {}", bp::quote(about)));
+        clauses.push(format!("about {}", bp::quote(about)));
+    }
+    if !def.meta.is_empty() {
+        clauses.push(format!("meta {}", bp::pairs(&def.meta)?));
     }
     for (word, on) in [
         ("non-delegable", def.non_delegable),
@@ -848,14 +880,15 @@ pub(crate) fn permission_text(def: &PermissionDef) -> Printed<(String, String)> 
         ("override-only", def.override_only),
     ] {
         if on {
-            text.push(' ');
-            text.push_str(word);
+            clauses.push(word.to_string());
         }
     }
-    if !def.meta.is_empty() {
-        text.push_str(&format!(" meta {}", bp::pairs(&def.meta)?));
-    }
-    Ok((ids::permission(key), text))
+    Ok((ids::permission(key), head, clauses))
+}
+
+pub(crate) fn permission_text(def: &PermissionDef) -> Printed<(String, String)> {
+    let (id, head, clauses) = permission_parts(def)?;
+    Ok((id, std::iter::once(head).chain(clauses).collect::<Vec<_>>().join(" ")))
 }
 
 fn subject_lines(p: &mut Printer, s: &Subject) -> Printed<()> {
@@ -919,24 +952,25 @@ fn grant_line(p: &mut Printer, g: &Grant) -> Printed<()> {
         kind: g.target.kind.clone(),
         id: g.target.id.clone(),
     })?;
-    let mut text = format!(
+    let head = format!(
         "{name}: {effect} {} to {} on {target}",
         bp::matcher(&g.subject)?,
         bp::word(&g.permission, "permission")?
     );
+    let mut clauses = Vec::new();
     if let Some(scope) = &g.scope {
-        text.push_str(&format!(" in {}", bp::anchor(scope)?));
+        clauses.push(format!("in {}", bp::anchor(scope)?));
     }
     if let Some(when) = &g.condition {
-        text.push_str(&format!(" when {}", bp::condition(when, 0)?));
+        clauses.push(format!("when {}", bp::condition(when, 0)?));
     }
     if let Some(from) = g.valid_from {
-        text.push_str(&format!(" from {}", bp::date(from)?));
+        clauses.push(format!("from {}", bp::date(from)?));
     }
     if let Some(until) = g.valid_until {
-        text.push_str(&format!(" until {}", bp::date(until)?));
+        clauses.push(format!("until {}", bp::date(until)?));
     }
-    p.leaf(0, &ids::grant(name), &text, false);
+    p.leaf(0, &ids::grant(name), &wrap_clauses(&head, &clauses), false);
     Ok(())
 }
 
@@ -969,7 +1003,10 @@ pub(crate) fn override_text(spec: &OverrideSpec) -> Printed<(String, String)> {
     let (id, mut text) = match &spec.rule {
         OverrideRule::ResourceOwner { attr } => (
             ids::override_owner(attr),
-            format!("override resource-owner {}", bp::quote(attr)),
+            format!(
+                "override resource-owner {}",
+                bp::word(attr, "owner attribute").map_or_else(|_| bp::quote(attr), str::to_string)
+            ),
         ),
         OverrideRule::PermissionHolder { permission } => (
             ids::override_holder(permission),
