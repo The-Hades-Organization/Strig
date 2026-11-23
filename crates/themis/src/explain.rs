@@ -26,11 +26,24 @@ pub struct Explanation {
     /// All the grants the source delivered, in its order.
     pub grants: Vec<GrantTrace>,
     pub strategy: String,
+    /// The prerequisites (`depends_on`, transitive) consulted because the permission was allowed,
+    /// with their own outcome. Empty when the permission has none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prerequisites: Vec<PrerequisiteStep>,
     pub decision: Decision,
 }
 
+/// A prerequisite consulted in a decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrerequisiteStep {
+    pub permission: String,
+    /// The prerequisite is allowed on the same resource.
+    pub allowed: bool,
+}
+
 impl Explanation {
-    /// The grant that decided, if a grant did.
+    /// The grant that decided, if a grant did. `None` when the reason is an override or a missing
+    /// prerequisite: the grants listed are still the candidates, but none of them decided.
     pub fn decisive(&self) -> Option<&GrantTrace> {
         match &self.decision.reason {
             crate::Reason::Grant { grant_id, .. } => self
@@ -102,6 +115,8 @@ pub enum Verdict {
     ConditionUnresolved {
         problem: String,
     },
+    /// The grant, or the requested permission, is marked `override_only`: grants are ignored.
+    OverrideOnly,
     /// An override decided before collection.
     NotReached,
 }

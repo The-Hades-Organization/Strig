@@ -16,8 +16,8 @@ use gpui::{
 use gpui_component::Root;
 use gpui_component::scroll::ScrollableElement;
 use themis::{
-    AuditAction, AuditOutcome, AuditRecord, ConditionTrace, Effect, Explanation, Grant, GrantTrace, TraceResult,
-    Verdict,
+    AuditAction, AuditOutcome, AuditRecord, ConditionTrace, Effect, Explanation, Grant, GrantTrace, Reason,
+    TraceResult, Verdict,
 };
 
 use crate::inspector::{Inspector, Matrix};
@@ -437,6 +437,19 @@ fn insight(e: &Explanation) -> Option<Insight> {
     if e.decision.effect == Effect::Allow {
         return None;
     }
+    if let Reason::MissingPrerequisite {
+        permission,
+        prerequisite,
+    } = &e.decision.reason
+    {
+        return Some(Insight {
+            lead: format!(
+                "os grants permitiriam {permission}, mas ela exige {prerequisite}, que não é permitida aqui."
+            ),
+            expression: None,
+            rank: None,
+        });
+    }
     e.grants.iter().find_map(|trace| {
         if trace.grant.effect != Effect::Allow {
             return None;
@@ -542,6 +555,10 @@ fn action_text(action: &AuditAction) -> &'static str {
         AuditAction::RoleAssign => "papel atribuído",
         AuditAction::RoleRevoke => "papel revogado",
         AuditAction::Decision => "decisão",
+        AuditAction::ExclusiveAcquire => "posse exclusiva adquirida",
+        AuditAction::ExclusivePreempt => "posse exclusiva tomada",
+        AuditAction::ExclusiveRelease => "posse exclusiva liberada",
+        AuditAction::ExclusiveExpire => "posse exclusiva expirada",
     }
 }
 
@@ -1754,7 +1771,9 @@ fn timeline_item(t: Tokens, n: String, trace: &GrantTrace, outcome: Effect, deci
             Verdict::Candidate | Verdict::CandidateFailSafe { .. } => ("dot", t.accent, t.accent_bg),
             Verdict::ConditionFalse if explains => ("x", t.bg, t.no),
             Verdict::ConditionFalse => ("x", t.mute, t.surface2),
-            Verdict::ConditionUnresolved { .. } | Verdict::SubjectUnresolved { .. } => ("alert", t.bg, t.warn),
+            Verdict::ConditionUnresolved { .. } | Verdict::SubjectUnresolved { .. } | Verdict::OverrideOnly => {
+                ("alert", t.bg, t.warn)
+            }
             Verdict::NotReached => ("dot", t.faint, t.surface2),
             _ => ("slash", t.mute, t.surface2),
         }
@@ -1770,7 +1789,7 @@ fn timeline_item(t: Tokens, n: String, trace: &GrantTrace, outcome: Effect, deci
                 (t.accent_ink, t.accent_bg, t.accent_line),
             ),
             Verdict::ConditionFalse => label(Some("x"), "condição falsa", (t.no, t.bg, t.no)),
-            Verdict::ConditionUnresolved { .. } | Verdict::SubjectUnresolved { .. } => {
+            Verdict::ConditionUnresolved { .. } | Verdict::SubjectUnresolved { .. } | Verdict::OverrideOnly => {
                 label(Some("alert"), render::verdict(&trace.verdict), t.caution())
             }
             _ => div()

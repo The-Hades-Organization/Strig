@@ -20,10 +20,10 @@ use crate::attr::Attributes;
 use crate::decision::{Decision, Reason, Request};
 use crate::engine::{Context, Engine};
 use crate::explain::Explanation;
-use crate::governance::{Mutation, Violation};
+use crate::governance::{Mutation, Suggestion, Violation};
 use crate::grant::{Effect, Grant, SubjectMatcher, TargetSelector};
 use crate::rebac::Tuple;
-use crate::resource::{Anchor, Resource};
+use crate::resource::{Anchor, ObjectRef, Resource};
 use crate::subject::{RoleAssignment, Subject};
 
 /// How much of each change is recorded. Each level includes everything from the previous one.
@@ -108,6 +108,14 @@ pub enum AuditAction {
     RoleRevoke,
     /// An access decision (`Engine::decide`), not a change.
     Decision,
+    /// An exclusive resource was acquired (`exclusive` feature).
+    ExclusiveAcquire,
+    /// An exclusive resource was taken from a lower-priority holder.
+    ExclusivePreempt,
+    /// The holder released an exclusive resource.
+    ExclusiveRelease,
+    /// An exclusive lease ran out of time.
+    ExclusiveExpire,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -212,6 +220,10 @@ pub struct AuditRecord {
     /// Names of the invariants (standard) or `name: message` (detailed and above).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub violations: Vec<String>,
+    /// Compensating changes the refusing invariants proposed (see [`Violation::suggestion`]), from
+    /// `standard` upward: the subject id and the role, nothing else. Nothing was applied.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub suggestions: Vec<Suggestion>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision: Option<DecisionSummary>,
@@ -393,6 +405,7 @@ impl Auditor {
             grant: None,
             role: None,
             violations: Vec::new(),
+            suggestions: Vec::new(),
             decision: None,
             full_grant: None,
             resource: None,
@@ -536,6 +549,7 @@ impl Auditor {
         if self.level >= AuditLevel::Standard {
             record.grant = grant.map(GrantSummary::from);
             record.violations = self.violation_texts(violations);
+            record.suggestions = suggestions_of(violations);
         }
         if self.level >= AuditLevel::Detailed {
             record.full_grant = grant.cloned();
@@ -569,6 +583,24 @@ impl Auditor {
         if self.level >= AuditLevel::Detailed {
             record.tuple = Some(tuple.clone());
         }
+        self.detail(&mut record, actor, meta);
+        self.emit(record)
+    }
+
+    /// Records a change of exclusive ownership of `resource` at `at` (milliseconds since the Unix
+    /// epoch, supplied by the caller instead of the auditor's clock). `meta` is kept from
+    /// `detailed` upward, like the other records.
+    pub fn exclusive(
+        &self,
+        actor: &Subject,
+        action: AuditAction,
+        resource: &ObjectRef,
+        outcome: AuditOutcome,
+        at: u64,
+        meta: &Attributes,
+    ) -> Result<AuditRecord, AuditError> {
+        let mut record = self.base(actor, action, resource.to_string(), outcome);
+        record.at = at;
         self.detail(&mut record, actor, meta);
         self.emit(record)
     }
@@ -609,6 +641,7 @@ impl Auditor {
         if self.level >= AuditLevel::Standard {
             record.role = Some(change.clone());
             record.violations = self.violation_texts(violations);
+            record.suggestions = suggestions_of(violations);
         }
         self.detail(&mut record, actor, meta);
         if self.level >= AuditLevel::Forensic
@@ -815,6 +848,13 @@ pub fn reference_decision_record(level: AuditLevel) -> AuditRecord {
     let request = Request::new(&subject, "document.export", &resource);
     let (_, record) = auditor.decide(&engine, &ctx, &request, &meta);
     record.expect("registro de referência")
+}
+
+fn suggestions_of(violations: &[Violation]) -> Vec<Suggestion> {
+    violations
+        .iter()
+        .filter_map(|v| v.suggestion.as_deref().cloned())
+        .collect()
 }
 
 #[cfg(test)]
