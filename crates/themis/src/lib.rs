@@ -38,6 +38,7 @@ pub mod explain;
 pub mod governance;
 pub mod grant;
 pub mod overrides;
+pub mod query;
 pub mod rbac;
 pub mod rebac;
 pub mod resource;
@@ -73,15 +74,24 @@ pub use governance::{
     Bypass, CatalogConformance, Forbid, Governance, GovernanceAt, Invariant, ManagementOnly, Mutation, NoEscalation,
     NoLockout, NoSelfManagement, NonDelegable, Prerequisites, Proposal, RequirePermission, Suggestion, Violation,
 };
-pub use grant::{Effect, Grant, GrantSource, SubjectMatcher, TargetSelector};
-pub use overrides::{FnOverride, Override, PermissionHolder, ResourceOwner};
+pub use grant::{Effect, Grant, GrantIndex, GrantSource, SubjectMatcher, TargetSelector};
+pub use overrides::{
+    FnOverride, Override, OverrideGate, OverrideReach, PermissionHolder, ReachRequest, ResourceOwner, SubjectsRequest,
+};
+pub use query::{
+    AccessFilter, AccessVia, CheckAnswer, Expr, FilterOutcome, FilterResidual, FilterResolution, FilterShape,
+    InMemorySubjects, PartyAccess, PathLayout, QueryContext, QueryError, QueryLimits, SubjectRef, SubjectResolver,
+    WhoCan, WhoCanEntry, WhoCanExcept,
+};
 pub use rbac::{RbacError, RoleGraph};
-pub use rebac::{InMemoryTuples, RebacError, RelationSchema, Rewrite, Tuple, TupleStore, TupleSubject};
+pub use rebac::{InMemoryTuples, RebacError, RelationSchema, Rewrite, Tuple, TupleIndex, TupleStore, TupleSubject};
 pub use resource::{Anchor, GLOBAL, ObjectRef, Resource};
 pub use spec::{
     EngineSpec, InvariantSpec, OverrideRule, OverrideSpec, RelationSpec, ReserveSpec, RoleSpec, SpecError, StrategySpec,
 };
-pub use strategy::{Candidate, DenyOverrides, FirstApplicable, MostSpecific, PermitOverrides, Strategy};
+pub use strategy::{
+    Candidate, DenyOverrides, FirstApplicable, MostSpecific, NativeStrategy, PermitOverrides, Strategy,
+};
 pub use subject::{ANONYMOUS, AUTHENTICATED, RoleAssignment, Subject};
 pub use template::{Materialized, RoleTemplate, TemplateGrant};
 pub use validity::{Validity, ValidityError, next_boundary};

@@ -34,3 +34,7 @@ serde_json.workspace = true
 [[example]]
 name = "audit_storage"
 required-features = ["audit"]
+
+[[bench]]
+name = "listing"
+harness = false
