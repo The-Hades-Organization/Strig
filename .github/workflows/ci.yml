@@ -27,6 +27,8 @@ jobs:
       - run: cargo clippy -p themis-inspect --no-default-features --all-targets -- -D warnings
       - run: cargo test --workspace --exclude themis-inspect
       - run: cargo test -p themis-inspect --no-default-features
+      - run: cargo clippy -p themis-auth --no-default-features --features exclusive --all-targets -- -D warnings
+      - run: cargo test -p themis-auth --no-default-features --features exclusive
 
   msrv:
     name: MSRV (1.88)
@@ -48,3 +50,4 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy -p themis-node --features wasm --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo build -p themis-auth --features exclusive --target wasm32-unknown-unknown
