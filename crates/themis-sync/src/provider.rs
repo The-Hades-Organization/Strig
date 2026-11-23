@@ -77,9 +77,7 @@ impl<L: GrantLoader> CapabilityProvider for EngineProvider<L> {
         }
         let now = (self.clock)();
         let grants = self.loader.load(subject, scope).await?;
-        let set = self
-            .engine
-            .capabilities(&Context::new(&grants).at(now), subject, scope);
+        let set = self.engine.capabilities(&Context::new(&grants).at(now), subject, scope);
         if let Some(cache) = &self.cache {
             cache.insert_at(subject, scope, set.clone(), now);
         }
