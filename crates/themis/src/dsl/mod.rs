@@ -42,6 +42,16 @@ pub use project::{Built, MAX_PROJECT_BYTES, MAX_SOURCES, Project};
 /// The largest source accepted: input is external and unbounded.
 pub const MAX_SOURCE_BYTES: usize = 4 * 1024 * 1024;
 
+/// Support for `themis-macros`; not part of the public API.
+#[doc(hidden)]
+pub mod __macro_support {
+    /// The version of the canonical JSON that `Policy::from_json` reads. `themis-macros` embeds
+    /// the JSON it wrote and asserts, in the caller's build, that this is the number it was
+    /// built against. Bump it with any change to that JSON that an older reader cannot take, and
+    /// bump the same number in `themis-macros`.
+    pub const DSL_SCHEMA: u32 = 1;
+}
+
 /// One source read and validated.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
