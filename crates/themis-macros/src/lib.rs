@@ -8,20 +8,33 @@
 //! hint and its position.
 //!
 //! # Output
-//! The expansion is an expression of type `themis::dsl::Policy`. It embeds the canonical JSON of
-//! the validated policy and reads it back with `Policy::from_json`. The macro already ran that
-//! same read at compile time, so the call cannot fail and the source is never parsed at runtime.
-//! A `const` value is not possible: `Policy` owns heap data. The JSON form was chosen over a
-//! constructor tree because it is the stable, canonical format of the core and keeps the
-//! expansion small.
+//! The expansion is an expression of type `themis::dsl::Policy`. It embeds the compact canonical
+//! JSON of the validated policy and reads it back with `Policy::from_json`. The macro ran that
+//! same read at compile time, so the DSL is never parsed at runtime; the JSON is, on every
+//! evaluation of the expression. A `const` value is not possible, because `Policy` owns heap
+//! data. When the policy is used many times, build it once: keep it in a `static` with
+//! `std::sync::LazyLock` instead of calling the macro in a hot path.
+//!
+//! The expansion also asserts, in the caller's build, that the `themis-auth` it names speaks the
+//! same JSON schema as the one this crate was built against (`DSL_SCHEMA`). A mismatch, such as
+//! `themis-macros 0.3` next to `themis-auth 0.4`, is a compile error. That assert is why the
+//! `.expect` on the read is unreachable. This crate depends on `themis-auth` with `=`, so use the
+//! same version of both.
 //!
 //! The caller needs the `themis-auth` crate (library name `themis`) with the `dsl` feature as a
-//! dependency, since the expansion names `::themis::dsl::Policy`.
+//! dependency, since the expansion names `::themis::dsl::Policy`. A caller that forgets the
+//! feature gets `could not find dsl in themis`. This crate turns `dsl` on in its own copy of
+//! `themis-auth`; with resolver 1 or 2 that unifies into the caller's, with resolver 3 it does
+//! not, so do not rely on it.
 //!
 //! # Position
 //! In `include_policy!` a diagnostic reads `path:line:column: message`. In `policy!` the error
-//! points at the literal and the message starts with `policy:line:column`, counted inside the
-//! literal text (the first line of the text is line 1).
+//! points at the whole literal (the compiler gives a proc macro no sub-span on stable) and the
+//! message starts with `policy:line:column`, counted inside the text. Line 1 is the first line of
+//! the text. In a raw string (`r#"..."#`) the lines from the second on, and their columns, match
+//! the file once the line where the literal opens is added. In an ordinary literal the text is
+//! after escapes (`\n`, a `\` at the end of a line), so write long policies as raw strings or use
+//! `include_policy!`.
 
 mod expand;
 
@@ -49,8 +62,16 @@ pub fn policy(input: TokenStream) -> TokenStream {
 
 /// Compiles and validates a policy file, relative to the `CARGO_MANIFEST_DIR` of the caller.
 ///
-/// The file must stay inside that directory. Editing it recompiles the caller. A policy with an
-/// error stops the build, with `path:line:column: message` as the message.
+/// The file must stay inside that directory, so a policy shared by several crates of a workspace
+/// is copied into each (or kept in a crate they depend on). Paths through `target/` or a hidden
+/// component (`.env`) are refused, as are directories, files over 4 MiB and files that are not
+/// UTF-8. The path as written is tracked, so editing the file, or retargeting a symlink,
+/// recompiles the caller. A policy with an error stops the build, with `path:line:column:
+/// message` as the message.
+///
+/// The path is checked, then the file is opened once and read from that handle. Someone who can
+/// swap files in the crate directory during the build could still race the check; they can
+/// already run code in the build (`build.rs`), so this is not a boundary.
 ///
 /// ```ignore
 /// let p: themis::dsl::Policy = themis_macros::include_policy!("policies/main.themis");

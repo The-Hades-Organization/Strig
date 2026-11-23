@@ -1,5 +1,6 @@
 error: policy:1:10: unknown language `nope`
          hint: expected one of: blocks, rules, actors
+         note: positions count inside the text after escapes (`\n`, line continuations); write the policy as a raw string r#"..."# to count source lines
  --> tests/ui/unknown_language.rs:2:36
   |
 2 |     let _ = themis_macros::policy!("language nope\n");
