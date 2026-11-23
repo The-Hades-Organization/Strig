@@ -156,7 +156,7 @@ for (const backend of ['native', 'wasm']) {
         {
           kind: 'no_lockout',
           permissions: ['project.edit'],
-          members: [ana],
+          members: [ana, zed],
           resource: p1,
           reserve: { adminRole: { role: 'owner' }, subjects: [zed] },
         },
@@ -215,7 +215,8 @@ for (const backend of ['native', 'wasm']) {
     const all = engine.list(ctx, ana, 'project.view', 'project', { layout: ['project', 'org'] });
     assert.equal(all.kind, 'project');
     assert.equal(all.permission, 'project.view');
-    assert.deepEqual(all.shape, { type: 'kind', except: [] });
+    assert.equal(all.shape.type, 'compound');
+    assert.deepEqual(all.expr, { op: 'on_path', selector: { kind: 'project' } });
     assert.equal(all.exact, true);
     assert.equal(all.ids, null, 'sem recursos não há ids');
 
@@ -237,7 +238,7 @@ for (const backend of ['native', 'wasm']) {
     const ctx = new Context({ grants: [allow('t', { kind: 'user', id: 'ana' }, 'project.view', undefined, { validUntil: NOW })] });
     const ana = user('ana');
     ctx.setNow(NOW - 1);
-    assert.deepEqual(engine.list(ctx, ana, 'project.view', 'project').shape, { type: 'kind', except: [] });
+    assert.equal(engine.list(ctx, ana, 'project.view', 'project').shape.type, 'compound');
     ctx.setNow(NOW);
     assert.deepEqual(engine.list(ctx, ana, 'project.view', 'project').shape, { type: 'nothing' });
   });

@@ -9,6 +9,7 @@ export function load(options = {}) {
     Engine: glue.Engine,
     Context: glue.Context,
     auditEstimate: glue.auditEstimate,
+    Exclusive: glue.Exclusive,
     backend: 'wasm',
   }));
   return ready;
