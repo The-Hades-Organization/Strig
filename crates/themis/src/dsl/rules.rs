@@ -221,7 +221,11 @@ fn mark(b: &mut Builder, id: &str, field: &str, span: Span) {
 // ---- header ---------------------------------------------------------------------------------
 
 pub(crate) fn kinds(cur: &mut Cursor, b: &mut Builder, at: &Span, target_kinds: bool) -> PResult<()> {
-    let id = if target_kinds { ids::TARGET_KINDS } else { ids::BROAD_TARGETS };
+    let id = if target_kinds {
+        ids::TARGET_KINDS
+    } else {
+        ids::BROAD_TARGETS
+    };
     let repeated = duplicate(b, id, *at, &format!("`{id}`"));
     let list = scoped(cur, b, id, *at, |cur, _| comma_words(cur, "a kind"))?;
     if !repeated {
@@ -326,10 +330,7 @@ pub(crate) fn role(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
         }
     })?;
     if !repeated {
-        b.policy.roles.push(RoleSpec {
-            role: name.v,
-            inherits,
-        });
+        b.policy.roles.push(RoleSpec { role: name.v, inherits });
     }
     Ok(())
 }
@@ -443,7 +444,12 @@ fn grant(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     let effect_value = match effect.v.as_str() {
         "allow" => Effect::Allow,
         "deny" => Effect::Deny,
-        other => return Err(Raw::new(effect.span, format!("effect must be allow or deny, found `{other}`"))),
+        other => {
+            return Err(Raw::new(
+                effect.span,
+                format!("effect must be allow or deny, found `{other}`"),
+            ));
+        }
     };
     let id = ids::grant(&name.v);
     let repeated = duplicate(b, &id, name.span, &format!("grant `{}`", name.v));
@@ -508,8 +514,8 @@ fn relations_none(cur: &mut Cursor, b: &mut Builder, at: Span) -> PResult<()> {
         return Ok(());
     }
     if b.policy.relations.is_some() {
-        let raw = Raw::new(at, "`relations none` comes after a relation")
-            .hint("declare it before any relation, or drop it");
+        let raw =
+            Raw::new(at, "`relations none` comes after a relation").hint("declare it before any relation, or drop it");
         b.conflict(raw, None);
         return Ok(());
     }
@@ -609,8 +615,10 @@ pub(crate) fn always(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
             let key = cur.word("a field of the invariant")?;
             let Some(spec) = schema.iter().find(|s| s.name == key.v) else {
                 let known: Vec<&str> = schema.iter().map(|s| s.name).collect();
-                return Err(Raw::new(key.span, format!("unknown field `{}` in {kind} invariant", key.v))
-                    .hint(suggest(&key.v, &known)));
+                return Err(
+                    Raw::new(key.span, format!("unknown field `{}` in {kind} invariant", key.v))
+                        .hint(suggest(&key.v, &known)),
+                );
             };
             if body.has(spec.name) {
                 return Err(Raw::new(key.span, format!("field `{}` is given twice", key.v)));
@@ -861,7 +869,10 @@ fn subject_lines(p: &mut Printer, s: &Subject) -> Printed<()> {
         lines.push((Some(ids::assign(&id, role)), text));
     }
     for principal in &s.principals {
-        lines.push((None, format!("{head} has principal {}", bp::word(principal, "principal")?)));
+        lines.push((
+            None,
+            format!("{head} has principal {}", bp::word(principal, "principal")?),
+        ));
     }
     for (key, item) in &s.attrs {
         let key = bp::word(key, "attribute")?;

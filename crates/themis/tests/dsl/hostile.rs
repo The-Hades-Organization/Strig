@@ -19,7 +19,11 @@ fn a_single_huge_line_is_read_or_refused() {
 #[test]
 fn a_source_over_the_limit_is_refused_with_a_position() {
     for language in NEW {
-        let text = format!("{}{}", header(language), "# padding\n".repeat(MAX_SOURCE_BYTES / 10 + 1));
+        let text = format!(
+            "{}{}",
+            header(language),
+            "# padding\n".repeat(MAX_SOURCE_BYTES / 10 + 1)
+        );
         let errors = parse("big.themis", &text).expect_err("over the limit");
         assert!(errors.into_iter().next().unwrap().location.is_some(), "{language}");
     }
@@ -43,8 +47,12 @@ fn a_hundred_thousand_roles_with_a_ring_end_with_a_capped_report() {
 fn a_condition_nested_past_the_limit_is_an_error() {
     let depth = 5_000;
     let condition = format!("{}subject.a == 1{}", "(".repeat(depth), ")".repeat(depth));
-    let rules = format!("language rules\n\nkinds doc\npermission doc.read on doc\nrole r\ng: allow role r to doc.read on doc when {condition}\n");
-    let actors = format!("language actors\n\ncatalog\n  kinds doc\n  doc.read on doc\n\nrole r\n  allow doc.read on doc as g when {condition}\n");
+    let rules = format!(
+        "language rules\n\nkinds doc\npermission doc.read on doc\nrole r\ng: allow role r to doc.read on doc when {condition}\n"
+    );
+    let actors = format!(
+        "language actors\n\ncatalog\n  kinds doc\n  doc.read on doc\n\nrole r\n  allow doc.read on doc as g when {condition}\n"
+    );
     for text in [rules, actors] {
         assert!(parse("deep.themis", &text).is_err());
     }
@@ -62,10 +70,18 @@ fn deep_indentation_in_actors_is_an_error() {
 
 #[test]
 fn stray_bytes_never_panic() {
-    let noise = ["\u{0}", "\t\t", "\r\n", "\u{feff}", "é", "\"", "'", "(((", ")))", "[", "]", "#", "->", "=="];
+    let noise = [
+        "\u{0}", "\t\t", "\r\n", "\u{feff}", "é", "\"", "'", "(((", ")))", "[", "]", "#", "->", "==",
+    ];
     for language in NEW {
         for chunk in noise {
-            let text = format!("{}{}\n  {}\nrole {}\n", header(language), chunk.repeat(50), chunk, chunk);
+            let text = format!(
+                "{}{}\n  {}\nrole {}\n",
+                header(language),
+                chunk.repeat(50),
+                chunk,
+                chunk
+            );
             let _ = parse("noise.themis", &text);
         }
     }

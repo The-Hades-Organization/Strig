@@ -800,7 +800,12 @@ fn resource_of((path, attrs): (Vec<AnchorAt>, BTreeMap<String, Value>)) -> Resou
     }
 }
 
-pub(crate) fn build_invariant(b: &mut Builder, kind: &str, head: &Sp<String>, body: &mut Body) -> PResult<InvariantSpec> {
+pub(crate) fn build_invariant(
+    b: &mut Builder,
+    kind: &str,
+    head: &Sp<String>,
+    body: &mut Body,
+) -> PResult<InvariantSpec> {
     let missing = |what: &str| Raw::new(head.span, format!("{kind} needs `{what}`"));
     Ok(match kind {
         "catalog_conformance" => InvariantSpec::CatalogConformance,

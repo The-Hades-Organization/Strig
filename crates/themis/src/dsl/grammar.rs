@@ -496,7 +496,11 @@ fn pair(cur: &mut Cursor) -> PResult<(Sp<String>, Value)> {
 /// A path and the attributes of the resource: `a > b:1 with tier = "gold", zone = 2`.
 pub(crate) fn resource(cur: &mut Cursor) -> PResult<(Vec<AnchorAt>, BTreeMap<String, Value>)> {
     let steps = path(cur)?;
-    let attrs = if cur.eat_word("with") { pairs(cur)? } else { BTreeMap::new() };
+    let attrs = if cur.eat_word("with") {
+        pairs(cur)?
+    } else {
+        BTreeMap::new()
+    };
     Ok((steps, attrs))
 }
 
@@ -549,7 +553,10 @@ pub(crate) fn member(cur: &mut Cursor) -> PResult<Subject> {
                 }
             }
             other => {
-                return Err(Raw::new(word.span, format!("a member can have a role, principal or attr, not `{other}`")));
+                return Err(Raw::new(
+                    word.span,
+                    format!("a member can have a role, principal or attr, not `{other}`"),
+                ));
             }
         }
         if !cur.eat_punct(",") {

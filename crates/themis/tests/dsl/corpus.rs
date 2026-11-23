@@ -30,10 +30,17 @@ fn a_scenario_in_each_syntax_is_the_same_policy() {
         for language in LANGUAGES {
             let other = read(scenario, language);
             assert_eq!(other.language, language);
-            assert!(blocks.policy.equivalent(&other.policy), "{scenario}: {language} differs from blocks");
+            assert!(
+                blocks.policy.equivalent(&other.policy),
+                "{scenario}: {language} differs from blocks"
+            );
             let theirs = canonical(&other.policy);
             for key in json.as_object().unwrap().keys() {
-                assert_eq!(theirs.get(key), json.get(key), "{scenario}: {language} differs in {key}");
+                assert_eq!(
+                    theirs.get(key),
+                    json.get(key),
+                    "{scenario}: {language} differs in {key}"
+                );
             }
             assert_eq!(theirs, json, "{scenario}: {language} json differs");
         }
@@ -46,7 +53,11 @@ fn a_scenario_keeps_its_comments_in_every_syntax() {
         let blocks = read(scenario, Language::Blocks);
         for language in LANGUAGES {
             let other = read(scenario, language);
-            assert_eq!(blocks.policy.notes.len(), other.policy.notes.len(), "{scenario} in {language}");
+            assert_eq!(
+                blocks.policy.notes.len(),
+                other.policy.notes.len(),
+                "{scenario} in {language}"
+            );
         }
     }
 }
@@ -57,9 +68,17 @@ fn printing_a_scenario_reads_back_the_same_in_its_own_syntax() {
         for language in LANGUAGES {
             let policy = read(scenario, language).policy;
             let text = print(&policy, language).unwrap_or_else(|error| panic!("{scenario} in {language}: {error}"));
-            let again = parse("again", &text).unwrap_or_else(|errors| panic!("{scenario} in {language}:\n{errors}\n{text}"));
-            assert!(policy.equivalent(&again.policy), "{scenario} in {language} lost something");
-            assert_eq!(print(&again.policy, language).unwrap(), text, "{scenario} in {language} is not stable");
+            let again =
+                parse("again", &text).unwrap_or_else(|errors| panic!("{scenario} in {language}:\n{errors}\n{text}"));
+            assert!(
+                policy.equivalent(&again.policy),
+                "{scenario} in {language} lost something"
+            );
+            assert_eq!(
+                print(&again.policy, language).unwrap(),
+                text,
+                "{scenario} in {language} is not stable"
+            );
         }
     }
 }
@@ -75,7 +94,10 @@ fn converting_between_every_pair_keeps_the_policy() {
                 let again = parse("converted", &converted)
                     .unwrap_or_else(|errors| panic!("{scenario} {from} to {to}:\n{errors}\n{converted}"));
                 assert_eq!(again.language, to);
-                assert!(original.equivalent(&again.policy), "{scenario} {from} to {to} lost something");
+                assert!(
+                    original.equivalent(&again.policy),
+                    "{scenario} {from} to {to} lost something"
+                );
             }
         }
     }
