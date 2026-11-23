@@ -24,7 +24,8 @@ axum = { version = "0.8", default-features = false, features = ["http1", "json",
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt", "time"] }
+tokio = { workspace = true, features = ["rt", "time", "sync"] }
+futures-util.workspace = true
 tracing = "0.1"
 hyper-util = { version = "0.1", optional = true, default-features = false, features = ["client-legacy", "http1", "tokio"] }
 http-body-util = { version = "0.1", optional = true }

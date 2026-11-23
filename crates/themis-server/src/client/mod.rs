@@ -43,7 +43,11 @@ pub enum Failure {
     /// The server refused the request (4xx): a bug in the caller, not an outage.
     #[error("the server rejected the request with status {status}")]
     Rejected { status: u16, code: Option<ErrorCode> },
-    /// A 2xx answer that is not what the route promises.
+    /// A status the contract does not use for a decision route: 1xx, 3xx or a 2xx other than 200.
+    /// The breaker counts it as a failure.
+    #[error("the server answered with the unexpected status {status}")]
+    UnexpectedStatus { status: u16 },
+    /// A 200 answer that is not what the route promises.
     #[error("the answer of the server could not be understood")]
     InvalidResponse,
     /// The request could not be turned into JSON.
@@ -235,8 +239,10 @@ impl Client {
                 .ok()
                 .map(|body| body.error.code)
         };
+        // Only 200 is an answer. 1xx and 3xx are not a decision, they are a gateway or a
+        // misconfiguration in the way; any other 2xx is not what the routes promise.
         match raw.status {
-            200..=299 => match serde_json::from_slice(&raw.body) {
+            200 => match serde_json::from_slice(&raw.body) {
                 Ok(answer) => {
                     permit.success();
                     Ok(answer)
@@ -247,14 +253,23 @@ impl Client {
                     Err(Failure::InvalidResponse)
                 }
             },
-            status if status >= 500 => {
+            status @ 500.. => {
                 permit.failure();
                 Err(Failure::Server { status, code: code() })
             }
-            status => {
+            status @ 400..=499 => {
                 // The server is up and said no to this request: that is not an outage.
                 permit.success();
                 Err(Failure::Rejected { status, code: code() })
+            }
+            status => {
+                tracing::warn!(
+                    status,
+                    path,
+                    "the decision server sent a status the contract does not use"
+                );
+                permit.failure();
+                Err(Failure::UnexpectedStatus { status })
             }
         }
     }

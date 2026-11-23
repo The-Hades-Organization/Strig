@@ -47,6 +47,11 @@ pub trait Transport: Send + Sync {
     async fn post(&self, path: &str, timeout: Duration, body: Vec<u8>) -> Result<RawResponse, TransportError>;
 }
 
+/// The deadline header value: whole milliseconds, never zero, which the server refuses.
+pub(crate) fn timeout_header(timeout: Duration) -> String {
+    timeout.as_millis().max(1).to_string()
+}
+
 /// Plain HTTP/1.1 over TCP, with a cap on the size of the answer it reads.
 pub struct HttpTransport {
     client: HyperClient<HttpConnector, Full<Bytes>>,
@@ -83,7 +88,7 @@ impl Transport for HttpTransport {
     async fn post(&self, path: &str, timeout: Duration, body: Vec<u8>) -> Result<RawResponse, TransportError> {
         let request = Request::post(format!("{}{path}", self.base_url))
             .header(header::CONTENT_TYPE, "application/json")
-            .header(TIMEOUT_HEADER, timeout.as_millis().to_string())
+            .header(TIMEOUT_HEADER, timeout_header(timeout))
             .body(Full::new(Bytes::from(body)))
             .map_err(TransportError::unreachable)?;
         let response = self
@@ -99,5 +104,18 @@ impl Transport for HttpTransport {
             .to_bytes()
             .to_vec();
         Ok(RawResponse { status, body })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_timeout_under_one_millisecond_is_sent_as_one() {
+        assert_eq!(timeout_header(Duration::ZERO), "1");
+        assert_eq!(timeout_header(Duration::from_micros(400)), "1");
+        assert_eq!(timeout_header(Duration::from_millis(1)), "1");
+        assert_eq!(timeout_header(Duration::from_millis(250)), "250");
     }
 }

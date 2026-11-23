@@ -338,3 +338,62 @@ async fn the_http_transport_round_trips_over_loopback() {
     serving.abort();
     assert!(serving.await.expect_err("aborted").is_cancelled());
 }
+
+#[tokio::test]
+async fn only_a_200_is_an_answer() {
+    for code in [100_u16, 201, 204, 302, 399] {
+        let client = Client::with_clock(
+            Scripted::new(vec![status(code, &allow_body())]),
+            breaker(1, 30),
+            Arc::new(ManualClock::new(0)),
+        );
+        let decision = client.check(&ask("alice", "d1")).await;
+        assert!(!decision.is_allowed(), "{code}");
+        assert_eq!(
+            decision.failure(),
+            Some(&Failure::UnexpectedStatus { status: code }),
+            "{code}"
+        );
+        assert_eq!(client.breaker_state(), BreakerState::Open, "{code} counts as a failure");
+    }
+}
+
+#[tokio::test]
+async fn a_3xx_does_not_close_a_circuit_that_is_probing() {
+    let clock = ManualClock::new(0);
+    let transport = Scripted::new(vec![status(503, UNAVAILABLE), status(302, "")]);
+    let client = Client::with_clock(transport, breaker(1, 10), Arc::new(clock.clone()));
+    client.check(&ask("alice", "d1")).await;
+    clock.advance(10_000);
+    client.check(&ask("alice", "d1")).await;
+    assert_eq!(client.breaker_state(), BreakerState::Open);
+}
+
+#[tokio::test]
+async fn an_error_code_from_a_newer_server_is_kept_not_lost() {
+    let body = r#"{"error":{"code":"quota_exceeded","message":"x"}}"#;
+    let client = Client::new(Scripted::new(vec![status(503, body)]), ClientConfig::default());
+    let decision = client.check(&ask("alice", "d1")).await;
+    assert!(!decision.is_allowed());
+    assert_eq!(
+        decision.failure(),
+        Some(&Failure::Server {
+            status: 503,
+            code: Some(ErrorCode::Unknown("quota_exceeded".into()))
+        })
+    );
+}
+
+#[tokio::test]
+async fn the_overloaded_answer_is_a_server_failure_with_its_code() {
+    let body = r#"{"error":{"code":"overloaded","message":"x"}}"#;
+    let client = Client::new(Scripted::new(vec![status(503, body)]), ClientConfig::default());
+    let decision = client.check(&ask("alice", "d1")).await;
+    assert_eq!(
+        decision.failure(),
+        Some(&Failure::Server {
+            status: 503,
+            code: Some(ErrorCode::Overloaded)
+        })
+    );
+}

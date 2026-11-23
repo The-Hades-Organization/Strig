@@ -3,18 +3,19 @@
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use themis::QueryError;
 
 /// Stable error codes. A code never changes meaning; new ones are added, so match with a
-/// wildcard arm.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+/// wildcard arm. A code this version does not know (a newer server) reads as
+/// [`ErrorCode::Unknown`] with the text it came in, so an old client still reads the body.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ErrorCode {
     /// 400: the body is not JSON.
     MalformedJson,
-    /// 400: valid JSON that does not fit the route's schema, or a bad deadline header.
+    /// 400: valid JSON that does not fit the route's schema, a `layout` that does not start with
+    /// `kind`, or a bad deadline header.
     InvalidRequest,
     /// 400: more checks than `max_batch`.
     BatchTooLarge,
@@ -30,20 +31,47 @@ pub enum ErrorCode {
     MethodNotAllowed,
     /// 503: the policy or the grants could not be loaded.
     SourceUnavailable,
-    /// 503: the query went past a `QueryLimits` ceiling.
+    /// 503: the query went past a `QueryLimits` ceiling or the work budget of the server.
     QueryLimitExceeded,
     /// 503: a relation chain went deeper than the engine allows and a deny could not be read.
     RelationDepthExceeded,
     /// 503: the deadline passed before the answer was ready.
     DeadlineExceeded,
+    /// 503: no work slot was free before the deadline.
+    Overloaded,
     /// 503: the server clock has no usable instant.
     ClockUnavailable,
-    /// 503: anything else that went wrong inside the server.
+    /// 503: anything else that went wrong inside the server, a panic included.
     Internal,
+    /// A code this version does not know. The server never sends it; it only comes out of
+    /// reading a body. It counts as fail-closed.
+    Unknown(String),
 }
 
 impl ErrorCode {
-    pub fn status(self) -> StatusCode {
+    /// The text of the code on the wire.
+    pub fn as_str(&self) -> &str {
+        match self {
+            ErrorCode::MalformedJson => "malformed_json",
+            ErrorCode::InvalidRequest => "invalid_request",
+            ErrorCode::BatchTooLarge => "batch_too_large",
+            ErrorCode::TooManyResources => "too_many_resources",
+            ErrorCode::BodyTooLarge => "body_too_large",
+            ErrorCode::UnsupportedMediaType => "unsupported_media_type",
+            ErrorCode::NotFound => "not_found",
+            ErrorCode::MethodNotAllowed => "method_not_allowed",
+            ErrorCode::SourceUnavailable => "source_unavailable",
+            ErrorCode::QueryLimitExceeded => "query_limit_exceeded",
+            ErrorCode::RelationDepthExceeded => "relation_depth_exceeded",
+            ErrorCode::DeadlineExceeded => "deadline_exceeded",
+            ErrorCode::Overloaded => "overloaded",
+            ErrorCode::ClockUnavailable => "clock_unavailable",
+            ErrorCode::Internal => "internal",
+            ErrorCode::Unknown(code) => code,
+        }
+    }
+
+    pub fn status(&self) -> StatusCode {
         match self {
             ErrorCode::MalformedJson
             | ErrorCode::InvalidRequest
@@ -57,14 +85,16 @@ impl ErrorCode {
             | ErrorCode::QueryLimitExceeded
             | ErrorCode::RelationDepthExceeded
             | ErrorCode::DeadlineExceeded
+            | ErrorCode::Overloaded
             | ErrorCode::ClockUnavailable
-            | ErrorCode::Internal => StatusCode::SERVICE_UNAVAILABLE,
+            | ErrorCode::Internal
+            | ErrorCode::Unknown(_) => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 
     /// The message that goes with the code. It is fixed on purpose: names of tables, paths and
     /// driver messages stay in the server log.
-    pub fn message(self) -> &'static str {
+    pub fn message(&self) -> &'static str {
         match self {
             ErrorCode::MalformedJson => "the request body is not valid JSON",
             ErrorCode::InvalidRequest => "the request does not match the schema of this route",
@@ -78,14 +108,52 @@ impl ErrorCode {
             ErrorCode::QueryLimitExceeded => "the query is over the server limits; access is denied",
             ErrorCode::RelationDepthExceeded => "a relation chain is too deep to read; access is denied",
             ErrorCode::DeadlineExceeded => "the deadline passed before an answer was ready; access is denied",
+            ErrorCode::Overloaded => "the server is at capacity; access is denied",
             ErrorCode::ClockUnavailable => "the server clock is unavailable; access is denied",
             ErrorCode::Internal => "internal error; access is denied",
+            ErrorCode::Unknown(_) => "unrecognized error; access is denied",
         }
     }
 
     /// Whether the code is one of the fail-closed answers (status 503).
-    pub fn is_fail_closed(self) -> bool {
+    pub fn is_fail_closed(&self) -> bool {
         self.status() == StatusCode::SERVICE_UNAVAILABLE
+    }
+}
+
+impl From<&str> for ErrorCode {
+    fn from(code: &str) -> Self {
+        match code {
+            "malformed_json" => ErrorCode::MalformedJson,
+            "invalid_request" => ErrorCode::InvalidRequest,
+            "batch_too_large" => ErrorCode::BatchTooLarge,
+            "too_many_resources" => ErrorCode::TooManyResources,
+            "body_too_large" => ErrorCode::BodyTooLarge,
+            "unsupported_media_type" => ErrorCode::UnsupportedMediaType,
+            "not_found" => ErrorCode::NotFound,
+            "method_not_allowed" => ErrorCode::MethodNotAllowed,
+            "source_unavailable" => ErrorCode::SourceUnavailable,
+            "query_limit_exceeded" => ErrorCode::QueryLimitExceeded,
+            "relation_depth_exceeded" => ErrorCode::RelationDepthExceeded,
+            "deadline_exceeded" => ErrorCode::DeadlineExceeded,
+            "overloaded" => ErrorCode::Overloaded,
+            "clock_unavailable" => ErrorCode::ClockUnavailable,
+            "internal" => ErrorCode::Internal,
+            other => ErrorCode::Unknown(other.to_owned()),
+        }
+    }
+}
+
+impl Serialize for ErrorCode {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ErrorCode {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Ok(ErrorCode::from(text.as_str()))
     }
 }
 
@@ -103,17 +171,15 @@ pub struct ErrorDetail {
 
 impl ErrorBody {
     pub fn new(code: ErrorCode) -> Self {
+        let message = code.message().to_string();
         Self {
-            error: ErrorDetail {
-                code,
-                message: code.message().to_string(),
-            },
+            error: ErrorDetail { code, message },
         }
     }
 }
 
 /// An error that becomes the stable body and its status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiError {
     pub code: ErrorCode,
 }
@@ -141,8 +207,50 @@ impl From<QueryError> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         if self.code.is_fail_closed() {
-            tracing::warn!(code = ?self.code, "answering 503, access denied");
+            tracing::warn!(code = self.code.as_str(), "answering 503, access denied");
         }
         (self.code.status(), Json(ErrorBody::new(self.code))).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every known code with the status and the text the contract (`API.md`) promises.
+    const TABLE: [(ErrorCode, u16, &str); 15] = [
+        (ErrorCode::MalformedJson, 400, "malformed_json"),
+        (ErrorCode::InvalidRequest, 400, "invalid_request"),
+        (ErrorCode::BatchTooLarge, 400, "batch_too_large"),
+        (ErrorCode::TooManyResources, 400, "too_many_resources"),
+        (ErrorCode::NotFound, 404, "not_found"),
+        (ErrorCode::MethodNotAllowed, 405, "method_not_allowed"),
+        (ErrorCode::BodyTooLarge, 413, "body_too_large"),
+        (ErrorCode::UnsupportedMediaType, 415, "unsupported_media_type"),
+        (ErrorCode::SourceUnavailable, 503, "source_unavailable"),
+        (ErrorCode::QueryLimitExceeded, 503, "query_limit_exceeded"),
+        (ErrorCode::RelationDepthExceeded, 503, "relation_depth_exceeded"),
+        (ErrorCode::DeadlineExceeded, 503, "deadline_exceeded"),
+        (ErrorCode::Overloaded, 503, "overloaded"),
+        (ErrorCode::ClockUnavailable, 503, "clock_unavailable"),
+        (ErrorCode::Internal, 503, "internal"),
+    ];
+
+    #[test]
+    fn every_code_keeps_its_status_and_its_wire_text() {
+        for (code, status, text) in TABLE {
+            assert_eq!(code.status().as_u16(), status, "{text}");
+            assert_eq!(code.as_str(), text);
+            assert_eq!(serde_json::to_value(&code).unwrap(), text);
+            assert_eq!(serde_json::from_value::<ErrorCode>(text.into()).unwrap(), code);
+        }
+    }
+
+    #[test]
+    fn an_unknown_code_is_read_not_refused() {
+        let body: ErrorBody = serde_json::from_str(r#"{"error":{"code":"brand_new","message":"m"}}"#).unwrap();
+        assert_eq!(body.error.code, ErrorCode::Unknown("brand_new".into()));
+        assert!(body.error.code.is_fail_closed());
+        assert_eq!(serde_json::to_value(&body.error.code).unwrap(), "brand_new");
     }
 }

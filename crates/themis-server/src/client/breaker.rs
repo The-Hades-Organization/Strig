@@ -3,6 +3,8 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use tokio::time::Instant;
+
 use crate::clock::Clock;
 
 /// When the breaker opens and for how long.
@@ -50,10 +52,33 @@ pub enum BreakerState {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum Inner {
-    Closed { failures: u32 },
-    Open { since_ms: u64 },
-    HalfOpen { probing: bool },
+enum Phase {
+    Closed {
+        failures: u32,
+    },
+    /// `since_ms` is the injected clock at the moment of opening, if it answered; `since` is the
+    /// local monotonic reading, the fallback to measure the wait when the clock has no answer.
+    Open {
+        since_ms: Option<u64>,
+        since: Instant,
+    },
+    /// The one probe is in flight.
+    HalfOpen,
+}
+
+/// The phase and the generation: a counter that goes up at every change of phase, so a permit
+/// settles only the phase it was issued in.
+#[derive(Debug, Clone, Copy)]
+struct Inner {
+    phase: Phase,
+    generation: u64,
+}
+
+impl Inner {
+    fn enter(&mut self, phase: Phase) {
+        self.phase = phase;
+        self.generation = self.generation.wrapping_add(1);
+    }
 }
 
 /// Closed, open with a wait, half-open with one probe.
@@ -68,39 +93,42 @@ impl CircuitBreaker {
         Self {
             config,
             clock,
-            inner: Mutex::new(Inner::Closed { failures: 0 }),
+            inner: Mutex::new(Inner {
+                phase: Phase::Closed { failures: 0 },
+                generation: 0,
+            }),
         }
     }
 
     pub fn state(&self) -> BreakerState {
-        match *self.lock() {
-            Inner::Closed { .. } => BreakerState::Closed,
-            Inner::Open { .. } => BreakerState::Open,
-            Inner::HalfOpen { .. } => BreakerState::HalfOpen,
+        match self.lock().phase {
+            Phase::Closed { .. } => BreakerState::Closed,
+            Phase::Open { .. } => BreakerState::Open,
+            Phase::HalfOpen => BreakerState::HalfOpen,
         }
     }
 
     /// Asks to make a call. `None` means the circuit refuses it. The permit must be settled with
     /// [`Permit::success`] or [`Permit::failure`]; a permit dropped without either (the call was
     /// cancelled) counts as a failure, so a lost probe cannot leave the circuit half-open forever.
+    ///
+    /// A permit settles only the state it was issued in. One that outlives its state (a slow call
+    /// that ends after the circuit opened, or after the probe went out) changes nothing.
     pub fn acquire(&self) -> Option<Permit<'_>> {
-        let now = self.now();
         let mut inner = self.lock();
-        let allowed = match *inner {
-            Inner::Closed { .. } => true,
-            Inner::Open { since_ms } if now.saturating_sub(since_ms) >= self.wait_ms() => {
-                *inner = Inner::HalfOpen { probing: true };
+        let allowed = match inner.phase {
+            Phase::Closed { .. } => true,
+            Phase::Open { since_ms, since } if self.waited(since_ms, since) => {
+                inner.enter(Phase::HalfOpen);
                 true
             }
-            Inner::Open { .. } | Inner::HalfOpen { probing: true } => false,
-            Inner::HalfOpen { probing: false } => {
-                *inner = Inner::HalfOpen { probing: true };
-                true
-            }
+            Phase::Open { .. } | Phase::HalfOpen => false,
         };
+        let generation = inner.generation;
         drop(inner);
         allowed.then_some(Permit {
             breaker: self,
+            generation,
             settled: false,
         })
     }
@@ -109,9 +137,16 @@ impl CircuitBreaker {
         u64::try_from(self.config.open_for.as_millis()).unwrap_or(u64::MAX)
     }
 
-    /// A clock with no answer reads as time standing still: an open circuit stays open.
-    fn now(&self) -> u64 {
-        self.clock.now_ms().unwrap_or(0)
+    /// Whether the wait of an open circuit is over. It is measured on the injected clock; when the
+    /// clock has no answer (now, or when the circuit opened) the local monotonic reading takes its
+    /// place, so a dead clock makes the circuit open and try again later instead of staying open
+    /// for good. Calls stay fail-closed either way: a probe that fails reopens it.
+    fn waited(&self, since_ms: Option<u64>, since: Instant) -> bool {
+        let elapsed = match (since_ms, self.clock.now_ms()) {
+            (Some(opened), Some(now)) => now.saturating_sub(opened),
+            _ => u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX),
+        };
+        elapsed >= self.wait_ms()
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
@@ -119,23 +154,40 @@ impl CircuitBreaker {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn record_success(&self) {
-        *self.lock() = Inner::Closed { failures: 0 };
+    fn record_success(&self, generation: u64) {
+        let mut inner = self.lock();
+        if inner.generation != generation {
+            return;
+        }
+        match inner.phase {
+            Phase::Closed { .. } => inner.phase = Phase::Closed { failures: 0 },
+            Phase::HalfOpen => inner.enter(Phase::Closed { failures: 0 }),
+            // Same generation but open cannot be: opening bumps it.
+            Phase::Open { .. } => {}
+        }
     }
 
-    fn record_failure(&self) {
-        let now = self.now();
+    fn record_failure(&self, generation: u64) {
         let mut inner = self.lock();
-        *inner = match *inner {
-            Inner::Closed { failures } if failures.saturating_add(1) >= self.config.failure_threshold => {
-                Inner::Open { since_ms: now }
-            }
-            Inner::Closed { failures } => Inner::Closed {
-                failures: failures.saturating_add(1),
-            },
-            Inner::HalfOpen { .. } => Inner::Open { since_ms: now },
-            open @ Inner::Open { .. } => open,
+        if inner.generation != generation {
+            return;
+        }
+        let opened = Phase::Open {
+            since_ms: self.clock.now_ms(),
+            since: Instant::now(),
         };
+        match inner.phase {
+            Phase::Closed { failures } if failures.saturating_add(1) >= self.config.failure_threshold => {
+                inner.enter(opened);
+            }
+            Phase::Closed { failures } => {
+                inner.phase = Phase::Closed {
+                    failures: failures.saturating_add(1),
+                };
+            }
+            Phase::HalfOpen => inner.enter(opened),
+            Phase::Open { .. } => {}
+        }
     }
 }
 
@@ -143,25 +195,26 @@ impl CircuitBreaker {
 #[must_use = "settle the permit with success() or failure()"]
 pub struct Permit<'a> {
     breaker: &'a CircuitBreaker,
+    generation: u64,
     settled: bool,
 }
 
 impl Permit<'_> {
     pub fn success(mut self) {
         self.settled = true;
-        self.breaker.record_success();
+        self.breaker.record_success(self.generation);
     }
 
     pub fn failure(mut self) {
         self.settled = true;
-        self.breaker.record_failure();
+        self.breaker.record_failure(self.generation);
     }
 }
 
 impl Drop for Permit<'_> {
     fn drop(&mut self) {
         if !self.settled {
-            self.breaker.record_failure();
+            self.breaker.record_failure(self.generation);
         }
     }
 }
@@ -252,5 +305,79 @@ mod tests {
         let (breaker, _) = breaker(0, 100);
         fail(&breaker);
         assert_eq!(breaker.state(), BreakerState::Open);
+    }
+
+    #[test]
+    fn a_late_success_from_before_the_circuit_opened_does_not_close_it() {
+        let (breaker, _) = breaker(2, 100);
+        let slow = breaker.acquire().expect("a call that will take long");
+        fail(&breaker);
+        fail(&breaker);
+        assert_eq!(breaker.state(), BreakerState::Open);
+        slow.success();
+        assert_eq!(breaker.state(), BreakerState::Open, "the wait is not skipped");
+    }
+
+    #[test]
+    fn a_late_success_does_not_settle_the_probe() {
+        let (breaker, clock) = breaker(1, 100);
+        let slow = breaker.acquire().expect("a call that will take long");
+        fail(&breaker);
+        clock.advance(100);
+        let probe = breaker.acquire().expect("the probe");
+        slow.success();
+        assert_eq!(breaker.state(), BreakerState::HalfOpen, "only the probe closes it");
+        probe.failure();
+        assert_eq!(breaker.state(), BreakerState::Open);
+    }
+
+    #[test]
+    fn a_late_failure_does_not_reopen_a_circuit_whose_probe_is_in_flight() {
+        let (breaker, clock) = breaker(2, 100);
+        let slow = breaker.acquire().expect("a call that will take long");
+        fail(&breaker);
+        fail(&breaker);
+        clock.advance(100);
+        let probe = breaker.acquire().expect("the probe");
+        slow.failure();
+        assert_eq!(breaker.state(), BreakerState::HalfOpen);
+        probe.success();
+        assert_eq!(breaker.state(), BreakerState::Closed);
+    }
+
+    #[test]
+    fn a_dropped_stale_permit_changes_nothing() {
+        let (breaker, _) = breaker(1, 100);
+        let slow = breaker.acquire().expect("a call that will take long");
+        fail(&breaker);
+        drop(slow);
+        assert_eq!(breaker.state(), BreakerState::Open);
+        let (other, clock) = self::breaker(1, 100);
+        fail(&other);
+        clock.advance(100);
+        let probe = other.acquire().expect("the probe");
+        let stale = other.acquire();
+        assert!(stale.is_none());
+        probe.success();
+        assert_eq!(other.state(), BreakerState::Closed);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_clock_with_no_answer_opens_and_then_tries_again() {
+        use crate::clock::BrokenClock;
+        let config = BreakerConfig::default()
+            .with_failure_threshold(1)
+            .with_open_for(Duration::from_secs(30));
+        let breaker = CircuitBreaker::new(config, Arc::new(BrokenClock));
+        fail(&breaker);
+        assert_eq!(breaker.state(), BreakerState::Open);
+        assert!(breaker.acquire().is_none(), "fail-closed inside the wait");
+        tokio::time::advance(Duration::from_secs(29)).await;
+        assert!(breaker.acquire().is_none());
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let probe = breaker.acquire().expect("the wait ends even without a clock");
+        probe.failure();
+        assert_eq!(breaker.state(), BreakerState::Open, "a failed probe reopens it");
+        assert!(breaker.acquire().is_none());
     }
 }
