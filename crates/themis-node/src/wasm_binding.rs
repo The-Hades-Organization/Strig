@@ -1,5 +1,5 @@
-use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::Serialize;
+use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value};
 use wasm_bindgen::prelude::*;
 
@@ -195,9 +195,7 @@ impl WasmContext {
     /// Instante das decisões e das consultas, em milissegundos UTC; `null` o remove.
     #[wasm_bindgen(js_name = setNow)]
     pub fn set_now(&mut self, now: JsValue) -> Result<(), JsFailure> {
-        self.inner
-            .set_now(optional(now)?.unwrap_or(Value::Null))
-            .map_err(err)
+        self.inner.set_now(optional(now)?.unwrap_or(Value::Null)).map_err(err)
     }
 
     #[wasm_bindgen(js_name = setLimits)]
@@ -221,15 +219,27 @@ impl WasmEngine {
     }
 
     pub fn decide(&self, ctx: &WasmContext, request: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
-        to_js(&self.inner.decide(&ctx.inner, from_js(request)?, now_of(now)?).map_err(err)?)
+        to_js(
+            &self
+                .inner
+                .decide(&ctx.inner, from_js(request)?, now_of(now)?)
+                .map_err(err)?,
+        )
     }
 
     pub fn check(&self, ctx: &WasmContext, request: JsValue, now: JsValue) -> Result<bool, JsFailure> {
-        self.inner.check(&ctx.inner, from_js(request)?, now_of(now)?).map_err(err)
+        self.inner
+            .check(&ctx.inner, from_js(request)?, now_of(now)?)
+            .map_err(err)
     }
 
     pub fn explain(&self, ctx: &WasmContext, request: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
-        to_js(&self.inner.explain(&ctx.inner, from_js(request)?, now_of(now)?).map_err(err)?)
+        to_js(
+            &self
+                .inner
+                .explain(&ctx.inner, from_js(request)?, now_of(now)?)
+                .map_err(err)?,
+        )
     }
 
     pub fn capabilities(
@@ -256,7 +266,12 @@ impl WasmEngine {
     }
 
     pub fn apply(&self, input: JsValue) -> Result<JsValue, JsFailure> {
-        to_js(&self.inner.apply(from_js(input)?, crate::millis("now", js_sys::Date::now())).map_err(err)?)
+        to_js(
+            &self
+                .inner
+                .apply(from_js(input)?, crate::millis("now", js_sys::Date::now()))
+                .map_err(err)?,
+        )
     }
 
     pub fn materialize(&self, input: JsValue) -> Result<JsValue, JsFailure> {
@@ -298,7 +313,11 @@ impl WasmEngine {
 
     #[wasm_bindgen(js_name = whoCan)]
     pub fn who_can(&self, ctx: &WasmContext, permission: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
-        to_js(&self.inner.who_can(&ctx.inner, &text("permission", &permission)?, now_of(now)?))
+        to_js(
+            &self
+                .inner
+                .who_can(&ctx.inner, &text("permission", &permission)?, now_of(now)?),
+        )
     }
 
     #[wasm_bindgen(js_name = whoCanOn)]
@@ -312,7 +331,12 @@ impl WasmEngine {
         to_js(
             &self
                 .inner
-                .who_can_on(&ctx.inner, &text("permission", &permission)?, from_js(resource)?, now_of(now)?)
+                .who_can_on(
+                    &ctx.inner,
+                    &text("permission", &permission)?,
+                    from_js(resource)?,
+                    now_of(now)?,
+                )
                 .map_err(err)?,
         )
     }
