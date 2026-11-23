@@ -88,6 +88,9 @@ impl<L: GrantLoader> EngineProvider<L> {
     }
 
     /// Remember to register the same cache on the hub (`hub.on_change(cache.clone())`).
+    ///
+    /// The cache checks each entry's boundary against the system wall clock when it serves it, so
+    /// a clock set with [`EngineProvider::with_clock`] must count milliseconds since the Unix epoch.
     pub fn with_cache(mut self, cache: Arc<CapabilityCache>) -> Self {
         self.cache = Some(cache);
         self
