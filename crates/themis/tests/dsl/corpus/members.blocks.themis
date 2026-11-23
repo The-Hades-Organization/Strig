@@ -1,0 +1,49 @@
+language blocks
+
+target_kinds = [org, doc]
+relations = []
+
+permission doc.read {
+  targets = [doc]
+}
+
+role viewer {
+}
+
+role reviewer {
+  inherits = [viewer]
+}
+
+subject user:bob {
+  principals = [bob]
+  attrs {
+    dept = "it"
+  }
+  assign viewer {
+    scope = org:acme
+    valid_from = 2026-01-01
+  }
+  assign reviewer {
+  }
+}
+
+subject team:ops {
+}
+
+grant g-read {
+  effect = allow
+  subject = role viewer
+  permission = doc.read
+  target = doc
+  scope = org:acme
+}
+
+invariant no_lockout {
+  permissions = [doc.read]
+  members = [user:bob (role viewer in org:acme from 2026-01-01 until 2026-12-31, principal bob, attr dept = "it")]
+  resource = doc:d1 with owner = "bob", tier = 2
+  reserve_role = viewer
+  reserve_subjects = [user:bob]
+  reserve_from = 2026-02-01
+  reserve_until = 2026-11-30
+}

@@ -40,6 +40,10 @@ name = "audit_storage"
 required-features = ["audit"]
 
 [[test]]
+name = "dsl"
+required-features = ["dsl-fs"]
+
+[[test]]
 name = "dsl_blocks"
 required-features = ["dsl"]
 

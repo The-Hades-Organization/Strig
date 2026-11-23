@@ -1,0 +1,24 @@
+language actors
+
+role viewer
+  in org:acme
+    allow doc.read on doc as g-read
+
+role reviewer inherits viewer
+
+subject user:bob
+  role viewer in org:acme from 2026-01-01
+  role reviewer
+  principal bob
+  attr dept = "it"
+
+subject team:ops
+
+catalog
+  kinds org, doc
+  doc.read on doc
+
+relations
+
+governance
+  no-lockout permissions [doc.read] members [user:bob (role viewer in org:acme from 2026-01-01 until 2026-12-31, principal bob, attr dept = "it")] resource doc:d1 with owner = "bob", tier = 2 reserve_role viewer reserve_subjects [user:bob] reserve_from 2026-02-01 reserve_until 2026-11-30

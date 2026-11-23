@@ -1,0 +1,13 @@
+language actors
+
+role auditor
+  allow project.view on project from 2026-03-01T08:30:00Z until 2026-06-30 as g-window
+
+// A temporary assignment.
+user carla
+  role auditor in project:apollo from 2026-01-01 until 2026-12-31T23:59:59Z
+  allow project.view on project:apollo until 2027-01-01 as g-open  // renewed yearly
+
+catalog
+  kinds project
+  project.view on project

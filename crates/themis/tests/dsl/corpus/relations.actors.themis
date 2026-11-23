@@ -1,0 +1,24 @@
+language actors
+
+relation viewer
+  allow doc.read on doc as g-read
+
+role viewer
+
+catalog
+  kinds org, doc
+  doc.read on doc
+
+relations
+  // Owners and viewers of a document.
+  doc#owner = this
+  doc#viewer = this | owner
+  org#member = this
+
+tuples
+  doc:d1#owner@user:bob
+  doc:d1#viewer@org:acme#member  // the whole organization
+  org:acme#member@user:ana
+
+engine
+  depth 4
