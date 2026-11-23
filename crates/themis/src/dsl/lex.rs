@@ -231,7 +231,7 @@ pub(crate) fn lex(source: &str) -> Lexed {
         } else if let Some(p) = PUNCT2
             .iter()
             .copied()
-            .find(|p| p.chars().next() == Some(c) && p.chars().nth(1) == sc.peek(1))
+            .find(|p| p.starts_with(c) && p.chars().nth(1) == sc.peek(1))
         {
             sc.bump();
             sc.bump();

@@ -113,10 +113,9 @@ pub(crate) fn parse_unvalidated(file: &str, text: &str) -> Result<Parsed, Diagno
     let mut builder = Builder::new(file, language.1);
     builder.open(policy::ids::LANGUAGE, language.0);
     builder.close(cursor.previous_span());
-    match language.1 {
-        Language::Blocks => blocks::parse(&mut cursor, &mut builder),
-        // `header` refuses the others until their syntaxes exist.
-        _ => {}
+    // `header` refuses the other languages until their syntaxes exist.
+    if language.1 == Language::Blocks {
+        blocks::parse(&mut cursor, &mut builder);
     }
     let (policy, origins, found) = builder.finish(&lexed.comments);
     if !found.is_empty() {
