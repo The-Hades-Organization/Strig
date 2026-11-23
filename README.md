@@ -35,8 +35,8 @@ Depend on it from another crate:
 
 ```toml
 [dependencies]
-themis = { package = "themis-auth", version = "0.3" }
-themis-sync = "0.3"
+themis = { package = "themis-auth", version = "0.4" }
+themis-sync = "0.4"
 ```
 
 ## Concepts

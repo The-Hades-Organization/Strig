@@ -1,6 +1,6 @@
 {
   "name": "themis-auth",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Themis authorization engine (RBAC, ABAC, ReBAC) for Node, Bun and the browser, with real-time permissions.",
   "license": "MIT",
   "type": "module",
