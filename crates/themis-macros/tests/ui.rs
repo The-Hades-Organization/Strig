@@ -8,4 +8,5 @@ fn compile_cases() {
     cases.compile_fail("tests/ui/unknown_language.rs");
     cases.compile_fail("tests/ui/not_a_literal.rs");
     cases.compile_fail("tests/ui/include_outside.rs");
+    cases.compile_fail("tests/ui/raw_multiline.rs");
 }
