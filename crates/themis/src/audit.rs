@@ -825,7 +825,10 @@ pub fn reference_decision_record(level: AuditLevel) -> AuditRecord {
 }
 
 fn suggestions_of(violations: &[Violation]) -> Vec<Suggestion> {
-    violations.iter().filter_map(|v| v.suggestion.clone()).collect()
+    violations
+        .iter()
+        .filter_map(|v| v.suggestion.as_deref().cloned())
+        .collect()
 }
 
 #[cfg(test)]

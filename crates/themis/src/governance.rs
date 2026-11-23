@@ -176,7 +176,7 @@ pub struct Violation {
     /// Change that would let the refused one through, set by [`Governance`] only when it was
     /// checked: the invariant's [`Invariant::remedy`] passes every invariant, with the same actor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub suggestion: Option<Suggestion>,
+    pub suggestion: Option<Box<Suggestion>>,
 }
 
 impl Violation {
@@ -346,7 +346,7 @@ impl Governance {
                 && let Some(fix) = invariant.remedy(engine, &proposal)
                 && self.evaluate_inner(engine, actor, current, &fix, tuples, false).is_ok()
             {
-                violation.suggestion = Suggestion::of(&fix);
+                violation.suggestion = Suggestion::of(&fix).map(Box::new);
             }
             violations.push(violation);
         }
