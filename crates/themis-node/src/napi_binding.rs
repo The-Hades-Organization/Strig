@@ -177,9 +177,7 @@ impl JsEngine {
 
     #[napi]
     pub fn who_can_on(&self, ctx: &JsContext, permission: String, resource: Value) -> Result<Value> {
-        self.inner
-            .who_can_on(&ctx.inner, &permission, resource)
-            .map_err(err)
+        self.inner.who_can_on(&ctx.inner, &permission, resource).map_err(err)
     }
 
     #[napi]

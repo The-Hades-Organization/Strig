@@ -161,7 +161,12 @@ impl WasmEngine {
 
     #[wasm_bindgen(js_name = applyTemplate)]
     pub fn apply_template(&self, input: JsValue) -> Result<JsValue, JsFailure> {
-        to_js(&self.inner.apply_template(from_js(input)?, instant(None)?).map_err(err)?)
+        to_js(
+            &self
+                .inner
+                .apply_template(from_js(input)?, instant(None)?)
+                .map_err(err)?,
+        )
     }
 
     pub fn list(

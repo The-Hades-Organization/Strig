@@ -108,5 +108,3 @@ pub fn via_json(via: &AccessVia) -> Value {
         _ => json!({"type": "unknown"}),
     }
 }
-
-
