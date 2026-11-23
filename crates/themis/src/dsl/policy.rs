@@ -253,10 +253,6 @@ impl Origins {
         self.0.entry(id).or_insert(location);
     }
 
-    pub(crate) fn extend_from(&mut self, other: Origins) {
-        self.0.extend(other.0);
-    }
-
     pub(crate) fn rename_prefix(&mut self, from: &str, to: &str) {
         let below = format!("{from}/");
         let moved: Vec<String> = self
@@ -270,10 +266,6 @@ impl Origins {
                 self.0.insert(format!("{to}{}", &id[from.len()..]), at);
             }
         }
-    }
-
-    pub(crate) fn remove_prefix(&mut self, prefix: &str) {
-        self.0.retain(|id, _| !id.starts_with(prefix));
     }
 
     /// The position of an element or, failing that, of the closest parent that has one.
