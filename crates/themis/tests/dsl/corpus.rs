@@ -3,6 +3,19 @@
 use crate::{LANGUAGES, SCENARIOS, source};
 use themis::dsl::{Language, convert, parse, print};
 
+/// The canonical JSON without where each note was written: the origin is not part of the policy.
+fn canonical(policy: &themis::dsl::Policy) -> serde_json::Value {
+    let mut json: serde_json::Value = serde_json::from_str(&policy.to_json().unwrap()).unwrap();
+    if let Some(notes) = json.get_mut("notes").and_then(|notes| notes.as_array_mut()) {
+        for note in notes {
+            if let Some(note) = note.as_object_mut() {
+                note.remove("origin");
+            }
+        }
+    }
+    json
+}
+
 fn read(scenario: &str, language: Language) -> themis::dsl::Parsed {
     let text = source(scenario, language);
     parse(&format!("{scenario}.{language}"), &text)
@@ -13,12 +26,12 @@ fn read(scenario: &str, language: Language) -> themis::dsl::Parsed {
 fn a_scenario_in_each_syntax_is_the_same_policy() {
     for scenario in SCENARIOS {
         let blocks = read(scenario, Language::Blocks);
-        let json = blocks.policy.to_json().unwrap();
+        let json = canonical(&blocks.policy);
         for language in LANGUAGES {
             let other = read(scenario, language);
             assert_eq!(other.language, language);
             assert!(blocks.policy.equivalent(&other.policy), "{scenario}: {language} differs from blocks");
-            assert_eq!(other.policy.to_json().unwrap(), json, "{scenario}: {language} json differs");
+            assert_eq!(canonical(&other.policy), json, "{scenario}: {language} json differs");
         }
     }
 }
