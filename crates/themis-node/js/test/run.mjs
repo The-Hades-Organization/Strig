@@ -5,6 +5,10 @@ import assert from 'node:assert/strict';
 import { PermissionClient } from '../client.js';
 import { load, scopeFromString } from '../node.js';
 import './binding040.mjs';
+import './web-core.mjs';
+import './web-express.mjs';
+import './web-fastify.mjs';
+import './web-nestjs.mjs';
 import { Hub, change, engineProvider, memoryTransport, openSession, pgTransport, pipeSse, redisTransport, sseResponse } from '../server.js';
 
 const runtime = globalThis.Bun ? `bun ${Bun.version}` : `node ${process.version}`;
