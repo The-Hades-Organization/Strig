@@ -177,3 +177,54 @@ fn governance_refuses_removing_a_prerequisite_in_use() {
         .apply(&engine, &actor, &grants, &remove_both, None)
         .expect("dependent first");
 }
+
+fn assert_refused_by_prerequisites(result: Result<Vec<Grant>, Vec<themis::Violation>>) {
+    let violations = result.expect_err("refused");
+    assert_eq!(violations[0].invariant, "prerequisites");
+}
+
+#[test]
+fn a_deny_on_a_prerequisite_is_refused_when_someone_holds_the_dependent() {
+    let engine = engine();
+    let governance = Governance::new().with(Prerequisites);
+    let actor = Subject::user("boss");
+    let grants = vec![allow("v", "ana", "doc.view"), allow("e", "ana", "doc.edit")];
+
+    let deny_view = Mutation::Add(Grant::deny(
+        "d",
+        SubjectMatcher::user("ana"),
+        "doc.view",
+        TargetSelector::kind("project"),
+    ));
+    assert_refused_by_prerequisites(governance.apply(&engine, &actor, &grants, &deny_view, None));
+
+    // Nobody relies on `doc.view` for `doc.edit` here, so the deny is just a deny.
+    let only_view = vec![allow("v", "ana", "doc.view")];
+    governance
+        .apply(&engine, &actor, &only_view, &deny_view, None)
+        .expect("no dependent holder");
+}
+
+#[test]
+fn revoking_a_role_checks_the_grants_that_come_by_principal_or_any() {
+    let engine = engine();
+    let governance = Governance::new().with(Prerequisites);
+    let actor = Subject::user("boss");
+    let viewers = Subject::user("ana").with_role("viewers").with_principal("staff");
+    let revoke = Mutation::RevokeRole {
+        subject: viewers,
+        role: themis::RoleAssignment {
+            role: "viewers".into(),
+            scope: None,
+        },
+    };
+    let on_projects = TargetSelector::kind("project");
+    for holder in [SubjectMatcher::principal("staff"), SubjectMatcher::Any] {
+        let grants = vec![
+            Grant::allow("v", SubjectMatcher::role("viewers"), "doc.view", on_projects.clone()),
+            Grant::allow("e", holder, "doc.edit", on_projects.clone()),
+        ];
+        // `ana` keeps `doc.edit` (by principal or `any`) but would lose `doc.view` with the role.
+        assert_refused_by_prerequisites(governance.apply(&engine, &actor, &grants, &revoke, None));
+    }
+}

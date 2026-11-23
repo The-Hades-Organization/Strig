@@ -811,8 +811,22 @@ fn unlocked<'a>(engine: &Engine, proposal: &Proposal<'a>) -> Vec<Conferred<'a>> 
 
 /// Holding a permission requires holding its `depends_on` prerequisites on the same resource.
 /// The change is refused when it would leave someone with a permission and without one of its
-/// prerequisites: adding the permission alone, removing the prerequisite, or assigning or
-/// revoking a role that carries them.
+/// prerequisites: adding the permission alone, adding a `deny` on the prerequisite, removing the
+/// prerequisite, or assigning or revoking a role that carries them.
+///
+/// The check is conservative and approximate, not a second decision engine:
+///
+/// - A grant is probed with a synthetic subject that only has what the grant's matcher selects (a
+///   user id, a role, a principal, or nothing for `any`). A role that confers `edit` without `view` is
+///   refused even if everyone who holds it also holds another role with `view`; to model that, give the
+///   prerequisite to the role itself. A relation matcher depends on tuples and is not probed.
+/// - A grant with a condition is probed as it evaluates for the synthetic subject. If the condition is
+///   false for it, the grant is not seen. The engine still denies the permission at decision time when the
+///   prerequisite is missing, so this never lets anything through.
+/// - On a role change, the grants of the subject come from its user id, its roles (each one, with its
+///   own scope), its principals and `any`; relation grants are not considered.
+/// - The cost grows with grants × permissions they confer × decisions: removing a grant or adding a
+///   `deny` walks every `allow` of the set, which is quadratic in large sets.
 pub struct Prerequisites;
 
 impl Prerequisites {
@@ -843,8 +857,8 @@ impl Prerequisites {
         Violation::new(self.name(), format!("{key} exige {prerequisite} no mesmo recurso"))
     }
 
-    /// Allow grants that `subject` (after the change) picks up through its user id or its roles,
-    /// each with the scope of the role assignment that carries it.
+    /// Allow grants that `subject` (after the change) picks up through its user id, each of its roles
+    /// (with the scope of the assignment that carries it), its principals, or `any`.
     fn grants_of<'g>(engine: &Engine, subject: &Subject, grants: &'g [Grant]) -> Vec<(&'g Grant, Option<Anchor>)> {
         let mut found = Vec::new();
         for grant in grants.iter().filter(|g| g.effect == Effect::Allow) {
@@ -853,19 +867,50 @@ impl Prerequisites {
                     found.push((grant, None));
                 }
                 SubjectMatcher::Role { id } => {
-                    let scope = subject
-                        .roles
-                        .iter()
-                        .find(|r| engine.roles().expand([r.role.as_str()]).contains(id))
-                        .map(|r| r.scope.clone());
-                    if let Some(scope) = scope {
-                        found.push((grant, scope));
+                    for assignment in &subject.roles {
+                        if engine.roles().expand([assignment.role.as_str()]).contains(id) {
+                            found.push((grant, assignment.scope.clone()));
+                        }
                     }
                 }
+                SubjectMatcher::Principal { name } if subject.principals.contains(name) => {
+                    found.push((grant, None));
+                }
+                SubjectMatcher::Any => found.push((grant, None)),
                 _ => {}
             }
         }
         found
+    }
+
+    /// The first `allow` of `after` that stands on a prerequisite the `changed` permission covers and
+    /// that is no longer fully held: the grant's holder has it without the prerequisite.
+    fn broken_by(
+        &self,
+        engine: &Engine,
+        proposal: &Proposal<'_>,
+        ctx: &Context<'_>,
+        changed: &str,
+    ) -> Result<(), Violation> {
+        for grant in proposal.after.iter().filter(|g| g.effect == Effect::Allow) {
+            let Some(subject) = matcher_subject(&grant.subject) else {
+                continue;
+            };
+            let resource = grant_resource(grant, None);
+            for key in conferred_keys(engine, &grant.permission) {
+                let relies = engine
+                    .catalog()
+                    .prerequisites(&key)
+                    .any(|p| engine.catalog().implies(changed, p));
+                if !relies {
+                    continue;
+                }
+                if let Some(p) = Self::missing(engine, ctx, &subject, &key, &resource) {
+                    return Err(self.violation(&key, &p));
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -877,6 +922,9 @@ impl Invariant for Prerequisites {
     fn check(&self, engine: &Engine, proposal: &Proposal<'_>) -> Result<(), Violation> {
         let ctx = proposal.after_context();
         match proposal.mutation {
+            Mutation::Add(grant) if grant.effect == Effect::Deny => {
+                self.broken_by(engine, proposal, &ctx, &grant.permission)
+            }
             Mutation::Add(grant) => {
                 let Some(subject) = matcher_subject(&grant.subject) else {
                     return Ok(());
@@ -890,30 +938,10 @@ impl Invariant for Prerequisites {
                 }
                 Ok(())
             }
-            Mutation::Remove { .. } => {
-                let Some(removed) = proposal.grant() else {
-                    return Ok(());
-                };
-                for grant in proposal.after.iter().filter(|g| g.effect == Effect::Allow) {
-                    let Some(subject) = matcher_subject(&grant.subject) else {
-                        continue;
-                    };
-                    let resource = grant_resource(grant, None);
-                    for key in conferred_keys(engine, &grant.permission) {
-                        let relies_on_removed = engine
-                            .catalog()
-                            .prerequisites(&key)
-                            .any(|p| engine.catalog().implies(&removed.permission, p));
-                        if !relies_on_removed {
-                            continue;
-                        }
-                        if let Some(p) = Self::missing(engine, &ctx, &subject, &key, &resource) {
-                            return Err(self.violation(&key, &p));
-                        }
-                    }
-                }
-                Ok(())
-            }
+            Mutation::Remove { .. } => match proposal.grant() {
+                Some(removed) => self.broken_by(engine, proposal, &ctx, &removed.permission),
+                None => Ok(()),
+            },
             Mutation::AssignRole { subject, .. } | Mutation::RevokeRole { subject, .. } => {
                 let after = proposal.subject_after(subject);
                 for (grant, scope) in Self::grants_of(engine, &after, proposal.after) {

@@ -42,7 +42,8 @@ pub struct PrerequisiteStep {
 }
 
 impl Explanation {
-    /// The grant that decided, if a grant did.
+    /// The grant that decided, if a grant did. `None` when the reason is an override or a missing
+    /// prerequisite: the grants listed are still the candidates, but none of them decided.
     pub fn decisive(&self) -> Option<&GrantTrace> {
         match &self.decision.reason {
             crate::Reason::Grant { grant_id, .. } => self
