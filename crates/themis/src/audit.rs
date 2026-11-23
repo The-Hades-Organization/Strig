@@ -23,7 +23,7 @@ use crate::explain::Explanation;
 use crate::governance::{Mutation, Violation};
 use crate::grant::{Effect, Grant, SubjectMatcher, TargetSelector};
 use crate::rebac::Tuple;
-use crate::resource::{Anchor, Resource};
+use crate::resource::{Anchor, ObjectRef, Resource};
 use crate::subject::{RoleAssignment, Subject};
 
 /// How much of each change is recorded. Each level includes everything from the previous one.
@@ -108,6 +108,14 @@ pub enum AuditAction {
     RoleRevoke,
     /// An access decision (`Engine::decide`), not a change.
     Decision,
+    /// An exclusive resource was acquired (`exclusive` feature).
+    ExclusiveAcquire,
+    /// An exclusive resource was taken from a lower-priority holder.
+    ExclusivePreempt,
+    /// The holder released an exclusive resource.
+    ExclusiveRelease,
+    /// An exclusive lease ran out of time.
+    ExclusiveExpire,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -569,6 +577,24 @@ impl Auditor {
         if self.level >= AuditLevel::Detailed {
             record.tuple = Some(tuple.clone());
         }
+        self.detail(&mut record, actor, meta);
+        self.emit(record)
+    }
+
+    /// Records a change of exclusive ownership of `resource` at `at` (milliseconds since the Unix
+    /// epoch, supplied by the caller instead of the auditor's clock). `meta` is kept from
+    /// `detailed` upward, like the other records.
+    pub fn exclusive(
+        &self,
+        actor: &Subject,
+        action: AuditAction,
+        resource: &ObjectRef,
+        outcome: AuditOutcome,
+        at: u64,
+        meta: &Attributes,
+    ) -> Result<AuditRecord, AuditError> {
+        let mut record = self.base(actor, action, resource.to_string(), outcome);
+        record.at = at;
         self.detail(&mut record, actor, meta);
         self.emit(record)
     }

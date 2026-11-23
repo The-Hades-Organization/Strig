@@ -19,6 +19,8 @@ name = "themis"
 default = ["audit"]
 ## Trilha de auditoria das mudanças de permissão, com níveis de detalhe e cadeia de hashes.
 audit = ["dep:sha2"]
+## Posse exclusiva de recurso com prioridade, preempção e prazo.
+exclusive = []
 
 [dependencies]
 serde.workspace = true
