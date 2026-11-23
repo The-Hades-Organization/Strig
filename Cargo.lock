@@ -6626,6 +6626,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "themis-server"
+version = "0.3.1"
+dependencies = [
+ "async-trait",
+ "axum",
+ "futures-util",
+ "http-body-util",
+ "hyper-util",
+ "serde",
+ "serde_json",
+ "themis-auth",
+ "thiserror 2.0.21",
+ "tokio",
+ "tower",
+ "tracing",
+]
+
+[[package]]
 name = "themis-sync"
 version = "0.3.1"
 dependencies = [

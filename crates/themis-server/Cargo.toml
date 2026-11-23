@@ -1,0 +1,36 @@
+[package]
+name = "themis-server"
+description = "Fail-closed HTTP decision service for Themis, with a Rust client that has a circuit breaker."
+keywords = ["authorization", "axum", "http", "decision", "circuit-breaker"]
+categories = ["authentication", "web-programming::http-server"]
+readme = "../../README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[features]
+default = ["client"]
+## Rust client: per-call timeout, circuit breaker and fail-closed answers.
+client = ["dep:hyper-util", "dep:http-body-util"]
+
+[dependencies]
+themis.workspace = true
+async-trait.workspace = true
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "sync"] }
+futures-util.workspace = true
+tracing = "0.1"
+hyper-util = { version = "0.1", optional = true, default-features = false, features = ["client-legacy", "http1", "tokio"] }
+http-body-util = { version = "0.1", optional = true }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "test-util"] }
+tower = { version = "0.5", features = ["util"] }
