@@ -39,6 +39,9 @@ pub enum Reason {
     NoApplicableGrant,
     /// The requested permission is not in the catalog.
     UnknownPermission,
+    /// The permission would be allowed, but a prerequisite (`depends_on`) is not allowed on the
+    /// same resource.
+    MissingPrerequisite { permission: String, prerequisite: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
