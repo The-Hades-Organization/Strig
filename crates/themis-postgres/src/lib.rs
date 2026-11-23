@@ -24,6 +24,7 @@
 //! TLS: [`PgTransport::with_tls`] accepts any `tokio-postgres` connector
 //! (`postgres-native-tls`, `tokio-postgres-rustls`).
 
+pub mod query;
 mod window;
 
 pub use window::{InstantOutOfRange, WindowColumns, WindowPredicate, candidate_predicate, window_predicate};

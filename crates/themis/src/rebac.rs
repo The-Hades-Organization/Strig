@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -75,6 +75,31 @@ impl<T: TupleStore + ?Sized> TupleStore for &T {
     }
 }
 
+/// A [`TupleStore`] that can also be walked from the other side: every object of a kind, and every
+/// subject of an object. The reverse queries of [`RelationSchema`] (which objects a subject
+/// reaches, who reaches an object) are built on these two methods; a database implementation
+/// answers each with one indexed query.
+pub trait TupleIndex: TupleStore {
+    /// Objects of `kind` that appear as the object of at least one tuple. May repeat an object.
+    ///
+    /// Every derivation of a relation bottoms out in a tuple written on the object itself, so an
+    /// object missing here has no relation at all.
+    fn visit_objects(&self, kind: &str, visitor: &mut dyn FnMut(&ObjectRef));
+
+    /// Every `(relation, subject)` written on `object`.
+    fn visit_subjects(&self, object: &ObjectRef, visitor: &mut dyn FnMut(&str, &TupleSubject));
+}
+
+impl<T: TupleIndex + ?Sized> TupleIndex for &T {
+    fn visit_objects(&self, kind: &str, visitor: &mut dyn FnMut(&ObjectRef)) {
+        (**self).visit_objects(kind, visitor);
+    }
+
+    fn visit_subjects(&self, object: &ObjectRef, visitor: &mut dyn FnMut(&str, &TupleSubject)) {
+        (**self).visit_subjects(object, visitor);
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct InMemoryTuples {
     map: HashMap<(ObjectRef, String), Vec<TupleSubject>>,
@@ -129,6 +154,22 @@ impl TupleStore for InMemoryTuples {
         if let Some(subjects) = self.map.get(&(object.clone(), relation.to_string())) {
             for subject in subjects {
                 visitor(subject);
+            }
+        }
+    }
+}
+
+impl TupleIndex for InMemoryTuples {
+    fn visit_objects(&self, kind: &str, visitor: &mut dyn FnMut(&ObjectRef)) {
+        for (object, _) in self.map.keys().filter(|(object, _)| object.kind == kind) {
+            visitor(object);
+        }
+    }
+
+    fn visit_subjects(&self, object: &ObjectRef, visitor: &mut dyn FnMut(&str, &TupleSubject)) {
+        for ((o, relation), subjects) in &self.map {
+            if o == object {
+                subjects.iter().for_each(|s| visitor(relation, s));
             }
         }
     }
@@ -242,6 +283,140 @@ impl RelationSchema {
             visiting: HashSet::new(),
         }
         .relation(object, relation, 0)
+    }
+
+    /// Objects of `kind` on which `subject` has `relation`, usersets and rewrites included.
+    ///
+    /// Candidates come from [`TupleIndex::visit_objects`] and each one goes through
+    /// [`RelationSchema::check`], so the answer is exactly what `check` would say object by object.
+    /// A candidate whose derivation exceeds `max_depth` is reported in the second list instead of
+    /// being silently dropped.
+    pub fn objects_with(
+        &self,
+        index: &dyn TupleIndex,
+        kind: &str,
+        relation: &str,
+        subject: &ObjectRef,
+        max_depth: usize,
+    ) -> (BTreeSet<ObjectRef>, BTreeSet<ObjectRef>) {
+        let mut candidates = BTreeSet::new();
+        index.visit_objects(kind, &mut |o| {
+            candidates.insert(o.clone());
+        });
+        let mut holds = BTreeSet::new();
+        let mut failed = BTreeSet::new();
+        for object in candidates {
+            match self.check(index, &object, relation, subject, max_depth) {
+                Ok(true) => {
+                    holds.insert(object);
+                }
+                Ok(false) => {}
+                Err(_) => {
+                    failed.insert(object);
+                }
+            }
+        }
+        (holds, failed)
+    }
+
+    /// Subjects that may hold `relation` on `object`: the direct subjects of the relation, the ones
+    /// of the relations it is computed from and the ones of the parents it follows. Usersets stay
+    /// as usersets (`group:9#member` is reported as such, not expanded into its members).
+    ///
+    /// This is a superset when the relation uses an exclusion or an intersection: confirm a given
+    /// subject with [`RelationSchema::check`].
+    ///
+    /// # Errors
+    ///
+    /// [`RebacError::DepthExceeded`] when the derivation is deeper than `max_depth`.
+    pub fn subjects_of(
+        &self,
+        index: &dyn TupleIndex,
+        object: &ObjectRef,
+        relation: &str,
+        max_depth: usize,
+    ) -> Result<Vec<TupleSubject>, RebacError> {
+        let mut out = Vec::new();
+        let mut visiting = HashSet::new();
+        self.collect_subjects(index, object, relation, 0, max_depth, &mut visiting, &mut out)?;
+        Ok(out)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn collect_subjects(
+        &self,
+        index: &dyn TupleIndex,
+        object: &ObjectRef,
+        relation: &str,
+        depth: usize,
+        max_depth: usize,
+        visiting: &mut HashSet<(ObjectRef, String)>,
+        out: &mut Vec<TupleSubject>,
+    ) -> Result<(), RebacError> {
+        if depth > max_depth {
+            return Err(RebacError::DepthExceeded(max_depth));
+        }
+        let key = (object.clone(), relation.to_string());
+        if !visiting.insert(key.clone()) {
+            return Ok(());
+        }
+        let result = self.collect_rewrite(
+            index,
+            self.rewrite(&object.kind, relation),
+            object,
+            relation,
+            depth,
+            max_depth,
+            visiting,
+            out,
+        );
+        visiting.remove(&key);
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn collect_rewrite(
+        &self,
+        index: &dyn TupleIndex,
+        rewrite: &Rewrite,
+        object: &ObjectRef,
+        relation: &str,
+        depth: usize,
+        max_depth: usize,
+        visiting: &mut HashSet<(ObjectRef, String)>,
+        out: &mut Vec<TupleSubject>,
+    ) -> Result<(), RebacError> {
+        match rewrite {
+            Rewrite::This => {
+                index.visit(object, relation, &mut |s| {
+                    if !out.contains(s) {
+                        out.push(s.clone());
+                    }
+                });
+                Ok(())
+            }
+            Rewrite::Computed { relation: other } => {
+                self.collect_subjects(index, object, other, depth + 1, max_depth, visiting, out)
+            }
+            Rewrite::TupleToUserset { tupleset, computed } => {
+                let mut parents = Vec::new();
+                index.visit(object, tupleset, &mut |s| parents.push(s.clone()));
+                for parent in parents {
+                    let (TupleSubject::Object(p) | TupleSubject::Userset(p, _)) = parent;
+                    self.collect_subjects(index, &p, computed, depth + 1, max_depth, visiting, out)?;
+                }
+                Ok(())
+            }
+            Rewrite::Union { of } | Rewrite::Intersection { of } => {
+                for rw in of {
+                    self.collect_rewrite(index, rw, object, relation, depth, max_depth, visiting, out)?;
+                }
+                Ok(())
+            }
+            Rewrite::Exclusion { base, .. } => {
+                self.collect_rewrite(index, base, object, relation, depth, max_depth, visiting, out)
+            }
+        }
     }
 }
 
