@@ -29,6 +29,8 @@ The core does no IO, does not depend on an async runtime and compiles to WebAsse
 | `themis-postgres` | `Transport` over Postgres `LISTEN/NOTIFY`, with the notice sent inside the transaction | `tokio-postgres` |
 | `themis-axum` | axum SSE and WebSocket routes over the `themis-sync` sessions | `axum` |
 | `themis-inspect` | Inspector: the trace of each decision, grant simulation, access matrix and audit trail reading. Optional gpui window (`gui` feature) and terminal commands | `gpui-pre`, `gpui-component` |
+| `themis-server` | HTTP decision server over an `Engine` and a grant source, and a Rust client with timeout and circuit breaker that denies when it gets no answer | `axum`, `hyper-util` (client) |
+| `themis-macros` | `policy!` and `include_policy!`: a policy written in the DSL is validated while the crate compiles | `themis-auth` |
 | `themis-node` | JS bindings: native module (N-API) for Node and Bun, WebAssembly for the browser, real-time client and server in JS | `napi` or `wasm-bindgen` |
 
 Depend on it from another crate:
@@ -137,9 +139,44 @@ governance.apply_with(&engine, &actor, &current, &change, None, &request_meta)?;
 let bob = change.subject_after().expect("role change"); // persist bob's roles
 ```
 
-`Forbid` applies to a role assignment only when it targets a user, and it ignores scope. The library does not stop an actor who holds the required permission from giving someone else a stronger role than their own; that rule belongs in an `Invariant` of your own.
+`Forbid` applies to a role assignment only when it targets a user, and it ignores scope. `NoEscalation` keeps an actor from handing out what they do not hold: an `allow` grant or a role assignment is refused unless the actor holds every permission it confers, and each one it implies, where it would apply. See [Catalog governance](#catalog-governance).
 
 Add your own rule by implementing `Invariant`. The list can also come from JSON (`InvariantSpec`).
+
+## Catalog governance
+
+The catalog carries the rules that governance enforces, so they live next to the permission they protect:
+
+| Flag on `PermissionDef` | Effect |
+|---|---|
+| `depends_on` | Holding the permission requires holding each listed one on the same resource (`Prerequisites`). |
+| `non_delegable` | Not delegable by whoever merely holds it: only a manager hands it out. |
+| `management_only` | Grantable only to management roles. |
+| `override_only` | Valid only through an override: a plain grant of it does not count. |
+
+`NoEscalation` completes the set: an actor hands out only what they hold, so holding `org.roles.edit` is not a way to give someone a stronger role than your own. `NoLockout` can carry a reserve (`with_reserve`): when a change would leave a critical permission without a holder, the `Violation` brings a `Suggestion` with the role assignment that fixes it. Nothing is applied; the suggestion is also in the audit record. `RoleTemplate::materialize` turns a template of grants into ordinary grants, with the template id and version in the change metadata and no live link back.
+
+```rust
+let catalog = Catalog::builder()
+    .target_kind("project")
+    .permission(PermissionDef::new("project.view").targets(["project"]))
+    .permission(PermissionDef::new("project.edit").targets(["project"]).depends_on(["project.view"]))
+    .permission(PermissionDef::new("project.share").targets(["project"]).non_delegable())
+    .permission(PermissionDef::new("project.purge").targets(["project"]).override_only())
+    .build()?;
+let engine = Engine::builder(catalog).build()?;
+
+let governance = Governance::new()
+    .with(CatalogConformance)
+    .with(Prerequisites)
+    .with(NoEscalation::new());
+
+// `lead` holds `project.edit` only, so handing out `project.view` is an escalation.
+let current = vec![Grant::allow("l", SubjectMatcher::user("lead"), "project.edit", TargetSelector::kind("project"))];
+let handout = Mutation::Add(Grant::allow("a", SubjectMatcher::user("ana"), "project.view", TargetSelector::kind("project")));
+let refused = governance.apply(&engine, &Subject::user("lead"), &current, &handout, None).unwrap_err();
+assert_eq!(refused[0].invariant, "no_escalation");
+```
 
 ## Auditing
 
@@ -177,6 +214,56 @@ The forensic trace grows with the number of grants the source returns per decisi
 
 At the `forensic` level, each record carries the hash of the previous one. `audit::verify_chain` detects an edited or removed record. `Auditor::resume_chain` continues the chain after a restart.
 
+## Validity windows
+
+`Grant::valid_between(from, until)` (or `valid_from` and `valid_until`) limits a grant in time, in milliseconds since the Unix epoch. The window is closed at the start and open at the end. The instant comes from the caller: `Context::at(now)` for decisions and `Governance::at(now)` for changes. Without an instant, a grant with a window does not apply, so a missing clock fails closed. `CapabilityCache` cuts its entries at the next boundary, and a job removes the expired grants.
+
+```rust
+let grant = Grant::allow("w", SubjectMatcher::user("ana"), "project.view", TargetSelector::kind("project"))
+    .valid_between(1_000, 2_000);
+let grants = vec![grant];
+let ana = Subject::user("ana");
+let project = Resource::new("project", "p1");
+let request = Request::new(&ana, "project.view", &project);
+
+assert!(engine.check(&Context::new(&grants).at(1_500), &request));
+assert!(!engine.check(&Context::new(&grants).at(2_000), &request));
+assert!(!engine.check(&Context::new(&grants), &request));
+```
+
+## Reverse queries and filtered listing
+
+Instead of asking "may this subject do this?", ask who can, or what a subject can reach. `QueryContext` carries the grants (and `.at(now)`); `QueryLimits` bounds the work and `PgTables` maps the same questions to SQL.
+
+| Call | Answers |
+|---|---|
+| `engine.list(&qctx, &subject, permission, kind)` | An `AccessFilter` for the resources of that kind the subject can reach, to turn into a `WHERE`. |
+| `engine.who_can(&qctx, permission)` | The subjects that hold the permission. |
+| `engine.who_can_on(..)` | The same, on one resource. |
+| `engine.access_of(..)` | Every permission a subject has on a resource. |
+| `engine.check_for(..)` | A check on behalf of a subject reference. |
+
+```rust
+let qctx = QueryContext::new(&grants).at(1_500);
+let filter = engine.list(&qctx, &ana, "project.view", "project");
+let who = engine.who_can(&qctx, "project.view");
+assert_eq!(who, vec![SubjectRef::User { id: "ana".into() }]);
+```
+
+## Exclusive resources
+
+With the `exclusive` feature, a resource can have one holder at a time. `Terms::new(priority, lease_ms)` states how strong the claim is and for how long; a higher priority takes the resource over only when the claimant also holds `exclusive.preempt`. Permissions and time are checked by the same engine as any other decision.
+
+```rust
+let mut registry = ExclusiveRegistry::default();
+let now = 0; // milliseconds since the Unix epoch, passed by the caller
+let first = registry.acquire_checked(&engine, &ctx, &ana, &document, Terms::new(1, 60_000), now)?;
+assert_eq!(first, Acquisition::Granted);
+
+let second = registry.acquire_checked(&engine, &ctx, &bob, &document, Terms::new(9, 60_000), now + 10)?;
+assert!(matches!(second, Acquisition::Preempted { .. }));
+```
+
 ## Real time
 
 ```text
@@ -208,6 +295,31 @@ Transports:
 
 Client protocol (JSON, identical over SSE and WebSocket): the server sends `hello`, `capabilities`, `change`, `resync`, `error` and `ping`; the client sends `watch`, `unwatch` and `refresh` (WebSocket only). To use another HTTP framework, forward the stream from `Session::open` and write each message with `ServerMessage::to_sse` or `to_json`.
 
+## Decision server and remote client
+
+`themis-server` answers decisions over HTTP, for services that do not embed the engine. `DecisionServer::router()` returns an axum `Router` with `POST /v1/check`, `/v1/check/batch`, `/v1/list`, `/v1/who` and `/v1/access`, plus `GET /health/live` and `/health/ready`. The server reads the grants through a `DecisionSource`; `MemorySource` holds a `Snapshot` you can `replace`. The time of a decision is the server's clock. The contract is in [`crates/themis-server/API.md`](crates/themis-server/API.md).
+
+```rust
+let source = Arc::new(MemorySource::new(Snapshot::new(engine, grants)));
+let router = DecisionServer::new(source).router();
+let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
+axum::serve(listener, router).await?;
+```
+
+The client fails closed: only a `200` is an answer. A timeout, a refused connection, a `503` or an answer it cannot read becomes `ClientDecision::Denied` with the reason, and a circuit breaker stops calling a server that keeps failing.
+
+```rust
+let config = ClientConfig::default()
+    .with_timeout(Duration::from_millis(250))
+    .with_breaker(BreakerConfig::default().with_failure_threshold(5).with_open_for(Duration::from_secs(10)));
+let client = Client::http("http://127.0.0.1:8080", config);
+
+let request = CheckRequest::new(Subject::user("alice"), "document.view", Resource::new("document", "d1"));
+if client.check(&request).await.is_allowed() {
+    // serve the document
+}
+```
+
 ## JavaScript: Node, Bun and the browser
 
 Install with `npm install themis-auth`. The package lives in `crates/themis-node/js`. `scripts/build.sh` builds the native module (`js/native/themis.<platform>-<arch>.node`) and the WebAssembly (`js/wasm/`).
@@ -235,7 +347,75 @@ client.can('document.edit', resource);
 
 **JS backend** (`/server`). `Hub`, `openSession`, `sseResponse` (Fetch API: Bun.serve, Hono, Deno), `pipeSse` (Node's `http`) and the `redisTransport` (node-redis and Bun's `RedisClient`), `ioredisTransport` and `pgTransport` (`pg` package) transports. Notices share the `themis-sync` format, so Rust and JS instances exchange changes over the same channel.
 
+**Web frameworks.** Express, Fastify and NestJS decide on each route with the same options. `subject(req)` returns the subject (nothing means `401`), `resource(req)` the resource, and exactly one of `local: { engine, context, now }` or `remote: RemoteClient` says where the decision comes from. A deny is `403`, a failure to decide is `503`, and an error in your extractor is `500` with no detail, never a pass. `denyStatus`, `failureStatus`, `unauthenticatedStatus`, `errorStatus` and `onError` change that.
+
+```js
+import { load, scopeFromString } from 'themis-auth';
+import { authorize } from 'themis-auth/express';
+
+const { Engine, Context } = await load();
+const options = {
+  subject: (req) => (req.headers['x-user'] ? { kind: 'user', id: req.headers['x-user'] } : undefined),
+  resource: (req) => scopeFromString(`document:${req.params.id}/org:o1`),
+  local: { engine: new Engine(spec), context: new Context({ grants }), now: () => Date.now() },
+};
+
+app.get('/doc/:id', authorize({ ...options, permission: 'document.view' }), handler);
+```
+
+- **Fastify** (`themis-auth/fastify`): the same `authorize`, and `plugin`, which adds `fastify.themisCan`.
+- **NestJS** (`themis-auth/nestjs`): `@Can('document.view')` on a handler or a controller, and `new ThemisGuard(options)` as the guard. Express, Fastify and NestJS are optional peer dependencies; the integration you do not import costs nothing, and a missing peer raises `MissingPeerError`.
+- **Remote** (`themis-auth/remote`): `RemoteClient` talks to a decision server, with timeout and breaker, and denies when there is no answer. Pass it as `remote` instead of `local`.
+
+```js
+import { RemoteClient } from 'themis-auth/remote';
+const remote = new RemoteClient({ url: 'http://127.0.0.1:8080', timeoutMs: 250 });
+const { allowed } = await remote.check({ subject, permission: 'document.view', resource });
+```
+
 Binding limits: custom condition functions (`call`) and custom overrides exist only in Rust. The JSON spec covers the built-in overrides (`resource_owner`, `permission_holder`).
+
+## Policy language
+
+A policy can be written as text instead of JSON, in the `dsl` feature of `themis-auth`. There are three syntaxes for the same policy: Blocks, Rules and Actors, and `convert` moves between them. Every error carries a position and a hint, and the validated JSON stays the source of truth. The full guide, with the three syntaxes side by side and the grammar, is in [docs/dsl.md](docs/dsl.md).
+
+```rust
+use themis::dsl::{self, Language};
+
+const SOURCE: &str = "language blocks
+
+target_kinds = [org]
+
+permission org.read {
+  targets = [org]
+}
+";
+
+let parsed = dsl::parse("policy.themis", SOURCE)?;
+let json = parsed.policy.to_json()?;
+let as_rules = dsl::convert(SOURCE, Language::Rules)?;
+```
+
+With `dsl-fs`, `themis::dsl::fs::read_dir` reads every `*.themis` file of a directory into a `Project`, and `write_file` writes a policy back.
+
+## Macros
+
+`policy!` and `include_policy!` (crate `themis-macros`) check the policy while the crate compiles: a policy that does not validate does not build. They are not behind a `themis-auth` feature, because the macros use the parser and a re-export would make a package cycle.
+
+```rust
+use themis_macros::{include_policy, policy};
+
+let inline: themis::dsl::Policy = policy!(r#"
+language blocks
+
+target_kinds = [org]
+
+permission org.read {
+  targets = [org]
+}
+"#);
+let from_file: themis::dsl::Policy = include_policy!("policies/main.themis");
+```
 
 ## Inspector (`themis-inspect`)
 
