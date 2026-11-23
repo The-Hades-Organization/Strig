@@ -1,10 +1,10 @@
 language actors
 
+role reviewer inherits viewer
+
 role viewer
   in org:acme
     allow doc.read on doc as g-read
-
-role reviewer inherits viewer
 
 subject user:bob
   role viewer in org:acme from 2026-01-01
@@ -15,7 +15,7 @@ subject user:bob
 subject team:ops
 
 catalog
-  kinds org, doc
+  kinds doc, org
   doc.read on doc
 
 relations

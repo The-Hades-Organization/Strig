@@ -29,7 +29,7 @@ fn a_directory_with_the_three_syntaxes_builds_one_policy() {
         .unwrap()
         .build()
         .unwrap_or_else(|errors| panic!("{errors}"));
-    assert_eq!(built.policy.catalog.target_kinds, ["org", "doc"]);
+    assert_eq!(built.policy.catalog.target_kinds, ["doc", "org"]);
     assert_eq!(built.policy.catalog.permissions.len(), 1);
     assert_eq!(built.policy.roles.len(), 1);
 }

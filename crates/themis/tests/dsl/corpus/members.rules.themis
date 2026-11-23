@@ -1,11 +1,11 @@
 language rules
 
-kinds org, doc
+kinds doc, org
 
 permission doc.read on doc
 
-role viewer
 role reviewer inherits viewer
+role viewer
 
 user:bob has role viewer in org:acme from 2026-01-01
 user:bob has role reviewer

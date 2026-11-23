@@ -20,11 +20,11 @@ permission project.write {
   depends_on = [org.read]  // never alone
 }
 
-role editor {
-}
-
 role admin {
   inherits = [editor]
+}
+
+role editor {
 }
 
 subject user:ana {
@@ -88,7 +88,7 @@ fn every_comment_becomes_a_note_with_its_anchor_and_origin() {
                 "permission:org.read",
                 Placement::Before
             ),
-            ("never alone", "permission:project.write", Placement::Inline),
+            ("never alone", "permission:project.write", Placement::Inside),
         ]
     );
     let origin = &policy.notes[1].origin;
@@ -133,7 +133,7 @@ fn json_has_the_notes_field() {
     let json: serde_json::Value = serde_json::from_str(&parsed().to_json().unwrap()).unwrap();
     let notes = json["notes"].as_array().unwrap();
     assert_eq!(notes.len(), 3);
-    assert_eq!(notes[2]["anchor"]["placement"], "inline");
+    assert_eq!(notes[2]["anchor"]["placement"], "inside");
     assert_eq!(notes[0]["origin"]["language"], "blocks");
 }
 
@@ -147,7 +147,7 @@ fn printing_twice_gives_the_same_text() {
 const FULL: &str = "\
 language blocks
 
-target_kinds = [org, doc]
+target_kinds = [doc, org]
 broad_targets = [org]
 max_depth = 4
 

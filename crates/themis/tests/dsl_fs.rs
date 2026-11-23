@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use themis::dsl::fs::{FsError, MAX_FILES, read_dir, read_file, write_file};
 use themis::dsl::{Language, MAX_SOURCE_BYTES};
 
-const KINDS: &str = "language blocks\n\ntarget_kinds = [org, doc]\n";
+const KINDS: &str = "language blocks\n\ntarget_kinds = [doc, org]\n";
 const READ: &str = "language blocks\n\npermission doc.read {\n  targets = [doc]\n}\n";
 
 /// A directory of its own under the system temporary directory, removed when dropped.
@@ -91,7 +91,7 @@ fn a_directory_becomes_a_project_in_alphabetical_order() {
     let built = project.build().unwrap();
     let at = built.origins.get("permission:doc.read").unwrap();
     assert!(at.file.ends_with("b-read.themis"));
-    assert_eq!(built.policy.catalog.target_kinds, ["org", "doc"]);
+    assert_eq!(built.policy.catalog.target_kinds, ["doc", "org"]);
 }
 
 #[test]

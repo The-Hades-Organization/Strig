@@ -109,6 +109,13 @@ pub(crate) fn parse_unvalidated(file: &str, text: &str) -> Result<Parsed, Diagno
         let found = lexed.errors.into_iter().map(|raw| raw.locate(&file)).collect();
         return Err(Diagnostics::new(error::capped(found, lexed.hidden)));
     }
+    // The column each line starts at, for telling comments indented under an element.
+    let indents: std::collections::HashMap<u32, u32> = lexed
+        .tokens
+        .iter()
+        .filter(|t| t.bol)
+        .map(|t| (t.span.line, t.span.col))
+        .collect();
     let mut cursor = Cursor::new(lexed.tokens);
     let language = match header(&mut cursor) {
         Ok(found) => found,
@@ -122,7 +129,7 @@ pub(crate) fn parse_unvalidated(file: &str, text: &str) -> Result<Parsed, Diagno
         Language::Rules => rules::parse(&mut cursor, &mut builder),
         Language::Actors => actors::parse(&mut cursor, &mut builder),
     }
-    let (policy, origins, found) = builder.finish(&lexed.comments);
+    let (policy, origins, found) = builder.finish(&lexed.comments, &indents);
     if !found.is_empty() {
         return Err(Diagnostics::new(found));
     }

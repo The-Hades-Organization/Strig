@@ -13,13 +13,14 @@ user ana
   attr active = true
   attr dept = "legal"
   attr level = 3
-  allow document.view on document:spec as g-user  // one document
+  allow document.view on document:spec as g-user
+    // one document
 
 principal ana
   allow document.view on project as g-principal
 
 catalog
-  kinds project, document
+  kinds document, project
   document.view on project, document
   document.edit on project, document implied by document.view
 

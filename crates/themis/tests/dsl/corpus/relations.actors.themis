@@ -6,7 +6,7 @@ relation viewer
 role viewer
 
 catalog
-  kinds org, doc
+  kinds doc, org
   doc.read on doc
 
 relations
@@ -16,9 +16,9 @@ relations
   org#member = this
 
 tuples
+  org:acme#member@user:ana
   doc:d1#owner@user:bob
   doc:d1#viewer@org:acme#member  // the whole organization
-  org:acme#member@user:ana
 
 engine
   depth 4

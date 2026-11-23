@@ -1,6 +1,6 @@
 language rules
 
-kinds org, doc
+kinds doc, org
 depth 4
 
 permission doc.read on doc
@@ -14,6 +14,6 @@ relation doc#owner = this
 relation doc#viewer = this | owner
 relation org#member = this
 
+tuple org:acme#member@user:ana
 tuple doc:d1#owner@user:bob
 tuple doc:d1#viewer@org:acme#member  // the whole organization
-tuple org:acme#member@user:ana

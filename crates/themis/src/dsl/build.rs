@@ -1,7 +1,7 @@
 //! What every syntax builds into: the policy under construction, the positions of its elements,
 //! the errors found so far and the extents that anchor the comments of the source.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::dsl::error::{Diagnostic, Location, MAX_DIAGNOSTICS, Raw, Span, capped};
@@ -126,27 +126,39 @@ impl Builder {
     }
 
     /// Hands out the result: the diagnostics sorted by position, and the comments anchored.
-    pub fn finish(mut self, comments: &[Comment]) -> (Policy, Origins, Vec<Diagnostic>) {
-        self.policy.notes = self.anchor_notes(comments);
-        // Stable: the comments of one anchor keep the order they were written in, and the order
-        // of the anchors no longer depends on how the syntax lays the elements out.
-        self.policy.notes.sort_by(|a, b| a.anchor.cmp(&b.anchor));
+    ///
+    /// `indents` is the column each line starts at, to tell a comment indented under an element
+    /// from one beside it.
+    pub fn finish(mut self, comments: &[Comment], indents: &HashMap<u32, u32>) -> (Policy, Origins, Vec<Diagnostic>) {
+        self.policy.notes = self.anchor_notes(comments, indents);
+        // Canonical order: the comments of one anchor keep the order they were written in, and the
+        // order of everything else no longer depends on how the syntax lays the elements out.
+        self.policy = std::mem::take(&mut self.policy).canonical();
         let mut diagnostics = self.diagnostics;
         diagnostics.sort_by_key(|d| d.location.as_ref().map(|at| (at.line, at.column)));
         (self.policy, self.origins, capped(diagnostics, self.hidden))
     }
 
-    fn anchor_notes(&self, comments: &[Comment]) -> Vec<Note> {
+    fn anchor_notes(&self, comments: &[Comment], indents: &HashMap<u32, u32>) -> Vec<Note> {
         let index = Index::new(&self.extents);
         let mut notes = Vec::new();
+        // The elements that already have their one comment on the opening line.
+        let mut inlined: HashSet<String> = HashSet::new();
         let mut at = 0;
         while let Some(comment) = comments.get(at) {
             if !comment.own_line {
                 at += 1;
                 let anchor = index
                     .inline_anchor(&self.extents, comment.span.line)
-                    .or_else(|| index.own_line_anchor(&self.extents, comment.span.line, comment.span.line));
-                notes.extend(anchor.map(|a| self.note(comment, a)));
+                    .or_else(|| index.own_line_anchor(&self.extents, comment.span.line, comment.span.line, false));
+                notes.extend(anchor.map(|(mut a, field)| {
+                    // Only the first comment on the line that opens an element is `inline`; one on
+                    // a field of it, or a second one, sits inside it.
+                    if a.placement == Placement::Inline && (field.is_some() || !inlined.insert(a.element.clone())) {
+                        a.placement = Placement::Inside;
+                    }
+                    self.note(comment, (a, field))
+                }));
                 continue;
             }
             // A run of comment lines with no gap is anchored together.
@@ -158,11 +170,26 @@ impl Builder {
             {
                 end += 1;
             }
-            let first = comments[start].span.line;
             let last = comments[end].span.line;
-            let anchor = index.own_line_anchor(&self.extents, first, last);
-            for comment in &comments[start..=end] {
-                notes.extend(anchor.clone().map(|a| self.note(comment, a)));
+            // Outside Blocks, lines indented under the element they follow belong inside it.
+            let mut from = start;
+            if self.language != Language::Blocks
+                && let Some((p, next)) = index.glued_around(&self.extents, comments[start].span.line, last)
+            {
+                // Deeper than the element above, and than the one right below, if there is one:
+                // a comment at the indentation of the next element is a comment above it.
+                let indent_of = |at: usize| indents.get(&self.extents[at].first).copied().unwrap_or(1);
+                let indent = indent_of(p).max(next.map_or(0, indent_of));
+                while from <= end && comments[from].span.col > indent {
+                    notes.push(self.note(&comments[from], anchor(&self.extents[p].id, Placement::Inside)));
+                    from += 1;
+                }
+            }
+            if from <= end {
+                let anchor = index.own_line_anchor(&self.extents, comments[from].span.line, last, from > start);
+                for comment in &comments[from..=end] {
+                    notes.extend(anchor.clone().map(|a| self.note(comment, a)));
+                }
             }
             at = end + 1;
         }
@@ -248,15 +275,31 @@ impl Index {
         }
     }
 
+    /// The element the lines `first..=last` hang right below, if there is one, and the one that
+    /// starts on the line right under them.
+    fn glued_around(&self, extents: &[Extent], first: u32, last: u32) -> Option<(usize, Option<usize>)> {
+        let container = self.container(extents, first, last);
+        let siblings = &self.children[container.unwrap_or(extents.len())];
+        let before = siblings.partition_point(|at| extents[*at].last < first);
+        let at = *siblings.get(before.checked_sub(1)?)?;
+        if extents[at].last + 1 != first {
+            return None;
+        }
+        let after = siblings.partition_point(|at| extents[*at].first <= last);
+        let next = siblings.get(after).copied().filter(|n| extents[*n].first == last + 1);
+        Some((at, next))
+    }
+
     /// Comments on their own lines `first..=last`: they stay with the element they touch.
-    fn own_line_anchor(&self, extents: &[Extent], first: u32, last: u32) -> Option<Anchored> {
+    /// `chained` says the lines hang below the element through comments that were already placed.
+    fn own_line_anchor(&self, extents: &[Extent], first: u32, last: u32, chained: bool) -> Option<Anchored> {
         let container = self.container(extents, first, last);
         let siblings = &self.children[container.unwrap_or(extents.len())];
         let before = siblings.partition_point(|at| extents[*at].last < first);
         let previous = before.checked_sub(1).map(|i| &extents[siblings[i]]);
         let after = siblings.partition_point(|at| extents[*at].first <= last);
         let next = siblings.get(after).map(|at| &extents[*at]);
-        let glued_above = previous.is_some_and(|p| p.last + 1 == first);
+        let glued_above = chained || previous.is_some_and(|p| p.last + 1 == first);
         let blank_below = next.is_none_or(|n| n.first != last + 1);
         match (previous, next) {
             (Some(p), _) if glued_above && blank_below => Some(anchor(&p.id, Placement::After)),

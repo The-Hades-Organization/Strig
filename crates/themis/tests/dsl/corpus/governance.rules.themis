@@ -1,6 +1,6 @@
 language rules
 
-kinds org, doc
+kinds doc, org
 
 permission doc.read on doc
 permission doc.edit on doc implied by doc.read non-delegable
