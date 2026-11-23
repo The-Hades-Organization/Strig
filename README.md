@@ -398,6 +398,46 @@ let as_rules = dsl::convert(SOURCE, Language::Rules)?;
 
 With `dsl-fs`, `themis::dsl::fs::read_dir` reads every `*.themis` file of a directory into a `Project`, and `write_file` writes a policy back.
 
+### Policy language in Node
+
+The same language is in the JavaScript binding, native and WebAssembly, behind `load()`. The policy is the canonical JSON, with the comments in `notes`, and it is the same for the three syntaxes.
+
+```js
+import { load } from 'themis-auth';
+const themis = await load();
+
+const source = `language blocks
+
+target_kinds = [org]
+
+permission org.read {
+  targets = [org]
+}
+`;
+
+const policy = themis.compile(source, { file: 'policy.themis' }); // canonical JSON
+const rules = themis.print(policy, 'rules'); // 'blocks' | 'rules' | 'actors'
+const actors = themis.convert(source, 'actors'); // text to text
+const merged = themis.loadProject([
+  { path: 'org.themis', text: source },
+  { path: 'team.themis', text: themis.convert(source.replaceAll('org', 'team'), 'actors') },
+]);
+const fromDisk = themis.loadProjectDir?.('./policy'); // native module only
+```
+
+- `loadProjectDir(dir)` exists only on the native module, because the WebAssembly build has no file access. It reads the `*.themis` files of the directory and refuses a policy file that is a symbolic link. `dir` itself must come from a trusted source.
+- Every failure is an `Error` with a `code` that is the same on both targets: `DSL_PARSE`, `DSL_VALIDATE`, `DSL_CONFLICT` (two sources declare the same thing; both positions are reported), `DSL_UNREPRESENTABLE` (the syntax cannot say it), `DSL_UNSUPPORTED`, `DSL_LIMIT` (a size or count limit), `DSL_DUPLICATE_SOURCE` (the same `path` twice in `loadProject`) and `DSL_IO` (a file or a link in `loadProjectDir`; the message carries the path, so do not pass it to a remote client).
+- `error.diagnostics` is a list of `{ file, line, column, message, hint, related? }`, at most 100, with a last entry saying "and N more" when some were left out. `file`, `line` and `column` are `null` for a policy that did not come from text, and `related` (a `{ file, line, column }`) appears on a `DSL_CONFLICT`.
+
+```js
+try {
+  themis.compile('language blocks\n\npermission {', { file: 'a.themis' });
+} catch (error) {
+  error.code; // 'DSL_PARSE'
+  const [first] = error.diagnostics; // first.file === 'a.themis', first.line === 3
+}
+```
+
 ## Macros
 
 `policy!` and `include_policy!` (crate `themis-macros`) check the policy while the crate compiles: a policy that does not validate does not build. They are not behind a `themis-auth` feature; the guide explains [why](docs/dsl.md#macros).
