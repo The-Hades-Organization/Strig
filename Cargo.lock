@@ -6613,6 +6613,7 @@ version = "0.3.1"
 dependencies = [
  "async-trait",
  "axum",
+ "futures-util",
  "http-body-util",
  "hyper-util",
  "serde",

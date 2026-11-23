@@ -126,7 +126,9 @@ impl CircuitBreaker {
         };
         let generation = inner.generation;
         drop(inner);
-        allowed.then_some(Permit {
+        // Lazy on purpose: a refused call must not build a permit, because dropping an unsettled
+        // permit counts as a failure and would reopen the circuit it was refused by.
+        allowed.then(|| Permit {
             breaker: self,
             generation,
             settled: false,
