@@ -1,8 +1,31 @@
 //! Rules and Actors on hostile input: bounded work, no panic, an error with a position.
 
+use std::time::{Duration, Instant};
+
 use themis::dsl::{Language, MAX_SOURCE_BYTES, parse};
 
 const NEW: [Language; 2] = [Language::Rules, Language::Actors];
+
+/// Generous for a debug build; a loop that grew quadratically on these inputs would be minutes.
+const BUDGET: Duration = Duration::from_secs(20);
+
+/// Reads `text` and checks it came back within the budget, with a position if it is an error.
+fn timed(what: &str, text: &str) -> bool {
+    let start = Instant::now();
+    let result = parse("hostile.themis", text);
+    let took = start.elapsed();
+    assert!(took < BUDGET, "{what}: took {took:?}");
+    match result {
+        Ok(_) => true,
+        Err(errors) => {
+            assert!(
+                errors.into_iter().all(|d| d.location.is_some()),
+                "{what}: an error without a position"
+            );
+            false
+        }
+    }
+}
 
 fn header(language: Language) -> String {
     format!("language {language}\n")
@@ -12,7 +35,8 @@ fn header(language: Language) -> String {
 fn a_single_huge_line_is_read_or_refused() {
     for language in NEW {
         let text = format!("{}role {}\n", header(language), "a".repeat(1_000_000));
-        let _ = parse("long.themis", &text);
+        // The role has no body to validate, so the line is read: the name is a name.
+        assert!(timed(&format!("a huge line in {language}"), &text));
     }
 }
 
@@ -38,7 +62,9 @@ fn a_hundred_thousand_roles_with_a_ring_end_with_a_capped_report() {
             let next = (at + 1) % total;
             text.push_str(&format!("role r{at} inherits r{next}\n"));
         }
+        let start = Instant::now();
         let errors = parse("ring.themis", &text).expect_err("a cycle");
+        assert!(start.elapsed() < BUDGET, "{language}: the ring took {:?}", start.elapsed());
         assert!(errors.len() <= 101, "{language}: {} errors", errors.len());
     }
 }
@@ -82,7 +108,7 @@ fn stray_bytes_never_panic() {
                 chunk,
                 chunk
             );
-            let _ = parse("noise.themis", &text);
+            assert!(!timed(&format!("noise in {language}"), &text), "{language}: noise is an error");
         }
     }
 }
@@ -99,7 +125,7 @@ fn a_source_of_nothing_but_garbage_has_a_capped_report() {
 #[test]
 fn a_hundred_thousand_empty_lines_and_comments_are_read() {
     for language in NEW {
-        let text = format!("{}{}", header(language), "\n# note\n".repeat(100_000));
-        let _ = parse("blank.themis", &text);
+        let text = format!("{}{}", header(language), "\n// note\n".repeat(100_000));
+        assert!(timed(&format!("blank lines in {language}"), &text));
     }
 }

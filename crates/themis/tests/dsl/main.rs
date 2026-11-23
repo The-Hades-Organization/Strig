@@ -12,7 +12,18 @@ use themis::dsl::Language;
 
 pub const LANGUAGES: [Language; 3] = [Language::Blocks, Language::Rules, Language::Actors];
 
-pub const SCENARIOS: [&str; 6] = ["roles", "conditions", "validity", "relations", "governance", "members"];
+/// The scenarios. The Rules and Actors files of the first six were written by `convert` from their
+/// Blocks file and then checked; the last two were written by hand in all three syntaxes.
+pub const SCENARIOS: [&str; 8] = [
+    "roles",
+    "conditions",
+    "validity",
+    "relations",
+    "governance",
+    "members",
+    "overrides",
+    "late",
+];
 
 pub fn source(scenario: &str, language: Language) -> String {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

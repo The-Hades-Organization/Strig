@@ -1,0 +1,14 @@
+language actors
+
+role editor
+  // A deny wins by coming first.
+  deny doc.read on doc as g-deny
+  allow doc.read on doc as g-allow
+
+catalog
+  kinds doc
+  doc.read on doc label "Read a document"
+
+engine
+  strategy first_applicable
+  override resource-owner owner
