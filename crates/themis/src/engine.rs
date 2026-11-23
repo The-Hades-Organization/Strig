@@ -201,8 +201,9 @@ impl Engine {
     }
 
     /// Decision of the request alone, overrides included but without the prerequisite check. Lets
-    /// governance tell a plain `allow` from one that only stands because its prerequisites hold.
-    pub fn decide_ignoring_prerequisites(&self, ctx: &Context<'_>, request: &Request<'_>) -> Decision {
+    /// governance tell a plain `allow` from one that only stands because its prerequisites hold. Not
+    /// public: an `allow` from here ignores `depends_on`, so it must never authorize anything.
+    pub(crate) fn decide_ignoring_prerequisites(&self, ctx: &Context<'_>, request: &Request<'_>) -> Decision {
         self.decide_core(ctx, request, true, None)
     }
 

@@ -228,3 +228,34 @@ fn revoking_a_role_checks_the_grants_that_come_by_principal_or_any() {
         assert_refused_by_prerequisites(governance.apply(&engine, &actor, &grants, &revoke, None));
     }
 }
+
+#[test]
+fn rejects_a_prerequisite_the_dependent_can_never_share_a_target_with() {
+    let errors = Catalog::builder()
+        .target_kinds(["project", "document"])
+        .permission(PermissionDef::new("doc.view").targets(["document"]))
+        .permission(
+            PermissionDef::new("proj.edit")
+                .targets(["project"])
+                .depends_on(["doc.view"]),
+        )
+        .build()
+        .expect_err("unreachable");
+    assert!(errors.0.iter().any(|e| matches!(
+        e,
+        CatalogError::UnreachablePrerequisite { key, prerequisite, target }
+            if key == "proj.edit" && prerequisite == "doc.view" && target == "project"
+    )));
+
+    let ok = Catalog::builder()
+        .target_kinds(["project", "document"])
+        .broad_target("org")
+        .permission(PermissionDef::new("doc.view").targets(["project", "document"]))
+        .permission(
+            PermissionDef::new("proj.edit")
+                .targets(["project", "org"])
+                .depends_on(["doc.view"]),
+        )
+        .build();
+    assert!(ok.is_ok(), "a broad target needs no match: {ok:?}");
+}
