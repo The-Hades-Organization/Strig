@@ -90,6 +90,10 @@ pub struct Proposal<'a> {
     pub before: &'a [Grant],
     pub after: &'a [Grant],
     pub tuples: Option<&'a dyn TupleStore>,
+    /// The instant the change is judged at, in milliseconds since the Unix epoch; see
+    /// [`Governance::at`]. Without it, grants and roles with a validity window fail closed, as in
+    /// [`Engine::decide`].
+    pub now: Option<u64>,
 }
 
 impl<'a> Proposal<'a> {
@@ -123,8 +127,12 @@ impl<'a> Proposal<'a> {
 
     fn context<'s>(&'s self, grants: &'s &'a [Grant]) -> Context<'s> {
         let ctx = Context::new(grants);
-        match self.tuples {
+        let ctx = match self.tuples {
             Some(tuples) => ctx.with_tuples(tuples),
+            None => ctx,
+        };
+        match self.now {
+            Some(now) => ctx.at(now),
             None => ctx,
         }
     }
@@ -258,6 +266,15 @@ impl Governance {
         self.apply_with(engine, actor, current, mutation, tuples, &Attributes::new())
     }
 
+    /// The governance judging every change at `now` (milliseconds since the Unix epoch): the actor's
+    /// grants and roles, and the grants and roles the change reads, count only inside their validity
+    /// window, as with [`Context::at`]. The crate never reads a clock; the caller passes the instant.
+    /// [`Governance::apply`] and [`Governance::apply_with`] pass none, and what has a window then fails
+    /// closed.
+    pub fn at(&self, now: u64) -> GovernanceAt<'_> {
+        GovernanceAt { governance: self, now }
+    }
+
     /// Like [`Governance::apply`], with request metadata (ip, request id, reason) that goes
     /// to the audit from the `detailed` level upward.
     pub fn apply_with(
@@ -269,7 +286,19 @@ impl Governance {
         tuples: Option<&dyn TupleStore>,
         meta: &Attributes,
     ) -> Result<Vec<Grant>, Vec<Violation>> {
-        let result = self.evaluate(engine, actor, current, mutation, tuples);
+        self.run(engine, actor, current, mutation, Scene { tuples, now: None }, meta)
+    }
+
+    fn run(
+        &self,
+        engine: &Engine,
+        actor: &Subject,
+        current: &[Grant],
+        mutation: &Mutation,
+        scene: Scene<'_>,
+        meta: &Attributes,
+    ) -> Result<Vec<Grant>, Vec<Violation>> {
+        let result = self.evaluate_inner(engine, actor, current, mutation, scene, true);
         #[cfg(feature = "audit")]
         if let Some(auditor) = &self.auditor
             && let Err(error) = auditor.grant_mutation(actor, mutation, current, &result, meta)
@@ -291,7 +320,7 @@ impl Governance {
         mutation: &Mutation,
         tuples: Option<&dyn TupleStore>,
     ) -> Result<Vec<Grant>, Vec<Violation>> {
-        self.evaluate_inner(engine, actor, current, mutation, tuples, true)
+        self.evaluate_inner(engine, actor, current, mutation, Scene { tuples, now: None }, true)
     }
 
     fn evaluate_inner(
@@ -300,7 +329,7 @@ impl Governance {
         actor: &Subject,
         current: &[Grant],
         mutation: &Mutation,
-        tuples: Option<&dyn TupleStore>,
+        scene: Scene<'_>,
         with_remedies: bool,
     ) -> Result<Vec<Grant>, Vec<Violation>> {
         let after: Cow<'_, [Grant]> = match mutation {
@@ -335,7 +364,8 @@ impl Governance {
             mutation,
             before: current,
             after: &after,
-            tuples,
+            tuples: scene.tuples,
+            now: scene.now,
         };
         let mut violations = Vec::new();
         for invariant in &self.invariants {
@@ -344,7 +374,7 @@ impl Governance {
             };
             if with_remedies
                 && let Some(fix) = invariant.remedy(engine, &proposal)
-                && self.evaluate_inner(engine, actor, current, &fix, tuples, false).is_ok()
+                && self.evaluate_inner(engine, actor, current, &fix, scene, false).is_ok()
             {
                 violation.suggestion = Suggestion::of(&fix).map(Box::new);
             }
@@ -355,6 +385,50 @@ impl Governance {
         } else {
             Err(violations)
         }
+    }
+}
+
+/// What a change is judged against besides the grants: the tuples and the instant.
+#[derive(Clone, Copy)]
+struct Scene<'a> {
+    tuples: Option<&'a dyn TupleStore>,
+    now: Option<u64>,
+}
+
+/// [`Governance`] judging every change at one instant; see [`Governance::at`].
+pub struct GovernanceAt<'g> {
+    governance: &'g Governance,
+    now: u64,
+}
+
+impl GovernanceAt<'_> {
+    /// Like [`Governance::apply`], at the instant.
+    pub fn apply(
+        &self,
+        engine: &Engine,
+        actor: &Subject,
+        current: &[Grant],
+        mutation: &Mutation,
+        tuples: Option<&dyn TupleStore>,
+    ) -> Result<Vec<Grant>, Vec<Violation>> {
+        self.apply_with(engine, actor, current, mutation, tuples, &Attributes::new())
+    }
+
+    /// Like [`Governance::apply_with`], at the instant.
+    pub fn apply_with(
+        &self,
+        engine: &Engine,
+        actor: &Subject,
+        current: &[Grant],
+        mutation: &Mutation,
+        tuples: Option<&dyn TupleStore>,
+        meta: &Attributes,
+    ) -> Result<Vec<Grant>, Vec<Violation>> {
+        let scene = Scene {
+            tuples,
+            now: Some(self.now),
+        };
+        self.governance.run(engine, actor, current, mutation, scene, meta)
     }
 }
 
