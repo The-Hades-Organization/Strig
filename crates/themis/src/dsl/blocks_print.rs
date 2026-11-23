@@ -762,7 +762,17 @@ impl Printer {
     }
 
     fn invariant(&mut self, spec: &InvariantSpec, kind: &str, id: &str) -> Printed<()> {
-        let mut fields: Vec<(&str, String)> = Vec::new();
+        let fields = invariant_fields(spec)?;
+        self.open(0, id, &format!("invariant {kind}"));
+        self.fields(1, id, fields, false);
+        self.close(0, id, true);
+        Ok(())
+    }
+}
+
+/// The `name value` pairs of an invariant, as both Blocks and Rules write them.
+pub(crate) fn invariant_fields(spec: &InvariantSpec) -> Printed<Vec<(&'static str, String)>> {
+        let mut fields: Vec<(&'static str, String)> = Vec::new();
         match spec {
             InvariantSpec::RequirePermission {
                 permission,
@@ -811,9 +821,5 @@ impl Printer {
             }
             _ => {}
         }
-        self.open(0, id, &format!("invariant {kind}"));
-        self.fields(1, id, fields, false);
-        self.close(0, id, true);
-        Ok(())
-    }
+    Ok(fields)
 }
