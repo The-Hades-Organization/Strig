@@ -1,0 +1,12 @@
+language rules
+
+kinds doc
+
+permission doc.read on doc
+
+role editor
+
+user:ana has role editor
+
+g-first: allow user ana to doc.read on doc
+g-second: allow role editor to doc.read on doc
