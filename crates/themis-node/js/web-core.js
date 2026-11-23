@@ -1,12 +1,13 @@
 // Shared by the web integrations (express, fastify, nestjs): turns a request into a decision and the decision
 // into a status and a body. It never imports a framework. Whatever goes wrong becomes a refusal, never an allow.
+import { createRequire } from 'node:module';
 import { messageFor } from './remote.js';
 
 const OWN_MESSAGES = {
   forbidden: 'access is denied',
   unauthenticated: 'the caller is not identified; access is denied',
 };
-const body = (code) => ({ error: { code, message: OWN_MESSAGES[code] ?? messageFor(code) } });
+const body = (code) => ({ error: { code, message: Object.hasOwn(OWN_MESSAGES, code) ? OWN_MESSAGES[code] : messageFor(code) } });
 
 /** Thrown by `requirePeer` when an optional framework is not installed. */
 export class MissingPeerError extends Error {
@@ -17,13 +18,26 @@ export class MissingPeerError extends Error {
   }
 }
 
-/** Import an optional framework or fail with a message that says what to install. */
-export async function requirePeer(peer, subpath) {
+const nodeRequire = createRequire(import.meta.url);
+
+/**
+ * Load an optional framework, synchronously and when first needed (never at import, so `require()` of the subpaths
+ * works). Only "this package is not installed" becomes a `MissingPeerError`; any other error is rethrown as it is.
+ * `load` is for tests.
+ */
+export function requirePeer(peer, subpath, load = nodeRequire) {
   try {
-    return await import(peer);
+    return load(peer);
   } catch (error) {
-    throw new MissingPeerError(peer, subpath, error);
+    const missing = error?.code === 'MODULE_NOT_FOUND' || error?.code === 'ERR_MODULE_NOT_FOUND';
+    if (missing && String(error.message).includes(`'${peer}'`)) throw new MissingPeerError(peer, subpath, error);
+    throw error;
   }
+}
+
+function status(value, name) {
+  if (!Number.isInteger(value) || value < 400 || value > 599) throw new TypeError(`${name} must be an integer from 400 to 599`);
+  return value;
 }
 
 function pick(value, request, name) {
@@ -44,15 +58,25 @@ export function createAuthorizer(options) {
   if (typeof options?.subject !== 'function') throw new TypeError('subject must be a function');
   if (Boolean(local) === Boolean(remote)) throw new TypeError('pass exactly one of `local` and `remote`');
   if (local && (!local.engine || !local.context)) throw new TypeError('local needs `engine` and `context`');
+  if (remote && typeof remote.check !== 'function') throw new TypeError('remote must be a RemoteClient');
   const statuses = {
-    deny: options.denyStatus ?? 403,
-    failure: options.failureStatus ?? 503,
-    unauthenticated: options.unauthenticatedStatus ?? 401,
-    error: options.errorStatus ?? 500,
+    deny: status(options.denyStatus ?? 403, 'denyStatus'),
+    failure: status(options.failureStatus ?? 503, 'failureStatus'),
+    unauthenticated: status(options.unauthenticatedStatus ?? 401, 'unauthenticatedStatus'),
+    error: status(options.errorStatus ?? 500, 'errorStatus'),
   };
   const now = local?.now ?? Date.now;
 
   const refuse = (kind, code) => ({ kind, status: statuses[kind], body: body(code) });
+  // `onError` is the caller's code: if it throws, the request is still refused (503, the stable body) and nothing escapes.
+  const failed = (error, request) => {
+    try {
+      options.onError?.(error, request);
+    } catch {
+      return refuse('failure', 'internal');
+    }
+    return refuse('error', 'internal');
+  };
 
   return async function authorize(request, override = {}) {
     let subject;
@@ -61,20 +85,24 @@ export function createAuthorizer(options) {
     let env;
     try {
       subject = options.subject(request);
+      if (typeof subject?.then === 'function') {
+        Promise.resolve(subject).catch(() => {}); // the promise is dropped: its rejection must not go unhandled
+        throw new TypeError('subject must be synchronous: resolve it before the authorizer runs');
+      }
       if (subject === null || subject === undefined) return refuse('unauthenticated', 'unauthenticated');
       permission = pick(override.permission ?? options.permission, request, 'permission');
       resource = pick(override.resource ?? options.resource, request, 'resource');
       env = options.env?.(request);
       if (typeof permission !== 'string' || permission === '') throw new TypeError('permission must be a non-empty text');
     } catch (error) {
-      options.onError?.(error, request);
-      return refuse('error', 'internal');
+      return failed(error, request);
     }
     try {
-      return local ? decideLocal(local, now, { subject, permission, resource }, request, refuse) : await decideRemote(remote, { subject, permission, resource, env }, refuse);
+      return local
+        ? decideLocal(local, now, { subject, permission, resource }, request, refuse)
+        : await decideRemote(remote, { subject, permission, resource, env }, refuse, (error) => failed(error, request));
     } catch (error) {
-      options.onError?.(error, request);
-      return refuse('error', 'internal');
+      return failed(error, request);
     }
   };
 }
@@ -91,11 +119,20 @@ function decideLocal(local, now, input, request, refuse) {
   return decision.effect === 'allow' ? { kind: 'allow' } : refuse('deny', 'forbidden');
 }
 
-async function decideRemote(remote, input, refuse) {
+const SERVICE_CODES = new Set(['source_unavailable', 'overloaded', 'deadline_exceeded']);
+
+async function decideRemote(remote, input, refuse, report) {
   const answer = await remote.check(input);
   if (answer.allowed === true) return { kind: 'allow' };
-  if (!answer.failure) return refuse('deny', 'forbidden');
-  // A 4xx is the caller's request being wrong, not the service being down; it still opens nothing.
-  const down = answer.failure.reason !== 'rejected';
-  return refuse(down ? 'failure' : 'error', down ? 'source_unavailable' : 'internal');
+  const { failure } = answer;
+  if (!failure) return refuse('deny', 'forbidden');
+  // Our own request was wrong (a 4xx, or a payload that does not serialize): not the service being down.
+  if (failure.reason === 'rejected' || failure.reason === 'invalid_request') {
+    return report(Object.assign(new Error(`the decision service refused the request (${failure.reason})`), { failure }));
+  }
+  // The code says which kind of unavailability; the server's own text is never echoed.
+  const code = SERVICE_CODES.has(failure.code) ? failure.code : failure.reason === 'timeout' ? 'deadline_exceeded' : 'source_unavailable';
+  const outcome = refuse('failure', code);
+  report(Object.assign(new Error(`the decision service failed (${failure.reason})`), { failure }));
+  return outcome;
 }

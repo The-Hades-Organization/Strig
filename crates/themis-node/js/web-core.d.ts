@@ -24,7 +24,7 @@ export interface AuthorizerOptions<Req = any> {
   /** Exactly one of `local` and `remote`. */
   local?: LocalMode;
   remote?: RemoteClient;
-  /** Default 403. */
+  /** Default 403. Every status must be an integer from 400 to 599. */
   denyStatus?: number;
   /** Remote service down, timeout or open circuit. Default 503. */
   failureStatus?: number;
@@ -32,7 +32,7 @@ export interface AuthorizerOptions<Req = any> {
   unauthenticatedStatus?: number;
   /** An extractor or the engine threw. Default 500. */
   errorStatus?: number;
-  /** Called with the error before the generic 500 goes out; the error never reaches the client. */
+  /** Called with the error before the generic refusal goes out (also for a failed or refused remote call, with `error.failure`). If it throws, the answer is 503. The error never reaches the client. */
   onError?: (error: unknown, request: Req) => void;
 }
 
@@ -48,8 +48,8 @@ export declare function createAuthorizer<Req = any>(
   options: AuthorizerOptions<Req>,
 ): (request: Req, override?: { permission?: string; resource?: AuthorizerOptions<Req>['resource'] }) => Promise<Outcome>;
 
-/** Thrown at import when an optional framework is not installed. */
+/** Thrown when an optional framework is not installed (at first use, never at import). Any other load error is rethrown. */
 export declare class MissingPeerError extends Error {
   peer: string;
 }
-export declare function requirePeer(peer: string, subpath: string): Promise<any>;
+export declare function requirePeer(peer: string, subpath: string): any;

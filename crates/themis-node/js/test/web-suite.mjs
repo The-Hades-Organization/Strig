@@ -159,6 +159,29 @@ export async function runSuite(label, mount) {
     }
   });
 
+  await test('remote: a 4xx from the server is a 500 with the stable body and the server text is not echoed', async () => {
+    const server = await fakeServer((req, body, res) => reply(res, 400, { error: { code: 'invalid_request', message: 'secret server text' } }));
+    try {
+      await use({ permission: 'document.view', remote: new RemoteClient({ url: server.base }) }, async (app) => {
+        const res = await app.call('ana', 'd1');
+        assert.equal(res.status, 500);
+        assert.equal(res.handlerRan, false);
+        assert.ok(!JSON.stringify(res.body).includes('secret'));
+      });
+    } finally {
+      await server.stop();
+    }
+  });
+
+  await test('an extractor that returns a promise is refused, never a pass', async () => {
+    const local = await localMode();
+    await use({ permission: 'document.view', local, subject: async (req) => subjectOf(req) }, async (app) => {
+      const res = await app.call('ana', 'd1');
+      assert.equal(res.status, 500);
+      assert.equal(res.handlerRan, false);
+    });
+  });
+
   await test('remote: a call that outlives the timeout is 503', async () => {
     const server = await fakeServer(() => {});
     try {

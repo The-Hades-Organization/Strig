@@ -31,7 +31,7 @@ export const ERROR_MESSAGES = Object.freeze({
 
 /** @param {string} code */
 export function messageFor(code) {
-  return ERROR_MESSAGES[code] ?? 'the decision could not be computed; access is denied';
+  return Object.hasOwn(ERROR_MESSAGES, code) ? ERROR_MESSAGES[code] : 'the decision could not be computed; access is denied';
 }
 
 /** A code the client knows keeps its name; any other text becomes `{ unknown: text }`, never an error. */
@@ -39,6 +39,11 @@ export function parseErrorCode(value) {
   if (typeof value !== 'string' || value === '') return { unknown: '' };
   return KNOWN_CODES.has(value) ? value : { unknown: value };
 }
+
+// Timers above 2^31-1 ms fire at once; the grace keeps the sum under it.
+const MAX_TIMEOUT_MS = 2_000_000_000;
+// The client gives up a little after the deadline it sent, so the server's own `deadline_exceeded` can arrive first.
+const TIMEOUT_GRACE_MS = 50;
 
 const monotonic = () => performance.now();
 
@@ -79,6 +84,12 @@ export class CircuitBreaker {
     this.failures = 0;
   }
 
+  /** The server answered, but said nothing about its own health (a 4xx with a valid error body): free the probe, change nothing else. */
+  release(permit) {
+    if (permit.generation !== this.generation) return;
+    if (this.state === 'half-open') this.probing = false;
+  }
+
   failure(permit) {
     if (permit.generation !== this.generation) return;
     if (this.state === 'half-open') return this.#open();
@@ -99,8 +110,9 @@ export class CircuitBreaker {
   }
 }
 
-function positive(value, name) {
+function positive(value, name, max = Infinity) {
   if (!Number.isFinite(value) || value <= 0) throw new TypeError(`${name} must be a positive number`);
+  if (value > max) throw new TypeError(`${name} must be at most ${max}`);
   return value;
 }
 
@@ -120,7 +132,7 @@ export class RemoteClient {
   constructor(options) {
     if (typeof options?.url !== 'string' || options.url === '') throw new TypeError('url is required');
     this.base = options.url.replace(/\/+$/, '');
-    this.timeoutMs = positive(options.timeoutMs ?? 2000, 'timeoutMs');
+    this.timeoutMs = positive(options.timeoutMs ?? 2000, 'timeoutMs', MAX_TIMEOUT_MS);
     this.fetch = options.fetch ?? globalThis.fetch?.bind(globalThis);
     if (typeof this.fetch !== 'function') throw new TypeError('no fetch available: pass options.fetch');
     this.headers = options.headers ?? {};
@@ -137,7 +149,7 @@ export class RemoteClient {
     return toResult(answer.body);
   }
 
-  /** Many decisions in one call; the answers keep the request order. A failed call denies every check with the same failure. */
+  /** Many decisions in one call; the answers keep the request order. A failed call denies every check with the same failure. Throws `TypeError` on a non-array: a programming error, not a decision. */
   async checkBatch(requests) {
     if (!Array.isArray(requests)) throw new TypeError('requests must be an array');
     if (requests.length === 0) return [];
@@ -145,52 +157,82 @@ export class RemoteClient {
       const results = body?.results;
       return Array.isArray(results) && results.length === requests.length && results.every(validCheck) ? results : null;
     });
-    if (answer.failure) return requests.map(() => ({ allowed: false, failure: answer.failure }));
+    if (answer.failure) return requests.map(() => ({ allowed: false, failure: { ...answer.failure } }));
     return answer.body.map(toResult);
   }
 
   async #call(path, payload, validate) {
+    // A payload that cannot be serialized is the caller's mistake: it never reaches the server or the breaker.
+    let text;
+    try {
+      text = JSON.stringify(payload);
+    } catch {
+      return { failure: { reason: 'invalid_request' } };
+    }
+    if (typeof text !== 'string') return { failure: { reason: 'invalid_request' } };
     const permit = this.breaker.acquire();
     if (!permit) return { failure: { reason: 'circuit_open' } };
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let timer;
+    let timedOut = false;
+    // The deadline does not depend on `fetch` honouring the signal: the race settles on the timer either way.
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+        reject(new Error('timeout'));
+      }, this.timeoutMs + TIMEOUT_GRACE_MS);
+    });
+    const sent = this.#send(path, text, controller.signal, validate);
+    sent.catch(() => {}); // a send that loses the race must not become an unhandled rejection
     let outcome;
     try {
-      outcome = await this.#send(path, payload, controller.signal, validate);
+      outcome = await Promise.race([sent, deadline]);
     } catch (error) {
-      outcome = { failure: controller.signal.aborted ? { reason: 'timeout' } : { reason: 'unreachable' }, cause: error };
+      outcome = { failure: { reason: timedOut ? 'timeout' : 'unreachable' }, cause: error };
     } finally {
       clearTimeout(timer);
     }
-    // A 4xx means the server is alive and the caller's request is wrong: it does not count against the circuit.
-    if (outcome.failure && outcome.failure.reason !== 'rejected') this.breaker.failure(permit);
-    else this.breaker.success(permit);
+    if (!outcome.failure) this.breaker.success(permit);
+    else if (outcome.neutral) this.breaker.release(permit);
+    else this.breaker.failure(permit);
     return outcome;
   }
 
-  async #send(path, payload, signal, validate) {
+  async #send(path, text, signal, validate) {
     const response = await this.fetch(this.base + path, {
       method: 'POST',
+      // A redirect is a failure (API.md): following it would also carry the custom headers to another host.
+      redirect: 'manual',
       headers: {
         ...this.headers,
         'content-type': 'application/json',
         'x-themis-timeout-ms': String(Math.max(1, Math.ceil(this.timeoutMs))),
       },
-      body: JSON.stringify(payload),
+      body: text,
       signal,
     });
-    const text = await response.text();
+    const raw = await response.text();
     let body;
     try {
-      body = JSON.parse(text);
+      body = JSON.parse(raw);
     } catch {
       body = undefined;
     }
-    if (response.status !== 200) return { failure: failureOf(response.status, body) };
+    if (response.status !== 200) {
+      const failure = failureOf(response.status, body);
+      // A 4xx with an error body from the API is the server alive and refusing the request: neutral for the circuit.
+      // A 4xx without one (a gateway's 401, 404, 429) says nothing about the server and counts as a failure.
+      return { failure, neutral: failure.reason === 'rejected' && hasErrorBody(body) };
+    }
     const valid = body === undefined ? null : validate(body);
     if (!valid) return { failure: { reason: 'invalid_response', status: 200 } };
     return { body: valid === true ? body : valid };
   }
+}
+
+function hasErrorBody(body) {
+  return typeof body?.error?.code === 'string' && body.error.code !== '';
 }
 
 function failureOf(status, body) {
