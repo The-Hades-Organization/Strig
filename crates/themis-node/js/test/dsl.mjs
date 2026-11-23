@@ -1,6 +1,6 @@
 // A linguagem de políticas no binding, nos dois alvos (N-API e wasm). `run.mjs` importa este arquivo.
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { load } from '../node.js';
@@ -43,6 +43,7 @@ const ORG = kindWith('org');
 const DOC = kindWith('doc');
 const TEAM = kindWith('team');
 const codes = {};
+const messages = [];
 
 for (const backend of ['native', 'wasm']) {
   const themis = await load({ backend });
@@ -147,6 +148,8 @@ for (const backend of ['native', 'wasm']) {
     assert.equal(failure(() => themis.compile(1)).code, 'INVALID_ARGUMENT');
     assert.equal(failure(() => themis.convert(READ, 'yaml')).code, 'INVALID_ARGUMENT');
     assert.equal(failure(() => themis.loadProject('x')).code, 'INVALID_ARGUMENT');
+    // A mensagem de argumento errado também é a mesma nos dois alvos.
+    messages.push(failure(() => themis.compile(1)).message);
     assert.equal(failure(() => themis.print({ nada: 1 }, 'blocks')).code, 'INVALID_INPUT');
   });
 
@@ -157,7 +160,8 @@ for (const backend of ['native', 'wasm']) {
         { path: 'a.themis', text: KINDS },
       ]),
     );
-    assert.equal(dup.code, 'DSL_PARSE');
+    assert.equal(dup.code, 'DSL_DUPLICATE_SOURCE');
+    codes.duplicate = [...(codes.duplicate ?? []), dup.code];
     assert.equal(failure(() => themis.compile('')).code, 'DSL_PARSE');
   });
 }
@@ -179,6 +183,61 @@ await test('N-API: loadProjectDir lê um diretório e o wasm não o tem', async 
   }
 });
 
+await test(`os dois alvos recusam o que passa dos limites`, async () => {
+  for (const backend of ['native', 'wasm']) {
+    const themis = await load({ backend });
+    const big = `${KINDS}// ${'x'.repeat(4 * 1024 * 1024)}\n`;
+    assert.equal(failure(() => themis.loadProject([{ path: 'big.themis', text: big }])).code, 'DSL_LIMIT', backend);
+    // Mais de 100 diagnósticos: o corte é em 100 e o 101º diz quantos ficaram de fora.
+    const many = Array.from({ length: 150 }, (_, i) => `permission org.p${i} {\n  targets = [org]\n}\n`).join('\n');
+    const error = failure(() => themis.compile(`language blocks\n\n${many}`));
+    assert.equal(error.diagnostics.length, 101, backend);
+    assert.match(error.diagnostics.at(-1).message, /and \d+ more/, backend);
+  }
+});
+
+await test('N-API: limites, links e diretório vazio em loadProjectDir', async () => {
+  const native = await load({ backend: 'native' });
+  const dir = mkdtempSync(join(tmpdir(), 'themis-dsl-lim-'));
+  const outside = mkdtempSync(join(tmpdir(), 'themis-dsl-out-'));
+  try {
+    // diretório vazio: o que o núcleo já faz, uma política sem nada declarado
+    const empty = join(dir, 'empty');
+    mkdirSync(empty);
+    assert.deepEqual(native.loadProjectDir(empty).catalog.permissions, []);
+
+    // symlink para fora e para dentro: recusado, e a mensagem nomeia o arquivo
+    const real = join(dir, 'real');
+    mkdirSync(real);
+    writeFileSync(join(outside, 'secret.themis'), ORG);
+    symlinkSync(join(outside, 'secret.themis'), join(real, 'out.themis'));
+    let error = failure(() => native.loadProjectDir(real));
+    assert.equal(error.code, 'DSL_IO');
+    assert.ok(error.message.includes('out.themis'), error.message);
+    rmSync(join(real, 'out.themis'));
+    writeFileSync(join(real, 'a.themis'), ORG);
+    symlinkSync(join(real, 'a.themis'), join(real, 'b.themis'));
+    error = failure(() => native.loadProjectDir(real));
+    assert.equal(error.code, 'DSL_IO');
+    assert.ok(error.message.includes('b.themis'), error.message);
+
+    // arquivo acima de 4 MiB
+    const large = join(dir, 'large');
+    mkdirSync(large);
+    writeFileSync(join(large, 'big.themis'), `${KINDS}// ${'x'.repeat(4 * 1024 * 1024)}\n`);
+    assert.equal(failure(() => native.loadProjectDir(large)).code, 'DSL_LIMIT');
+
+    // mais de 1024 arquivos
+    const many = join(dir, 'many');
+    mkdirSync(many);
+    for (let i = 0; i < 1025; i += 1) writeFileSync(join(many, `f${i}.themis`), KINDS);
+    assert.equal(failure(() => native.loadProjectDir(many)).code, 'DSL_LIMIT');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 await test('paridade: os dois alvos dão os mesmos code e diagnósticos', async () => {
   for (const [name, list] of Object.entries(codes)) {
     assert.equal(list.length >= 2, true, name);
@@ -186,6 +245,7 @@ await test('paridade: os dois alvos dão os mesmos code e diagnósticos', async 
   }
   const [native, wasm] = await Promise.all([load({ backend: 'native' }), load({ backend: 'wasm' })]);
   const bad = 'language blocks\n\npermission {';
+  assert.equal(new Set(messages).size, 1, 'mensagem de INVALID_ARGUMENT');
   assert.deepEqual(failure(() => native.compile(bad)).diagnostics, failure(() => wasm.compile(bad)).diagnostics);
   assert.deepEqual(native.compile(source('roles', 'rules')), wasm.compile(source('roles', 'rules')));
 });

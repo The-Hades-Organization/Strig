@@ -1,22 +1,62 @@
 //! A linguagem de políticas no binding: a lógica comum aos dois alvos. Cada função devolve o JSON
 //! canônico da política ou um `DslFailure` com `code` estável e os diagnósticos posicionados.
 
+use std::collections::HashSet;
+
 use serde_json::{Value, json};
-use themis::dsl::{self, Diagnostic, Diagnostics, Language, Location, PrintError, Project};
+use themis::dsl::{
+    self, Diagnostic, Diagnostics, Language, Location, MAX_PROJECT_BYTES, MAX_SOURCE_BYTES, MAX_SOURCES, PrintError,
+    Project,
+};
 
 use crate::BindingError;
 
 /// Nome usado nas posições quando o texto não diz de qual arquivo veio.
 const DEFAULT_FILE: &str = "<input>";
 
-/// Quantos diagnósticos um erro leva: o núcleo já corta em 100 na leitura; o que vem da validação
-/// de uma política em JSON passa pelo mesmo teto.
+/// Quantos diagnósticos um erro leva: o núcleo corta em 100 e acrescenta uma linha "and N more";
+/// o binding deixa passar essa linha e não mais que isso.
 const MAX_DIAGNOSTICS: usize = 100;
+
+/// Os códigos da linguagem, mais os do binding que ela reaproveita. `as_str` é o texto que chega
+/// ao JavaScript e não muda entre versões.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DslCode {
+    Parse,
+    Validate,
+    Conflict,
+    Unrepresentable,
+    Unsupported,
+    /// Só o módulo nativo lê arquivos.
+    #[cfg(feature = "dsl-fs")]
+    Io,
+    Limit,
+    DuplicateSource,
+    /// Um código do binding (`INVALID_ARGUMENT`, `INVALID_INPUT`, `INTERNAL`).
+    Binding(&'static str),
+}
+
+impl DslCode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Parse => "DSL_PARSE",
+            Self::Validate => "DSL_VALIDATE",
+            Self::Conflict => "DSL_CONFLICT",
+            Self::Unrepresentable => "DSL_UNREPRESENTABLE",
+            Self::Unsupported => "DSL_UNSUPPORTED",
+            #[cfg(feature = "dsl-fs")]
+            Self::Io => "DSL_IO",
+            Self::Limit => "DSL_LIMIT",
+            Self::DuplicateSource => "DSL_DUPLICATE_SOURCE",
+            Self::Binding(code) => code,
+        }
+    }
+}
 
 /// Falha da linguagem: `code` estável (igual nos dois alvos), mensagem e diagnósticos.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DslFailure {
-    pub code: &'static str,
+    pub code: DslCode,
     pub message: String,
     pub diagnostics: Vec<Value>,
 }
@@ -24,7 +64,7 @@ pub struct DslFailure {
 impl From<BindingError> for DslFailure {
     fn from(error: BindingError) -> Self {
         Self {
-            code: error.code,
+            code: DslCode::Binding(error.code),
             message: error.message,
             diagnostics: Vec::new(),
         }
@@ -55,27 +95,27 @@ fn diagnostic(found: &Diagnostic) -> Value {
     out
 }
 
-fn failure(code: &'static str, found: &Diagnostics) -> DslFailure {
+fn failure(code: DslCode, found: &Diagnostics) -> DslFailure {
     DslFailure {
         code,
         message: found.to_string(),
-        diagnostics: found.iter().take(MAX_DIAGNOSTICS).map(diagnostic).collect(),
+        diagnostics: found.iter().take(MAX_DIAGNOSTICS + 1).map(diagnostic).collect(),
     }
 }
 
 /// Um conflito entre fontes aponta os dois lados; qualquer outra falha da montagem é validação.
-fn project_code(found: &Diagnostics) -> &'static str {
+fn project_code(found: &Diagnostics) -> DslCode {
     if found.iter().any(|d| d.related.is_some()) {
-        "DSL_CONFLICT"
+        DslCode::Conflict
     } else {
-        "DSL_VALIDATE"
+        DslCode::Validate
     }
 }
 
 fn unrepresentable(error: PrintError) -> DslFailure {
     let code = match error {
-        PrintError::Unrepresentable { .. } => "DSL_UNREPRESENTABLE",
-        _ => "DSL_UNSUPPORTED",
+        PrintError::Unrepresentable { .. } => DslCode::Unrepresentable,
+        _ => DslCode::Unsupported,
     };
     DslFailure {
         code,
@@ -108,7 +148,7 @@ fn to_value(policy: &dsl::Policy) -> DslResult<Value> {
 fn read(file: &str, text: &str) -> DslResult<dsl::Parsed> {
     dsl::parse(file, text).map_err(|found| {
         let syntax = Project::new().add_source(file, text).is_err();
-        failure(if syntax { "DSL_PARSE" } else { "DSL_VALIDATE" }, &found)
+        failure(if syntax { DslCode::Parse } else { DslCode::Validate }, &found)
     })
 }
 
@@ -127,7 +167,7 @@ pub fn print(policy: &Value, to: &Value) -> DslResult<String> {
     let to = language(to)?;
     let policy: dsl::Policy =
         serde_json::from_value(policy.clone()).map_err(|e| BindingError::invalid_input("policy", e))?;
-    policy.validate().map_err(|found| failure("DSL_VALIDATE", &found))?;
+    policy.validate().map_err(|found| failure(DslCode::Validate, &found))?;
     dsl::print(&policy, to).map_err(unrepresentable)
 }
 
@@ -144,14 +184,44 @@ pub fn load_project(sources: &Value) -> DslResult<Value> {
         .as_array()
         .ok_or_else(|| BindingError::invalid_argument("sources", "esperada uma lista de { path, text }"))?;
     let mut project = Project::new();
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut bytes = 0usize;
     for item in list {
         let path = string("path", item.get("path").unwrap_or(&Value::Null))?;
         let text = string("text", item.get("text").unwrap_or(&Value::Null))?;
+        // O núcleo recusa nome repetido e estouro de limite com um diagnóstico só; o binding
+        // separa os dois casos da sintaxe antes de chamá-lo.
+        if !seen.insert(path) {
+            return Err(refusal(
+                DslCode::DuplicateSource,
+                path,
+                format!("a fonte `{path}` já foi adicionada"),
+            ));
+        }
+        bytes = bytes.saturating_add(text.len());
+        if text.len() > MAX_SOURCE_BYTES || seen.len() > MAX_SOURCES || bytes > MAX_PROJECT_BYTES {
+            return Err(refusal(
+                DslCode::Limit,
+                path,
+                format!(
+                    "limite do projeto: até {MAX_SOURCES} fontes, {MAX_SOURCE_BYTES} bytes cada e {MAX_PROJECT_BYTES} bytes no total"
+                ),
+            ));
+        }
         project
             .add_source(path, text)
-            .map_err(|found| failure("DSL_PARSE", &found))?;
+            .map_err(|found| failure(DslCode::Parse, &found))?;
     }
     build(&project)
+}
+
+fn refusal(code: DslCode, path: &str, message: String) -> DslFailure {
+    let found = Diagnostic::new(Some(Location::new(path, 1, 1, 1)), message.clone());
+    DslFailure {
+        code,
+        diagnostics: vec![diagnostic(&found)],
+        message,
+    }
 }
 
 fn build(project: &Project) -> DslResult<Value> {
@@ -165,13 +235,17 @@ fn build(project: &Project) -> DslResult<Value> {
 pub fn load_project_dir(dir: &Value) -> DslResult<Value> {
     use themis::dsl::fs::{FsError, read_dir};
 
-    let project = read_dir(string("dir", dir)?).map_err(|error| match error {
-        FsError::Syntax(found) => failure("DSL_PARSE", &found),
-        other => DslFailure {
-            code: "DSL_IO",
-            message: other.to_string(),
+    let project = read_dir(string("dir", dir)?).map_err(|error| {
+        let code = match &error {
+            FsError::Syntax(found) => return failure(DslCode::Parse, found),
+            FsError::TooLarge { .. } | FsError::TooManyFiles { .. } => DslCode::Limit,
+            _ => DslCode::Io,
+        };
+        DslFailure {
+            code,
+            message: error.to_string(),
             diagnostics: Vec::new(),
-        },
+        }
     })?;
     build(&project)
 }
@@ -181,7 +255,7 @@ pub fn load_project_dir(dir: &Value) -> DslResult<Value> {
 pub fn envelope<T: Into<Value>>(result: DslResult<T>) -> Value {
     match result {
         Ok(value) => json!({ "ok": true, "value": value.into() }),
-        Err(e) => json!({ "ok": false, "code": e.code, "message": e.message, "diagnostics": e.diagnostics }),
+        Err(e) => json!({ "ok": false, "code": e.code.as_str(), "message": e.message, "diagnostics": e.diagnostics }),
     }
 }
 
@@ -192,7 +266,7 @@ mod tests {
     const BLOCKS: &str = "language blocks\n\ntarget_kinds = [org]\n\npermission org.read {\n  targets = [org]\n}\n";
 
     fn code<T: std::fmt::Debug>(result: DslResult<T>) -> &'static str {
-        result.expect_err("devia falhar").code
+        result.expect_err("devia falhar").code.as_str()
     }
 
     #[test]
@@ -208,7 +282,7 @@ mod tests {
             Some(&json!({ "file": "a.themis" })),
         )
         .unwrap_err();
-        assert_eq!(e.code, "DSL_PARSE");
+        assert_eq!(e.code, DslCode::Parse);
         assert_eq!(e.diagnostics[0]["file"], "a.themis");
         assert!(e.diagnostics[0]["line"].as_u64().unwrap() >= 1);
     }
@@ -226,7 +300,7 @@ mod tests {
             { "path": "b.themis", "text": BLOCKS },
         ]);
         let e = load_project(&sources).unwrap_err();
-        assert_eq!(e.code, "DSL_CONFLICT");
+        assert_eq!(e.code, DslCode::Conflict);
         assert!(e.diagnostics.iter().any(|d| d["related"]["file"].is_string()));
     }
 

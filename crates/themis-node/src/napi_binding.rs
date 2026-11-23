@@ -418,7 +418,7 @@ pub fn audit_estimate(env: &Env, level: Unknown<'_>, records: Unknown<'_>) -> Re
 
 /// Um argumento da linguagem: o que não é JSON vira o `INVALID_ARGUMENT` do envelope.
 fn dsl_arg(env: &Env, arg: Unknown<'_>) -> std::result::Result<Value, crate::dsl::DslFailure> {
-    json(env, arg).map_err(|e| BindingError::new("INVALID_ARGUMENT", e.reason.clone()).into())
+    json(env, arg).map_err(|e| BindingError::invalid_argument("argumento", &e.reason).into())
 }
 
 #[napi]
