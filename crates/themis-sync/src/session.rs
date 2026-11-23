@@ -8,7 +8,7 @@ use std::future::pending;
 use std::sync::Arc;
 use std::time::Duration;
 
-use themis::{Resource, Subject};
+use themis::{CapabilitySet, Resource, Subject};
 use tokio::sync::broadcast::error::{RecvError, TryRecvError};
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{Instant, Interval, interval_at};
@@ -76,6 +76,7 @@ impl Session {
             .heartbeat
             .map(|period| interval_at(Instant::now() + period, period));
         let worker = Worker {
+            hub: hub.clone(),
             out,
             subject,
             scopes,
@@ -87,6 +88,7 @@ impl Session {
 }
 
 struct Worker {
+    hub: Hub,
     out: mpsc::Sender<ServerMessage>,
     subject: Subject,
     scopes: Vec<Resource>,
@@ -148,15 +150,28 @@ impl Worker {
             return true;
         };
         let message = match provider.capabilities(&self.subject, scope).await {
-            Ok(set) => ServerMessage::Capabilities {
-                scope: scope.clone(),
-                set,
-            },
+            Ok(set) => {
+                self.schedule_expiry(provider.as_ref(), &set);
+                ServerMessage::Capabilities {
+                    scope: scope.clone(),
+                    set,
+                }
+            }
             Err(error) => ServerMessage::Error {
                 message: error.to_string(),
             },
         };
         self.send(message).await
+    }
+
+    /// Asks the hub for a notice at the next moment a grant or role in `set` starts or stops being in
+    /// force. It comes back through the broadcast like any change and triggers a new push.
+    fn schedule_expiry(&self, provider: &dyn CapabilityProvider, set: &CapabilitySet) {
+        let now = provider.now_ms();
+        if let Some(boundary) = set.next_boundary(now) {
+            self.hub
+                .schedule_expiry(boundary, now, Change::expiry(self.subject.id.clone()));
+        }
     }
 
     async fn push_all(&self) -> bool {
@@ -312,5 +327,55 @@ mod tests {
         assert_eq!(next(&mut stream).await, ServerMessage::Ping);
         hub.publish(Change::resync()).await.unwrap();
         assert_eq!(next(&mut stream).await, ServerMessage::Resync);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn emits_change_and_recomputes_at_the_validity_boundary() {
+        const START: u64 = 10_000;
+        let started = Instant::now();
+        let clock = move || START + started.elapsed().as_millis() as u64;
+        let grants = vec![
+            Grant::allow(
+                "g",
+                SubjectMatcher::user("alice"),
+                "project.view",
+                TargetSelector::kind("project"),
+            )
+            .valid_until(START + 500),
+        ];
+        let catalog = Catalog::builder()
+            .target_kinds(["project"])
+            .broad_target("org")
+            .permission(PermissionDef::new("project.view").targets(["project"]))
+            .build()
+            .unwrap();
+        let engine = Arc::new(Engine::builder(catalog).build().unwrap());
+        let provider = Arc::new(EngineProvider::new(engine, grants).with_clock(clock));
+
+        let hub = Hub::new();
+        let options = SessionOptions {
+            heartbeat: None,
+            buffer: 8,
+        };
+        let scope = Resource::new("project", "p1");
+        let (_control, mut stream) =
+            Session::open(&hub, Subject::user("alice"), vec![scope], Some(provider), options);
+
+        assert!(matches!(next(&mut stream).await, ServerMessage::Hello { .. }));
+        match next(&mut stream).await {
+            ServerMessage::Capabilities { set, .. } => assert_eq!(set.grants.len(), 1),
+            other => panic!("{other:?}"),
+        }
+        match next(&mut stream).await {
+            ServerMessage::Change { change } => {
+                assert_eq!(change.kind, ChangeKind::Grants);
+                assert_eq!(change.subject.as_deref(), Some("alice"));
+            }
+            other => panic!("{other:?}"),
+        }
+        match next(&mut stream).await {
+            ServerMessage::Capabilities { set, .. } => assert!(set.grants.is_empty()),
+            other => panic!("{other:?}"),
+        }
     }
 }
