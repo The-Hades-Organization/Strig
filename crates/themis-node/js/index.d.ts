@@ -43,7 +43,8 @@ export type ErrorCode =
   | 'EXCLUSIVE_DENIED'
   | 'EXCLUSIVE_UNKNOWN_PERMISSION'
   | 'EXCLUSIVE_STORE'
-  | 'EXCLUSIVE_ERROR';
+  | 'EXCLUSIVE_ERROR'
+  | 'INTERNAL';
 
 /** What the binding throws: an `Error` with a stable `code`. */
 export interface BindingError extends Error {
@@ -182,7 +183,7 @@ export interface ApplyInput {
   tuples?: unknown[];
   audit?: { level: AuditLevel; prevHash?: string };
   meta?: Record<string, unknown>;
-  /** Instant the governance judges the actor's windows at, in ms UTC. Defaults to the system clock. */
+  /** Instant the governance judges the actor's windows at, in ms UTC. Defaults to the system clock. Never take it from a client: a past instant revives expired windows. */
   now?: number;
 }
 
@@ -258,7 +259,10 @@ export type SubjectRef =
   | { type: 'anyone' }
   | { type: 'unknown' };
 
-/** Filter expression `list` returns, for the caller's own query language. */
+/**
+ * Filter expression `list` returns, for the caller's own query language. Treat `unknown` as
+ * "check each row", never as `true`.
+ */
 export type FilterExpr =
   | { op: 'true' | 'false' | 'unknown' }
   | { op: 'within'; anchor: { kind: string; id?: string } }
@@ -330,9 +334,9 @@ export interface Lease {
   holder: ObjectRef;
   priority: number;
   /** Milliseconds since the Unix epoch. */
-  acquiredAt: number;
+  acquired_at: number;
   /** Milliseconds since the Unix epoch; the lease is over at this instant. */
-  expiresAt: number;
+  expires_at: number;
 }
 
 export type Acquisition =
@@ -409,7 +413,11 @@ export declare class Engine {
   checkFor(context: Context, subject: SubjectRef, permission: string, resource: Resource, subjects: Subject[]): CheckForResult;
 }
 
-/** In-memory exclusive ownership of resources, with priority and preemption. */
+/**
+ * In-memory exclusive ownership of resources, with priority and preemption. `acquire` checks the
+ * permissions at the `now` of the call. `renew` and `release` check no permission: the caller
+ * vouches for `holder`, so it must come from the server's own identity, never from a client.
+ */
 export declare class Exclusive {
   constructor(options?: ExclusiveOptions);
   /** Checks that the catalog declares both permissions; throws `EXCLUSIVE_UNKNOWN_PERMISSION`. */
