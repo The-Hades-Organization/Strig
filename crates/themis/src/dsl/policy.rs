@@ -212,6 +212,7 @@ pub mod ids {
     pub const STRATEGY: &str = "strategy";
     pub const MAX_DEPTH: &str = "max_depth";
     pub const TUPLES: &str = "tuples";
+pub const RELATIONS: &str = "relations";
 
     pub fn permission(key: &str) -> String {
         format!("permission:{key}")

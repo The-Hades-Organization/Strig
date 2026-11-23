@@ -29,56 +29,68 @@ struct Slots {
     inline: Vec<String>,
 }
 
-struct Printer {
-    out: String,
+pub(crate) struct Printer {
+    pub(crate) out: String,
     notes: BTreeMap<String, Slots>,
 }
 
 /// Writes the policy as a Blocks source.
 pub(crate) fn print(policy: &Policy) -> Printed<String> {
-    let mut notes: BTreeMap<String, Slots> = BTreeMap::new();
-    for note in &policy.notes {
-        if note.text.contains('\n') || note.text.contains('\r') {
-            return unrepresentable("a note", "a comment holds one line");
-        }
-        // A comment written next to a field goes back next to it; the anchor stays the element.
-        let key = match &note.origin.field {
-            Some(field) => ids::field(&note.anchor.element, field),
-            None => note.anchor.element.clone(),
-        };
-        let slots = notes.entry(key).or_default();
-        match note.anchor.placement {
-            Placement::Before => slots.before.push(note.text.clone()),
-            Placement::After => slots.after.push(note.text.clone()),
-            Placement::Inline => slots.inline.push(note.text.clone()),
-            #[allow(unreachable_patterns, reason = "Placement is non_exhaustive")]
-            _ => slots.before.push(note.text.clone()),
-        }
-    }
-    if let Some(key) = notes
-        .iter()
-        .find(|(_, slots)| slots.inline.len() > 1)
-        .map(|(key, _)| key)
-    {
-        return unrepresentable(
-            format!("the comments of `{key}`"),
-            "two comments on the same line have no spelling",
-        );
-    }
-    let mut printer = Printer {
-        out: String::new(),
-        notes,
-    };
+    let mut printer = Printer::start(policy, true)?;
     printer.policy(policy)?;
-    printer.orphans()?;
-    printer.check_round_trip(policy)?;
-    Ok(printer.out)
+    printer.complete(policy)
+}
+
+impl Printer {
+    /// A printer holding the comments of the policy by the element they hang on. `use_fields` keeps
+    /// the field a comment was written next to as part of the key: only Blocks has such lines.
+    pub(crate) fn start(policy: &Policy, use_fields: bool) -> Printed<Self> {
+        let mut notes: BTreeMap<String, Slots> = BTreeMap::new();
+        for note in &policy.notes {
+            if note.text.contains('\n') || note.text.contains('\r') {
+                return unrepresentable("a note", "a comment holds one line");
+            }
+            let key = match (&note.origin.field, use_fields) {
+                (Some(field), true) => ids::field(&note.anchor.element, field),
+                _ => note.anchor.element.clone(),
+            };
+            let slots = notes.entry(key).or_default();
+            match note.anchor.placement {
+                Placement::Before => slots.before.push(note.text.clone()),
+                Placement::After => slots.after.push(note.text.clone()),
+                Placement::Inline => slots.inline.push(note.text.clone()),
+                #[allow(unreachable_patterns, reason = "Placement is non_exhaustive")]
+                _ => slots.before.push(note.text.clone()),
+            }
+        }
+        if let Some(key) = notes
+            .iter()
+            .find(|(_, slots)| slots.inline.len() > 1)
+            .map(|(key, _)| key)
+        {
+            return unrepresentable(
+                format!("the comments of `{key}`"),
+                "two comments on the same line have no spelling",
+            );
+        }
+        Ok(Self {
+            out: String::new(),
+            notes,
+        })
+    }
+
+    /// Checks that nothing was left out and that the text reads back, then hands the text out.
+    pub(crate) fn complete(mut self, policy: &Policy) -> Printed<String> {
+        self.orphans()?;
+        self.check_round_trip(policy)?;
+        Ok(self.out)
+    }
 }
 
 // ---- checks on what is written ---------------------------------------------------------------
 
 /// A name the lexer reads back as one word.
-fn word<'a>(text: &'a str, what: &str) -> Printed<&'a str> {
+pub(crate) fn word<'a>(text: &'a str, what: &str) -> Printed<&'a str> {
     let lexed = lex(text);
     match lexed.tokens.as_slice() {
         [first, last] if matches!(&first.tok, Tok::Ident(v) if v == text) && last.tok == Tok::Eof => Ok(text),
@@ -90,7 +102,7 @@ fn word<'a>(text: &'a str, what: &str) -> Printed<&'a str> {
 }
 
 /// The id after `:`: a word, a number or `*`.
-fn id_part<'a>(text: &'a str, what: &str) -> Printed<&'a str> {
+pub(crate) fn id_part<'a>(text: &'a str, what: &str) -> Printed<&'a str> {
     if text == "*" {
         return Ok(text);
     }
@@ -103,7 +115,7 @@ fn id_part<'a>(text: &'a str, what: &str) -> Printed<&'a str> {
     }
 }
 
-fn date(ms: u64) -> Printed<String> {
+pub(crate) fn date(ms: u64) -> Printed<String> {
     time::format(ms).map_or_else(
         || {
             unrepresentable(
@@ -136,7 +148,7 @@ fn attr(path: &str) -> Printed<&str> {
     }
 }
 
-fn quote(text: &str) -> String {
+pub(crate) fn quote(text: &str) -> String {
     let mut out = String::from("\"");
     for c in text.chars() {
         match c {
@@ -152,7 +164,7 @@ fn quote(text: &str) -> String {
     out
 }
 
-fn anchor(a: &Anchor) -> Printed<String> {
+pub(crate) fn anchor(a: &Anchor) -> Printed<String> {
     let kind = word(&a.kind, "kind")?;
     Ok(match &a.id {
         Some(id) => format!("{kind}:{}", id_part(id, "id")?),
@@ -160,12 +172,7 @@ fn anchor(a: &Anchor) -> Printed<String> {
     })
 }
 
-fn anchor_list(items: &[Anchor]) -> Printed<String> {
-    let parts: Printed<Vec<String>> = items.iter().map(anchor).collect();
-    Ok(format!("[{}]", parts?.join(", ")))
-}
-
-fn path(items: &[Anchor], what: &str) -> Printed<String> {
+pub(crate) fn path(items: &[Anchor], what: &str) -> Printed<String> {
     if items.is_empty() {
         return unrepresentable(what, "a path needs at least one step");
     }
@@ -173,12 +180,12 @@ fn path(items: &[Anchor], what: &str) -> Printed<String> {
     Ok(parts?.join(" > "))
 }
 
-fn words(items: &[String], what: &str) -> Printed<String> {
+pub(crate) fn words(items: &[String], what: &str) -> Printed<String> {
     let parts: Printed<Vec<&str>> = items.iter().map(|i| word(i, what)).collect();
     Ok(format!("[{}]", parts?.join(", ")))
 }
 
-fn value(v: &Value) -> Printed<String> {
+pub(crate) fn value(v: &Value) -> Printed<String> {
     Ok(match v {
         Value::Null => "null".to_string(),
         Value::Bool(b) => b.to_string(),
@@ -204,7 +211,7 @@ fn operand(o: &Operand) -> Printed<String> {
 }
 
 /// `parent` says how tightly the surroundings bind: 0 none, 1 under `or`, 2 under `and`/`not`.
-fn condition(c: &Condition, parent: u8) -> Printed<String> {
+pub(crate) fn condition(c: &Condition, parent: u8) -> Printed<String> {
     let compare =
         |l: &Operand, op: &str, r: &Operand| -> Printed<String> { Ok(format!("{} {op} {}", operand(l)?, operand(r)?)) };
     let group = |of: &[Condition], keyword: &str, func: &str, level: u8| -> Printed<String> {
@@ -237,7 +244,7 @@ fn condition(c: &Condition, parent: u8) -> Printed<String> {
     }
 }
 
-fn rewrite(r: &Rewrite, top: bool) -> Printed<String> {
+pub(crate) fn rewrite(r: &Rewrite, top: bool) -> Printed<String> {
     let wrap = |text: String| if top { text } else { format!("({text})") };
     let join = |of: &[Rewrite], op: &str| -> Printed<String> {
         let parts: Printed<Vec<String>> = of.iter().map(|r| rewrite(r, false)).collect();
@@ -261,7 +268,7 @@ fn rewrite(r: &Rewrite, top: bool) -> Printed<String> {
     })
 }
 
-fn matcher(m: &SubjectMatcher) -> Printed<String> {
+pub(crate) fn matcher(m: &SubjectMatcher) -> Printed<String> {
     Ok(match m {
         SubjectMatcher::Any => "anyone".to_string(),
         SubjectMatcher::Role { id } => format!("role {}", word(id, "role")?),
@@ -275,28 +282,66 @@ fn matcher(m: &SubjectMatcher) -> Printed<String> {
     })
 }
 
-fn resource(r: &Resource, what: &str) -> Printed<String> {
-    if !r.attrs.is_empty() {
-        return unrepresentable(what, "a resource with attributes has no spelling");
-    }
-    path(&r.path, what)
+/// `key = value, key = value`
+pub(crate) fn pairs(entries: &BTreeMap<String, Value>) -> Printed<String> {
+    let parts: Printed<Vec<String>> = entries
+        .iter()
+        .map(|(key, item)| Ok(format!("{} = {}", word(key, "key")?, value(item)?)))
+        .collect();
+    Ok(parts?.join(", "))
 }
 
-/// A member of an invariant: only its kind and id survive the text.
-fn member(s: &Subject) -> Printed<Anchor> {
+/// A path, then the attributes of the resource after `with`.
+pub(crate) fn resource(r: &Resource, what: &str) -> Printed<String> {
+    let steps = path(&r.path, what)?;
+    if r.attrs.is_empty() {
+        return Ok(steps);
+    }
+    Ok(format!("{steps} with {}", pairs(&r.attrs)?))
+}
+
+/// What follows the role of an assignment: `in <scope> from <date> until <date>`.
+pub(crate) fn assignment_clauses(a: &crate::RoleAssignment) -> Printed<String> {
+    let mut text = String::new();
+    if let Some(scope) = &a.scope {
+        text.push_str(&format!(" in {}", anchor(scope)?));
+    }
+    if let Some(from) = a.valid_from {
+        text.push_str(&format!(" from {}", date(from)?));
+    }
+    if let Some(until) = a.valid_until {
+        text.push_str(&format!(" until {}", date(until)?));
+    }
+    Ok(text)
+}
+
+/// A member of an invariant: `kind:id`, and in parentheses what it carries.
+pub(crate) fn member(s: &Subject) -> Printed<String> {
     let Some(id) = &s.id else {
         return unrepresentable("an invariant member", "a member needs an id");
     };
-    if !s.roles.is_empty() || !s.principals.is_empty() || !s.attrs.is_empty() {
-        return unrepresentable(
-            format!("the member {}:{id}", s.kind),
-            "roles, principals and attributes of a member have no spelling",
-        );
+    let head = format!("{}:{}", word(&s.kind, "kind")?, id_part(id, "id")?);
+    let mut parts: Vec<String> = Vec::new();
+    for assignment in &s.roles {
+        let role = word(&assignment.role, "role")?;
+        parts.push(format!("role {role}{}", assignment_clauses(assignment)?));
     }
-    Ok(Anchor {
-        kind: s.kind.clone(),
-        id: Some(id.clone()),
-    })
+    for principal in &s.principals {
+        parts.push(format!("principal {}", word(principal, "principal")?));
+    }
+    for (key, item) in &s.attrs {
+        parts.push(format!("attr {} = {}", word(key, "key")?, value(item)?));
+    }
+    if parts.is_empty() {
+        Ok(head)
+    } else {
+        Ok(format!("{head} ({})", parts.join(", ")))
+    }
+}
+
+pub(crate) fn member_list(items: &[Subject]) -> Printed<String> {
+    let parts: Printed<Vec<String>> = items.iter().map(member).collect();
+    Ok(format!("[{}]", parts?.join(", ")))
 }
 
 fn strategy_name(s: StrategySpec) -> Printed<&'static str> {
@@ -313,7 +358,7 @@ fn strategy_name(s: StrategySpec) -> Printed<&'static str> {
 // ---- layout -------------------------------------------------------------------------------------
 
 impl Printer {
-    fn push(&mut self, indent: usize, text: &str) {
+    pub(crate) fn push(&mut self, indent: usize, text: &str) {
         for _ in 0..indent {
             self.out.push_str("  ");
         }
@@ -321,13 +366,13 @@ impl Printer {
         self.out.push('\n');
     }
 
-    fn blank(&mut self) {
+    pub(crate) fn blank(&mut self) {
         if !self.out.is_empty() && !self.out.ends_with("\n\n") {
             self.out.push('\n');
         }
     }
 
-    fn comment(text: &str) -> String {
+    pub(crate) fn comment(text: &str) -> String {
         if text.is_empty() {
             "//".to_string()
         } else {
@@ -335,12 +380,12 @@ impl Printer {
         }
     }
 
-    fn has_notes(&self, id: &str) -> bool {
+    pub(crate) fn has_notes(&self, id: &str) -> bool {
         self.notes.contains_key(id)
     }
 
     /// Comments above an element; returns the inline one, to put on its first line.
-    fn begin(&mut self, indent: usize, id: &str) -> Option<String> {
+    pub(crate) fn begin(&mut self, indent: usize, id: &str) -> Option<String> {
         let slots = self.notes.get_mut(id)?;
         let before = std::mem::take(&mut slots.before);
         let mut inline = std::mem::take(&mut slots.inline);
@@ -354,7 +399,7 @@ impl Printer {
 
     /// Comments below an element. When more of the scope follows, a blank line keeps them from
     /// reading back as the comments above the next element.
-    fn finish(&mut self, indent: usize, id: &str, last: bool) {
+    pub(crate) fn finish(&mut self, indent: usize, id: &str, last: bool) {
         let after = self
             .notes
             .get_mut(id)
@@ -371,7 +416,7 @@ impl Printer {
         }
     }
 
-    fn leaf(&mut self, indent: usize, id: &str, text: &str, last: bool) {
+    pub(crate) fn leaf(&mut self, indent: usize, id: &str, text: &str, last: bool) {
         let inline = self.begin(indent, id);
         match inline {
             Some(note) => self.push(indent, &format!("{text}  {note}")),
@@ -380,7 +425,7 @@ impl Printer {
         self.finish(indent, id, last);
     }
 
-    fn open(&mut self, indent: usize, id: &str, head: &str) {
+    pub(crate) fn open(&mut self, indent: usize, id: &str, head: &str) {
         let inline = self.begin(indent, id);
         match inline {
             Some(note) => self.push(indent, &format!("{head} {{  {note}")),
@@ -388,14 +433,14 @@ impl Printer {
         }
     }
 
-    fn close(&mut self, indent: usize, id: &str, last: bool) {
+    pub(crate) fn close(&mut self, indent: usize, id: &str, last: bool) {
         self.push(indent, "}");
         self.finish(indent, id, last);
     }
 
     /// A comment whose element or field was not written has no place to go: refusing is better
     /// than moving it to another element.
-    fn orphans(&mut self) -> Printed<()> {
+    pub(crate) fn orphans(&mut self) -> Printed<()> {
         let left = std::mem::take(&mut self.notes);
         let stray = left
             .into_iter()
@@ -441,7 +486,8 @@ impl Printer {
         }
         if let Some(relations) = &p.relations {
             if relations.is_empty() {
-                return unrepresentable("the relations", "an empty relation list has no spelling");
+                self.blank();
+                self.leaf(0, ids::RELATIONS, "relations = []", true);
             }
             for relation in relations {
                 self.blank();
@@ -732,20 +778,21 @@ impl Printer {
                 reserve,
             } => {
                 fields.push(("permissions", words(permissions, "permission")?));
-                let members: Printed<Vec<Anchor>> = members.iter().map(member).collect();
-                fields.push(("members", anchor_list(&members?)?));
+                fields.push(("members", member_list(members)?));
                 fields.push(("resource", resource(r, "the resource")?));
                 if let Some(reserve) = reserve {
                     let admin = &reserve.admin_role;
-                    if admin.valid_from.is_some() || admin.valid_until.is_some() {
-                        return unrepresentable("the reserve role", "a window on the reserve has no spelling");
-                    }
                     fields.push(("reserve_role", word(&admin.role, "role")?.to_string()));
                     if let Some(scope) = &admin.scope {
                         fields.push(("reserve_scope", anchor(scope)?));
                     }
-                    let subjects: Printed<Vec<Anchor>> = reserve.subjects.iter().map(member).collect();
-                    fields.push(("reserve_subjects", anchor_list(&subjects?)?));
+                    fields.push(("reserve_subjects", member_list(&reserve.subjects)?));
+                    if let Some(from) = admin.valid_from {
+                        fields.push(("reserve_from", date(from)?));
+                    }
+                    if let Some(until) = admin.valid_until {
+                        fields.push(("reserve_until", date(until)?));
+                    }
                 }
             }
             InvariantSpec::NonDelegable { manager } => {

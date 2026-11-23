@@ -17,9 +17,11 @@
 //! assert_eq!(print(&parsed.policy, Language::Blocks).unwrap(), text);
 //! ```
 
+mod actors;
 mod blocks;
 mod blocks_print;
 mod build;
+mod convert;
 mod error;
 #[cfg(feature = "dsl-fs")]
 pub mod fs;
@@ -27,6 +29,7 @@ mod grammar;
 mod lex;
 mod policy;
 mod project;
+mod rules;
 mod time;
 mod validate;
 
@@ -35,6 +38,7 @@ use std::sync::Arc;
 use build::Builder;
 use grammar::Cursor;
 
+pub use convert::{ConvertError, convert};
 pub use error::{Diagnostic, Diagnostics, Location, PrintError};
 pub use policy::{Language, Note, NoteAnchor, NoteOrigin, Origins, Placement, Policy};
 pub use project::{Built, MAX_PROJECT_BYTES, MAX_SOURCES, Project};
@@ -113,9 +117,10 @@ pub(crate) fn parse_unvalidated(file: &str, text: &str) -> Result<Parsed, Diagno
     let mut builder = Builder::new(file, language.1);
     builder.open(policy::ids::LANGUAGE, language.0);
     builder.close(cursor.previous_span());
-    // `header` refuses the other languages until their syntaxes exist.
-    if language.1 == Language::Blocks {
-        blocks::parse(&mut cursor, &mut builder);
+    match language.1 {
+        Language::Blocks => blocks::parse(&mut cursor, &mut builder),
+        Language::Rules => rules::parse(&mut cursor, &mut builder),
+        Language::Actors => actors::parse(&mut cursor, &mut builder),
     }
     let (policy, origins, found) = builder.finish(&lexed.comments);
     if !found.is_empty() {
@@ -141,12 +146,6 @@ fn header(cursor: &mut Cursor) -> error::PResult<(error::Span, Language)> {
         error::Raw::new(word.span, format!("unknown language `{}`", word.v))
             .hint("expected one of: blocks, rules, actors")
     })?;
-    if language != Language::Blocks {
-        return Err(
-            error::Raw::new(word.span, format!("the {language} syntax is not available yet"))
-                .hint("use: language blocks"),
-        );
-    }
     Ok((at, language))
 }
 
@@ -158,6 +157,7 @@ fn header(cursor: &mut Cursor) -> error::PResult<(error::Span, Language)> {
 pub fn print(policy: &Policy, language: Language) -> Result<String, PrintError> {
     match language {
         Language::Blocks => blocks_print::print(policy),
-        other => Err(PrintError::Unsupported(other.name())),
+        Language::Rules => rules::print(policy),
+        Language::Actors => actors::print(policy),
     }
 }
