@@ -142,12 +142,15 @@ fn a_directory_with_too_many_files_is_refused() {
 
 #[cfg(unix)]
 #[test]
-fn a_link_in_a_directory_is_not_followed() {
+fn a_link_in_a_directory_is_refused_by_name() {
     let outside = Scratch::new("outside");
     let target = outside.write("secret.themis", KINDS);
     let dir = Scratch::new("link");
     std::os::unix::fs::symlink(&target, dir.path().join("link.themis")).unwrap();
-    assert_eq!(read_dir(dir.path()).unwrap().len(), 0);
+    match read_dir(dir.path()) {
+        Err(FsError::Outside { path }) => assert!(path.ends_with("link.themis")),
+        other => panic!("expected Outside, got {other:?}"),
+    }
 }
 
 #[test]
