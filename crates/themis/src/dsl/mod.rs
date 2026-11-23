@@ -134,11 +134,8 @@ fn header(cursor: &mut Cursor) -> error::PResult<(error::Span, Language)> {
     let first = cursor.current();
     let at = first.span;
     if !cursor.eat_word("language") {
-        return Err(error::Raw::new(
-            at,
-            "a source starts by declaring its language",
-        )
-        .hint("write on the first line: language blocks"));
+        return Err(error::Raw::new(at, "a source starts by declaring its language")
+            .hint("write on the first line: language blocks"));
     }
     let word = cursor.word("a language name")?;
     let language: Language = word.v.parse().map_err(|()| {
@@ -146,11 +143,10 @@ fn header(cursor: &mut Cursor) -> error::PResult<(error::Span, Language)> {
             .hint("expected one of: blocks, rules, actors")
     })?;
     if language != Language::Blocks {
-        return Err(error::Raw::new(
-            word.span,
-            format!("the {language} syntax is not available yet"),
-        )
-        .hint("use: language blocks"));
+        return Err(
+            error::Raw::new(word.span, format!("the {language} syntax is not available yet"))
+                .hint("use: language blocks"),
+        );
     }
     Ok((at, language))
 }

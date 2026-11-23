@@ -5,8 +5,7 @@
 use crate::dsl::error::{PResult, Raw, Span};
 use crate::dsl::lex::{Tok, Token};
 use crate::{
-    Anchor, Condition, ObjectRef, Operand, Rewrite, SubjectMatcher, TargetSelector, Tuple,
-    TupleSubject, Value,
+    Anchor, Condition, ObjectRef, Operand, Rewrite, SubjectMatcher, TargetSelector, Tuple, TupleSubject, Value,
 };
 
 /// How deep nested groups, lists and conditions may go: input is external and unbounded.
@@ -159,13 +158,15 @@ impl Cursor {
         match token.tok {
             Tok::Date { ms, .. } => {
                 self.advance();
-                Ok(Sp { v: ms, span: token.span })
+                Ok(Sp {
+                    v: ms,
+                    span: token.span,
+                })
             }
-            other => Err(Raw::new(
-                token.span,
-                format!("expected a UTC date, found {}", describe(&other)),
-            )
-            .hint("write it as 2026-01-31T12:00:00Z")),
+            other => Err(
+                Raw::new(token.span, format!("expected a UTC date, found {}", describe(&other)))
+                    .hint("write it as 2026-01-31T12:00:00Z"),
+            ),
         }
     }
 
@@ -192,8 +193,7 @@ impl Cursor {
     pub fn enter(&mut self) -> PResult<()> {
         self.depth += 1;
         if self.depth > MAX_DEPTH {
-            return Err(Raw::new(self.span(), "nested too deeply")
-                .hint(format!("the limit is {MAX_DEPTH} levels")));
+            return Err(Raw::new(self.span(), "nested too deeply").hint(format!("the limit is {MAX_DEPTH} levels")));
         }
         Ok(())
     }
@@ -239,9 +239,7 @@ fn edit_distance(a: &str, b: &str) -> usize {
         row[0] = i + 1;
         for (j, cb) in b.iter().enumerate() {
             let above = row[j + 1];
-            row[j + 1] = (diagonal + usize::from(ca != *cb))
-                .min(row[j] + 1)
-                .min(above + 1);
+            row[j + 1] = (diagonal + usize::from(ca != *cb)).min(row[j] + 1).min(above + 1);
             diagonal = above;
         }
     }
@@ -346,11 +344,7 @@ fn id_part(cur: &mut Cursor) -> PResult<String> {
 /// `kind` or `kind:id`
 pub(crate) fn anchor(cur: &mut Cursor) -> PResult<AnchorAt> {
     let kind = cur.word("a kind (for example `project` or `project:roadmap`)")?;
-    let id = if cur.eat_punct(":") {
-        Some(id_part(cur)?)
-    } else {
-        None
-    };
+    let id = if cur.eat_punct(":") { Some(id_part(cur)?) } else { None };
     Ok(AnchorAt {
         anchor: Anchor { kind: kind.v, id },
         span: kind.span,
@@ -380,8 +374,7 @@ fn object_ref(at: AnchorAt, what: &str) -> PResult<ObjectRef> {
             kind: at.anchor.kind,
             id,
         }),
-        None => Err(Raw::new(at.span, format!("{what} needs an id"))
-            .hint("write kind:id#relation@kind:id")),
+        None => Err(Raw::new(at.span, format!("{what} needs an id")).hint("write kind:id#relation@kind:id")),
     }
 }
 
@@ -479,9 +472,7 @@ fn not_expr(cur: &mut Cursor) -> PResult<Condition> {
         cur.enter()?;
         let inner = not_expr(cur)?;
         cur.leave();
-        return Ok(Condition::Not {
-            cond: Box::new(inner),
-        });
+        return Ok(Condition::Not { cond: Box::new(inner) });
     }
     atom(cur)
 }
@@ -662,10 +653,9 @@ pub(crate) fn rewrite(cur: &mut Cursor) -> PResult<Rewrite> {
         None => Ok(items.remove(0)),
         Some("-") => {
             let span = cur.previous_span();
-            let [base, subtract]: [Rewrite; 2] = items.try_into().map_err(|_| {
-                Raw::new(span, "exclusion takes two operands: a - b")
-                    .hint("nest groups for more")
-            })?;
+            let [base, subtract]: [Rewrite; 2] = items
+                .try_into()
+                .map_err(|_| Raw::new(span, "exclusion takes two operands: a - b").hint("nest groups for more"))?;
             Ok(Rewrite::Exclusion {
                 base: Box::new(base),
                 subtract: Box::new(subtract),
@@ -687,8 +677,7 @@ mod tests {
 
     #[test]
     fn condition_reads_precedence_and_attributes() {
-        let cond = condition(&mut cursor("subject.dept == \"it\" or not exists env.mfa && 1 < 2"))
-            .unwrap();
+        let cond = condition(&mut cursor("subject.dept == \"it\" or not exists env.mfa && 1 < 2")).unwrap();
         let Condition::Any { of } = cond else {
             panic!("expected an or at the top")
         };

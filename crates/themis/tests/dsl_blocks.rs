@@ -1,6 +1,6 @@
 //! The Blocks syntax end to end: text to policy to JSON and back to text, comments included.
 
-use themis::dsl::{parse, print, Language, Placement, Policy};
+use themis::dsl::{Language, Placement, Policy, parse, print};
 
 const SOURCE: &str = "\
 // Access policy of a small workspace.
@@ -83,16 +83,19 @@ fn every_comment_becomes_a_note_with_its_anchor_and_origin() {
         notes,
         vec![
             ("Access policy of a small workspace.", "language", Placement::Before),
-            ("Reading is the base of everything else.", "permission:org.read", Placement::Before),
             (
-                "never alone",
-                "permission:project.write/depends_on",
-                Placement::Inline,
+                "Reading is the base of everything else.",
+                "permission:org.read",
+                Placement::Before
             ),
+            ("never alone", "permission:project.write/depends_on", Placement::Inline,),
         ]
     );
     let origin = &policy.notes[1].origin;
-    assert_eq!((origin.file.as_str(), origin.line, origin.column), ("policy.themis", 7, 1));
+    assert_eq!(
+        (origin.file.as_str(), origin.line, origin.column),
+        ("policy.themis", 7, 1)
+    );
     assert_eq!(origin.language, Language::Blocks);
 }
 
@@ -293,7 +296,8 @@ fn a_block_left_open_is_refused() {
 
 #[test]
 fn a_date_outside_utc_is_refused_at_the_date() {
-    let text = "language blocks\n\nsubject user:a {\n  assign r {\n    valid_from = 2026-01-01T00:00:00+02:00\n  }\n}\n";
+    let text =
+        "language blocks\n\nsubject user:a {\n  assign r {\n    valid_from = 2026-01-01T00:00:00+02:00\n  }\n}\n";
     let (line, column, _) = first_error(text);
     assert_eq!((line, column), (5, 18));
 }

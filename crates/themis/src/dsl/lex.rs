@@ -19,7 +19,10 @@ pub(crate) enum Tok {
     Str(String),
     /// A number as written; the grammar decides between integer and float.
     Num(String),
-    Date { raw: String, ms: u64 },
+    Date {
+        raw: String,
+        ms: u64,
+    },
     Punct(&'static str),
     Eof,
 }
@@ -218,7 +221,13 @@ pub(crate) fn lex(source: &str) -> Lexed {
         } else if c.is_ascii_alphanumeric() || c == '_' {
             let text = sc.ident();
             let len = text.chars().count();
-            (Tok::Ident(text), Span { len: u32::try_from(len).unwrap_or(u32::MAX), ..start })
+            (
+                Tok::Ident(text),
+                Span {
+                    len: u32::try_from(len).unwrap_or(u32::MAX),
+                    ..start
+                },
+            )
         } else if let Some(p) = PUNCT2
             .iter()
             .copied()
@@ -317,9 +326,8 @@ fn date(sc: &mut Scanner, errors: &mut Vec<Raw>) -> Option<Option<(Tok, Span)>> 
         Ok(ms) => Some(Some((Tok::Date { raw, ms }, start))),
         Err(reason) => {
             errors.push(
-                Raw::new(start, format!("invalid date \"{raw}\": {reason}")).hint(
-                    "dates are UTC: use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ, with the trailing Z",
-                ),
+                Raw::new(start, format!("invalid date \"{raw}\": {reason}"))
+                    .hint("dates are UTC: use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ, with the trailing Z"),
             );
             Some(None)
         }
@@ -391,10 +399,7 @@ mod tests {
     #[test]
     fn negative_numbers_only_after_an_operator() {
         assert_eq!(kinds("= -3")[1], Tok::Num("-3".into()));
-        assert_eq!(
-            kinds("a - 3")[1..3],
-            [Tok::Punct("-"), Tok::Num("3".into())]
-        );
+        assert_eq!(kinds("a - 3")[1..3], [Tok::Punct("-"), Tok::Num("3".into())]);
     }
 
     #[test]

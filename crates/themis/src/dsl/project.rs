@@ -3,9 +3,9 @@
 use std::collections::BTreeMap;
 
 use crate::dsl::error::{Diagnostic, Diagnostics, Location};
-use crate::dsl::policy::{ids, Language, Origins, Policy};
+use crate::dsl::policy::{Language, Origins, Policy, ids};
 use crate::dsl::validate::{invariant_kind, validate};
-use crate::dsl::{parse_unvalidated, Parsed};
+use crate::dsl::{Parsed, parse_unvalidated};
 use crate::{InvariantSpec, OverrideRule};
 
 /// The policy a [`Project`] builds and where each of its elements was declared.
@@ -150,11 +150,8 @@ impl Merge {
     fn clash(&mut self, id: &str, from: &Parsed, message: String, hint: &str) {
         let at = from.origins.get(id).cloned();
         let first = self.origins.get(id).cloned();
-        self.clashes.push(
-            Diagnostic::new(at, message)
-                .with_hint(hint)
-                .with_related(first),
-        );
+        self.clashes
+            .push(Diagnostic::new(at, message).with_hint(hint).with_related(first));
     }
 
     fn kinds(&mut self, from: &Parsed) {
@@ -173,12 +170,7 @@ impl Merge {
 
     fn permissions(&mut self, from: &Parsed) {
         for def in &from.policy.catalog.permissions {
-            let declared = self
-                .policy
-                .catalog
-                .permissions
-                .iter()
-                .any(|known| known.key == def.key);
+            let declared = self.policy.catalog.permissions.iter().any(|known| known.key == def.key);
             if declared {
                 let message = format!("the permission `{}` is declared twice", def.key);
                 self.clash(
@@ -336,9 +328,7 @@ impl Merge {
         for spec in &from.policy.overrides {
             let (id, name) = match &spec.rule {
                 OverrideRule::ResourceOwner { attr } => (ids::override_owner(attr), attr.clone()),
-                OverrideRule::PermissionHolder { permission } => {
-                    (ids::override_holder(permission), permission.clone())
-                }
+                OverrideRule::PermissionHolder { permission } => (ids::override_holder(permission), permission.clone()),
             };
             match self.policy.overrides.iter().find(|known| known.rule == spec.rule) {
                 None => self.policy.overrides.push(spec.clone()),

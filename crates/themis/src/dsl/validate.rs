@@ -5,10 +5,8 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::dsl::error::{Diagnostic, Location};
-use crate::dsl::policy::{ids, Origins, Policy};
-use crate::{
-    Catalog, CatalogError, InvariantSpec, OverrideRule, Rewrite, RoleAssignment, SubjectMatcher,
-};
+use crate::dsl::policy::{Origins, Policy, ids};
+use crate::{Catalog, CatalogError, InvariantSpec, OverrideRule, Rewrite, RoleAssignment, SubjectMatcher};
 
 struct Report<'a> {
     origins: Option<&'a Origins>,
@@ -201,10 +199,7 @@ fn relations(policy: &Policy, report: &mut Report<'_>) {
         if !seen.insert((&relation.kind, &relation.relation)) {
             report.error(
                 &id,
-                format!(
-                    "relation `{}#{}` is declared twice",
-                    relation.kind, relation.relation
-                ),
+                format!("relation `{}#{}` is declared twice", relation.kind, relation.relation),
                 None,
             );
         }
@@ -267,7 +262,10 @@ fn grants(policy: &Policy, catalog: Option<&Catalog>, report: &mut Report<'_>) {
         if def.override_only {
             report.error(
                 &ids::field(&id, "permission"),
-                format!("`{}` holds only through an override and cannot be granted", grant.permission),
+                format!(
+                    "`{}` holds only through an override and cannot be granted",
+                    grant.permission
+                ),
                 None,
             );
         }
@@ -342,8 +340,9 @@ fn invariants(policy: &Policy, catalog: Option<&Catalog>, report: &mut Report<'_
         let mut permissions: Vec<&String> = Vec::new();
         match spec {
             InvariantSpec::RequirePermission { permission, .. } => permissions.push(permission),
-            InvariantSpec::NoLockout { permissions: p, .. }
-            | InvariantSpec::Forbid { permissions: p, .. } => permissions.extend(p),
+            InvariantSpec::NoLockout { permissions: p, .. } | InvariantSpec::Forbid { permissions: p, .. } => {
+                permissions.extend(p)
+            }
             InvariantSpec::NoEscalation { bypass: Some(b) } => permissions.push(&b.permission),
             InvariantSpec::NonDelegable { manager } => permissions.push(manager),
             _ => {}

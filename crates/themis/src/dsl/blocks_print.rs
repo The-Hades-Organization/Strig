@@ -4,13 +4,13 @@
 use std::collections::BTreeMap;
 
 use crate::dsl::error::PrintError;
-use crate::dsl::lex::{lex, Tok};
-use crate::dsl::policy::{ids, Placement, Policy};
+use crate::dsl::lex::{Tok, lex};
+use crate::dsl::policy::{Placement, Policy, ids};
 use crate::dsl::time;
 use crate::dsl::validate::invariant_kind;
 use crate::{
-    Anchor, Condition, Effect, InvariantSpec, Operand, OverrideRule, Resource, Rewrite, StrategySpec,
-    Subject, SubjectMatcher, Value,
+    Anchor, Condition, Effect, InvariantSpec, Operand, OverrideRule, Resource, Rewrite, StrategySpec, Subject,
+    SubjectMatcher, Value,
 };
 
 type Printed<T> = Result<T, PrintError>;
@@ -65,9 +65,7 @@ pub(crate) fn print(policy: &Policy) -> Printed<String> {
 fn word<'a>(text: &'a str, what: &str) -> Printed<&'a str> {
     let lexed = lex(text);
     match lexed.tokens.as_slice() {
-        [first, last] if matches!(&first.tok, Tok::Ident(v) if v == text) && last.tok == Tok::Eof => {
-            Ok(text)
-        }
+        [first, last] if matches!(&first.tok, Tok::Ident(v) if v == text) && last.tok == Tok::Eof => Ok(text),
         _ => unrepresentable(
             format!("{what} `{text}`"),
             "it is not a name the language can read back",
@@ -82,16 +80,10 @@ fn id_part<'a>(text: &'a str, what: &str) -> Printed<&'a str> {
     }
     let lexed = lex(text);
     match lexed.tokens.as_slice() {
-        [first, last]
-            if matches!(&first.tok, Tok::Ident(v) | Tok::Num(v) if v == text)
-                && last.tok == Tok::Eof =>
-        {
+        [first, last] if matches!(&first.tok, Tok::Ident(v) | Tok::Num(v) if v == text) && last.tok == Tok::Eof => {
             Ok(text)
         }
-        _ => unrepresentable(
-            format!("{what} `{text}`"),
-            "it is not an id the language can read back",
-        ),
+        _ => unrepresentable(format!("{what} `{text}`"), "it is not an id the language can read back"),
     }
 }
 
@@ -165,9 +157,8 @@ fn operand(o: &Operand) -> Printed<String> {
 
 /// `parent` says how tightly the surroundings bind: 0 none, 1 under `or`, 2 under `and`/`not`.
 fn condition(c: &Condition, parent: u8) -> Printed<String> {
-    let compare = |l: &Operand, op: &str, r: &Operand| -> Printed<String> {
-        Ok(format!("{} {op} {}", operand(l)?, operand(r)?))
-    };
+    let compare =
+        |l: &Operand, op: &str, r: &Operand| -> Printed<String> { Ok(format!("{} {op} {}", operand(l)?, operand(r)?)) };
     let group = |of: &[Condition], keyword: &str, func: &str, level: u8| -> Printed<String> {
         if of.len() < 2 {
             let parts: Printed<Vec<String>> = of.iter().map(|c| condition(c, 0)).collect();
@@ -175,11 +166,7 @@ fn condition(c: &Condition, parent: u8) -> Printed<String> {
         }
         let parts: Printed<Vec<String>> = of.iter().map(|c| condition(c, level)).collect();
         let text = parts?.join(&format!(" {keyword} "));
-        Ok(if parent >= level {
-            format!("({text})")
-        } else {
-            text
-        })
+        Ok(if parent >= level { format!("({text})") } else { text })
     };
     match c {
         Condition::Eq { left, right } => compare(left, "==", right),
@@ -459,7 +446,14 @@ impl Printer {
         }
     }
 
-    fn table(&mut self, indent: usize, elem: &str, name: &str, entries: &BTreeMap<String, Value>, last: bool) -> Printed<()> {
+    fn table(
+        &mut self,
+        indent: usize,
+        elem: &str,
+        name: &str,
+        entries: &BTreeMap<String, Value>,
+        last: bool,
+    ) -> Printed<()> {
         let id = ids::field(elem, name);
         self.open(indent, &id, name);
         for (key, item) in entries {
@@ -528,7 +522,12 @@ impl Printer {
         if !s.principals.is_empty() {
             parts += 1;
             let list = words(&s.principals, "principal")?;
-            self.leaf(1, &ids::field(&id, "principals"), &format!("principals = {list}"), parts == total);
+            self.leaf(
+                1,
+                &ids::field(&id, "principals"),
+                &format!("principals = {list}"),
+                parts == total,
+            );
         }
         if !s.attrs.is_empty() {
             parts += 1;
@@ -647,7 +646,10 @@ impl Printer {
     fn invariant(&mut self, spec: &InvariantSpec, kind: &str, id: &str) -> Printed<()> {
         let mut fields: Vec<(&str, String)> = Vec::new();
         match spec {
-            InvariantSpec::RequirePermission { permission, resource: r } => {
+            InvariantSpec::RequirePermission {
+                permission,
+                resource: r,
+            } => {
                 fields.push(("permission", word(permission, "permission")?.to_string()));
                 fields.push(("resource", resource(r, "the resource")?));
             }

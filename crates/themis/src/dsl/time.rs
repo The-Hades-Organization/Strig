@@ -74,7 +74,9 @@ pub(crate) fn parse(text: &str) -> Result<u64, String> {
     let mut ms = days_from_civil(year, month, day) * MS_PER_DAY;
     if let Some(time) = time {
         let Some(clock) = time.strip_suffix('Z') else {
-            return Err("time without zone; dates are UTC, so add a trailing Z (for example 2026-01-01T09:00:00Z)".into());
+            return Err(
+                "time without zone; dates are UTC, so add a trailing Z (for example 2026-01-01T09:00:00Z)".into(),
+            );
         };
         let (clock, fraction) = match clock.split_once('.') {
             Some((clock, fraction)) => (clock, Some(fraction)),
@@ -117,7 +119,11 @@ pub(crate) fn format(ms: u64) -> String {
     }
     let (secs, millis) = (rest / MS_PER_SECOND, rest % MS_PER_SECOND);
     let (h, mi, s) = (secs / 3_600, secs % 3_600 / 60, secs % 60);
-    let fraction = if millis == 0 { String::new() } else { format!(".{millis:03}") };
+    let fraction = if millis == 0 {
+        String::new()
+    } else {
+        format!(".{millis:03}")
+    };
     format!("{year:04}-{month:02}-{day:02}T{h:02}:{mi:02}:{s:02}{fraction}Z")
 }
 
@@ -145,7 +151,12 @@ mod tests {
 
     #[test]
     fn formats_back_what_it_reads() {
-        for text in ["1970-01-01", "2026-01-01", "2026-12-31T23:59:59Z", "2028-02-29T01:02:03.004Z"] {
+        for text in [
+            "1970-01-01",
+            "2026-01-01",
+            "2026-12-31T23:59:59Z",
+            "2028-02-29T01:02:03.004Z",
+        ] {
             assert_eq!(format(parse(text).unwrap()), text);
         }
     }

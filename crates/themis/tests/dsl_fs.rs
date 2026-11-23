@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use themis::dsl::fs::{read_dir, read_file, write_file, FsError, MAX_FILES};
+use themis::dsl::fs::{FsError, MAX_FILES, read_dir, read_file, write_file};
 use themis::dsl::{Language, MAX_SOURCE_BYTES};
 
 const KINDS: &str = "language blocks\n\ntarget_kinds = [org, doc]\n";
@@ -113,7 +113,16 @@ fn a_syntax_error_in_a_directory_file_is_reported_with_that_file() {
     let Err(FsError::Syntax(errors)) = read_dir(dir.path()) else {
         panic!("a syntax error was expected")
     };
-    assert!(errors.first().unwrap().location.as_ref().unwrap().file.ends_with("a.themis"));
+    assert!(
+        errors
+            .first()
+            .unwrap()
+            .location
+            .as_ref()
+            .unwrap()
+            .file
+            .ends_with("a.themis")
+    );
 }
 
 #[test]
