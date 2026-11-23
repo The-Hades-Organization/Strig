@@ -65,8 +65,12 @@ pub enum Placement {
     Before,
     /// On the lines right below the element.
     After,
-    /// On the same line as the element.
+    /// On the same line as the element: the one comment on the line that opens it.
     Inline,
+    /// Inside the element, past its first line: a second comment on the line that opens it, one on
+    /// the line of a field of it, or lines indented under it. Comments of one element keep their
+    /// order, and the field they sat on (see [`NoteOrigin::field`]) is only a hint.
+    Inside,
 }
 
 /// The element a comment is attached to and its side. The element is named by its id (see [`ids`]),
@@ -157,51 +161,47 @@ impl Policy {
     ///
     /// Comments on the same element and side keep their order: swapping two is a difference.
     pub fn equivalent(&self, other: &Policy) -> bool {
-        self.normalized(true) == other.normalized(true)
+        self.clone().canonical().canonical_value() == other.clone().canonical().canonical_value()
     }
 
-    /// Like [`Policy::equivalent`], but the comments of one anchor may come in any order. The
-    /// printer checks itself with this: it writes the fields in its own order, and the comments
-    /// that sat next to them travel along.
-    pub(crate) fn equivalent_unordered(&self, other: &Policy) -> bool {
-        self.normalized(false) == other.normalized(false)
-    }
-
-    fn normalized(&self, ordered: bool) -> serde_json::Value {
-        let mut policy = self.clone();
-        policy.catalog.target_kinds.sort();
-        policy.catalog.broad_targets.sort();
-        policy.roles.sort_by(|a, b| a.role.cmp(&b.role));
-        for role in &mut policy.roles {
+    /// The policy with what has no meaning in its order put in a fixed one: the kinds, the roles
+    /// (and what each inherits), the relations, the subjects and the tuples are sorted, and the
+    /// notes are grouped by anchor with the comments of one anchor in the order they were written.
+    /// Every syntax reads into this order, so the same policy has the same JSON in all of them.
+    #[must_use]
+    pub fn canonical(mut self) -> Policy {
+        self.catalog.target_kinds.sort();
+        self.catalog.broad_targets.sort();
+        self.roles.sort_by(|a, b| a.role.cmp(&b.role));
+        for role in &mut self.roles {
             role.inherits.sort();
         }
-        if let Some(relations) = &mut policy.relations {
+        if let Some(relations) = &mut self.relations {
             relations.sort_by(|a, b| (&a.kind, &a.relation).cmp(&(&b.kind, &b.relation)));
         }
-        let mut notes: Vec<_> = policy.notes.drain(..).map(|note| (note.anchor, note.text)).collect();
-        if ordered {
-            // Stable: the notes of one anchor stay in the order they were written.
-            notes.sort_by(|a, b| a.0.cmp(&b.0));
-        } else {
-            notes.sort();
-        }
-        let mut value = serde_json::to_value(&policy).unwrap_or(serde_json::Value::Null);
-        sort_array(&mut value, "subjects");
-        sort_array(&mut value, "tuples");
-        if let Some(map) = value.as_object_mut() {
-            map.insert(
-                "notes".to_string(),
-                serde_json::to_value(&notes).unwrap_or(serde_json::Value::Null),
-            );
+        self.subjects.sort_by_cached_key(json_key);
+        self.tuples.sort_by_cached_key(json_key);
+        // Stable: the notes of one anchor stay in the order they were written.
+        self.notes.sort_by(|a, b| a.anchor.cmp(&b.anchor));
+        self
+    }
+
+    /// The JSON value of the policy as it is, with the origin of the notes left out.
+    pub(crate) fn canonical_value(&self) -> serde_json::Value {
+        let mut value = serde_json::to_value(self).unwrap_or(serde_json::Value::Null);
+        if let Some(notes) = value.get_mut("notes").and_then(serde_json::Value::as_array_mut) {
+            for note in notes {
+                if let Some(map) = note.as_object_mut() {
+                    map.remove("origin");
+                }
+            }
         }
         value
     }
 }
 
-fn sort_array(value: &mut serde_json::Value, key: &str) {
-    if let Some(items) = value.get_mut(key).and_then(serde_json::Value::as_array_mut) {
-        items.sort_by_key(ToString::to_string);
-    }
+fn json_key<T: Serialize>(item: &T) -> String {
+    serde_json::to_value(item).map(|v| v.to_string()).unwrap_or_default()
 }
 
 /// Element ids: the stable names notes are anchored with, and the keys of [`Origins`].

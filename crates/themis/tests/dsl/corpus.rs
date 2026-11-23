@@ -1,20 +1,7 @@
 //! Every scenario written in each syntax describes the same policy, comments included.
 
-use crate::{LANGUAGES, SCENARIOS, source};
+use crate::{LANGUAGES, SCENARIOS, canonical, source};
 use themis::dsl::{Language, convert, parse, print};
-
-/// The canonical JSON without where each note was written: the origin is not part of the policy.
-fn canonical(policy: &themis::dsl::Policy) -> serde_json::Value {
-    let mut json: serde_json::Value = serde_json::from_str(&policy.to_json().unwrap()).unwrap();
-    if let Some(notes) = json.get_mut("notes").and_then(|notes| notes.as_array_mut()) {
-        for note in notes {
-            if let Some(note) = note.as_object_mut() {
-                note.remove("origin");
-            }
-        }
-    }
-    json
-}
 
 fn read(scenario: &str, language: Language) -> themis::dsl::Parsed {
     let text = source(scenario, language);
@@ -70,9 +57,10 @@ fn printing_a_scenario_reads_back_the_same_in_its_own_syntax() {
             let text = print(&policy, language).unwrap_or_else(|error| panic!("{scenario} in {language}: {error}"));
             let again =
                 parse("again", &text).unwrap_or_else(|errors| panic!("{scenario} in {language}:\n{errors}\n{text}"));
-            assert!(
-                policy.equivalent(&again.policy),
-                "{scenario} in {language} lost something"
+            assert_eq!(
+                canonical(&policy),
+                canonical(&again.policy),
+                "{scenario} in {language} changed the JSON"
             );
             assert_eq!(
                 print(&again.policy, language).unwrap(),
@@ -94,9 +82,10 @@ fn converting_between_every_pair_keeps_the_policy() {
                 let again = parse("converted", &converted)
                     .unwrap_or_else(|errors| panic!("{scenario} {from} to {to}:\n{errors}\n{converted}"));
                 assert_eq!(again.language, to);
-                assert!(
-                    original.equivalent(&again.policy),
-                    "{scenario} {from} to {to} lost something"
+                assert_eq!(
+                    canonical(&original),
+                    canonical(&again.policy),
+                    "{scenario} {from} to {to} changed the JSON"
                 );
             }
         }

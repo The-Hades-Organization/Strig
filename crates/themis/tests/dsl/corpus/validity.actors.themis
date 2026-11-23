@@ -6,7 +6,8 @@ role auditor
 // A temporary assignment.
 user carla
   role auditor in project:apollo from 2026-01-01 until 2026-12-31T23:59:59Z
-  allow project.view on project:apollo until 2027-01-01 as g-open  // renewed yearly
+  allow project.view on project:apollo until 2027-01-01 as g-open
+    // renewed yearly
 
 catalog
   kinds project

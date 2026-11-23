@@ -1,7 +1,7 @@
 //! The Blocks printer: the inverse of the parser. A policy printed here reads back as the same
 //! policy with the same comments on the same elements.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 use crate::dsl::error::PrintError;
 use crate::dsl::lex::{Tok, lex};
@@ -29,9 +29,19 @@ struct Slots {
     inline: Vec<String>,
 }
 
+/// The comments inside an element, in order, each with the field it sat on (a hint).
+type Inside = VecDeque<(Option<String>, String)>;
+
 pub(crate) struct Printer {
     pub(crate) out: String,
     notes: BTreeMap<String, Slots>,
+    /// Comments inside elements. Blocks puts each on the line of a field of the element; the other
+    /// syntaxes write them as lines indented under the element.
+    inside: BTreeMap<String, Inside>,
+    by_fields: bool,
+    /// How far under a line at the margin its inside comments go. A heading has lines indented
+    /// under it, and its comments must sit deeper than those.
+    pub(crate) margin_step: usize,
 }
 
 /// Writes the policy as a Blocks source.
@@ -45,10 +55,24 @@ impl Printer {
     /// A printer holding the comments of the policy by the element they hang on. `use_fields` keeps
     /// the field a comment was written next to as part of the key: only Blocks has such lines.
     pub(crate) fn start(policy: &Policy, use_fields: bool) -> Printed<Self> {
+        if *policy != policy.clone().canonical() {
+            return unrepresentable(
+                "the policy",
+                "its kinds, roles, relations, subjects, tuples or notes are not in canonical order (see `Policy::canonical`)",
+            );
+        }
         let mut notes: BTreeMap<String, Slots> = BTreeMap::new();
+        let mut inside: BTreeMap<String, Inside> = BTreeMap::new();
         for note in &policy.notes {
             if note.text.contains('\n') || note.text.contains('\r') {
                 return unrepresentable("a note", "a comment holds one line");
+            }
+            if note.anchor.placement == Placement::Inside {
+                inside
+                    .entry(note.anchor.element.clone())
+                    .or_default()
+                    .push_back((note.origin.field.clone(), note.text.clone()));
+                continue;
             }
             let key = match (&note.origin.field, use_fields) {
                 (Some(field), true) => ids::field(&note.anchor.element, field),
@@ -76,6 +100,9 @@ impl Printer {
         Ok(Self {
             out: String::new(),
             notes,
+            inside,
+            by_fields: use_fields,
+            margin_step: 1,
         })
     }
 
@@ -422,7 +449,29 @@ impl Printer {
             Some(note) => self.push(indent, &format!("{text}  {note}")),
             None => self.push(indent, text),
         }
+        self.inside_below(indent, id);
         self.finish(indent, id, last);
+    }
+
+    /// The comments inside an element, as lines indented under its line (all but Blocks).
+    pub(crate) fn inside_below(&mut self, indent: usize, id: &str) {
+        if self.by_fields {
+            return;
+        }
+        for (_, text) in self.inside.remove(id).unwrap_or_default() {
+            let step = if indent == 0 { self.margin_step } else { 1 };
+            self.push(indent + step, &Self::comment(&text));
+        }
+    }
+
+    /// The next comment inside `elem` that sat on `field` or on none, for Blocks to put on that
+    /// field's line. Order is kept: a comment that sat on another field waits its turn.
+    fn take_inside(&mut self, elem: &str, field: &str) -> Option<String> {
+        let queue = self.inside.get_mut(elem)?;
+        match queue.front() {
+            Some((hint, _)) if hint.as_deref().is_none_or(|h| h == field) => queue.pop_front().map(|(_, text)| text),
+            _ => None,
+        }
     }
 
     pub(crate) fn open(&mut self, indent: usize, id: &str, head: &str) {
@@ -441,6 +490,17 @@ impl Printer {
     /// A comment whose element or field was not written has no place to go: refusing is better
     /// than moving it to another element.
     pub(crate) fn orphans(&mut self) -> Printed<()> {
+        if let Some(key) = self
+            .inside
+            .iter()
+            .find(|(_, left)| !left.is_empty())
+            .map(|(key, _)| key)
+        {
+            return unrepresentable(
+                format!("the comments inside `{key}`"),
+                "the element has no line to hold them in this syntax",
+            );
+        }
         let left = std::mem::take(&mut self.notes);
         let stray = left
             .into_iter()
@@ -458,7 +518,7 @@ impl Printer {
     /// comments, or the printer refuses instead of handing out a text that says something else.
     fn check_round_trip(&self, policy: &Policy) -> Printed<()> {
         match crate::dsl::parse_unvalidated("<printed>", &self.out) {
-            Ok(back) if policy.equivalent_unordered(&back.policy) => Ok(()),
+            Ok(back) if back.policy.canonical_value() == policy.canonical_value() => Ok(()),
             _ => unrepresentable("the policy", "its text does not read back as the same policy"),
         }
     }
@@ -544,13 +604,37 @@ impl Printer {
         Ok(())
     }
 
-    /// The fields of a block, each a `name = value` line.
-    fn fields(&mut self, indent: usize, elem: &str, fields: Vec<(&str, String)>, more: bool) {
+    /// The fields of a block, each a `name = value` line. The fields that carry comments inside
+    /// the element come in the order of the comments, so those keep their order.
+    fn fields(&mut self, indent: usize, elem: &str, mut fields: Vec<(&str, String)>, more: bool) {
+        if let Some(queue) = self.inside.get(elem) {
+            let rank = |name: &str| queue.iter().position(|(hint, _)| hint.as_deref() == Some(name));
+            let slots: Vec<usize> = (0..fields.len())
+                .filter(|at| fields.get(*at).is_some_and(|(name, _)| rank(name).is_some()))
+                .collect();
+            let mut moved: Vec<(&str, String)> = slots.iter().filter_map(|at| fields.get(*at).cloned()).collect();
+            moved.sort_by_key(|(name, _)| rank(name));
+            for (slot, item) in slots.into_iter().zip(moved) {
+                if let Some(place) = fields.get_mut(slot) {
+                    *place = item;
+                }
+            }
+        }
         let count = fields.len();
         for (at, (name, text)) in fields.into_iter().enumerate() {
-            let last = at + 1 == count && !more;
-            self.leaf(indent, &ids::field(elem, name), &format!("{name} = {text}"), last);
+            self.field(indent, elem, name, &text, at + 1 == count && !more);
         }
+    }
+
+    /// One `name = value` line, with the next comment inside `elem` that belongs on it.
+    fn field(&mut self, indent: usize, elem: &str, name: &str, text: &str, last: bool) {
+        let key = ids::field(elem, name);
+        let mut line = format!("{name} = {text}");
+        let taken = self.notes.get(&key).is_some_and(|slots| !slots.inline.is_empty());
+        if !taken && let Some(note) = self.take_inside(elem, name) {
+            line.push_str(&format!("  {}", Self::comment(&note)));
+        }
+        self.leaf(indent, &key, &line, last);
     }
 
     fn table(
@@ -629,12 +713,7 @@ impl Printer {
         if !s.principals.is_empty() {
             parts += 1;
             let list = words(&s.principals, "principal")?;
-            self.leaf(
-                1,
-                &ids::field(&id, "principals"),
-                &format!("principals = {list}"),
-                parts == total,
-            );
+            self.field(1, &id, "principals", &list, parts == total);
         }
         if !s.attrs.is_empty() {
             parts += 1;

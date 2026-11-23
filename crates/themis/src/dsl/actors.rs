@@ -515,6 +515,7 @@ fn section_line(cur: &mut Cursor, b: &mut Builder, section: Section) -> PResult<
 /// Writes the policy as an Actors source.
 pub(crate) fn print(policy: &Policy) -> Printed<String> {
     let mut printer = Printer::start(policy, false)?;
+    printer.margin_step = 2;
     printer.leaf(0, ids::LANGUAGE, "language actors", false);
     actors(&mut printer, policy)?;
     sections(&mut printer, policy)?;

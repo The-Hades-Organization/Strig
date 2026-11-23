@@ -6,7 +6,7 @@ subject user:bob
   role viewer
 
 catalog
-  kinds org, doc
+  kinds doc, org
   doc.read on doc
   doc.edit on doc implied by doc.read non-delegable
   org.settings on org management-only

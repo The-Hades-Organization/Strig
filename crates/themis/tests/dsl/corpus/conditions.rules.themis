@@ -1,6 +1,6 @@
 language rules
 
-kinds project, document
+kinds document, project
 strategy deny_overrides
 
 permission document.view on project, document
@@ -17,5 +17,6 @@ user:ana has attr level = 3
 // Legal may edit what is theirs.
 g-dept: allow role editor to document.edit on document when subject.dept == "legal" and subject.level >= 2
 g-freeze: deny anyone to document.edit on project:apollo when subject.active == false
-g-user: allow user ana to document.view on document:spec  // one document
+g-user: allow user ana to document.view on document:spec
+  // one document
 g-principal: allow principal ana to document.view on project
