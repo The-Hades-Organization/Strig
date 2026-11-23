@@ -126,7 +126,9 @@ pub(crate) fn format(ms: u64) -> Option<String> {
     } else {
         format!(".{millis:03}")
     };
-    Some(format!("{year:04}-{month:02}-{day:02}T{h:02}:{mi:02}:{s:02}{fraction}Z"))
+    Some(format!(
+        "{year:04}-{month:02}-{day:02}T{h:02}:{mi:02}:{s:02}{fraction}Z"
+    ))
 }
 
 #[cfg(test)]

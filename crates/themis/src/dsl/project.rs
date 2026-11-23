@@ -2,11 +2,11 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use crate::OverrideRule;
 use crate::dsl::error::{Diagnostic, Diagnostics, Location, MAX_DIAGNOSTICS, capped};
 use crate::dsl::policy::{Language, Origins, Policy, ids};
 use crate::dsl::validate::{invariant_kind, validate};
 use crate::dsl::{MAX_SOURCE_BYTES, Parsed, parse_unvalidated};
-use crate::OverrideRule;
 
 /// The policy a [`Project`] builds and where each of its elements was declared.
 #[derive(Debug, Clone, PartialEq)]
@@ -320,7 +320,10 @@ impl Merge {
         };
         for relation in incoming {
             let known = self.policy.relations.get_or_insert_with(Vec::new);
-            if self.relations.insert((relation.kind.clone(), relation.relation.clone())) {
+            if self
+                .relations
+                .insert((relation.kind.clone(), relation.relation.clone()))
+            {
                 known.push(relation.clone());
             } else {
                 let message = format!(
@@ -385,7 +388,12 @@ impl Merge {
             let text = tuple.to_string();
             if self.tuples.contains(&text) {
                 let message = format!("the tuple `{text}` is declared twice");
-                self.clash(&ids::tuple(&text), from, message, "declare each tuple in one source only");
+                self.clash(
+                    &ids::tuple(&text),
+                    from,
+                    message,
+                    "declare each tuple in one source only",
+                );
             } else {
                 self.tuples.insert(text);
                 self.policy.tuples.push(tuple.clone());

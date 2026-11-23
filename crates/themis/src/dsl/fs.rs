@@ -4,8 +4,8 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
-use crate::dsl::{MAX_PROJECT_BYTES, MAX_SOURCE_BYTES};
 use crate::dsl::{Diagnostics, Language, Parsed, Policy, PrintError, Project, parse, print};
+use crate::dsl::{MAX_PROJECT_BYTES, MAX_SOURCE_BYTES};
 
 /// The extension of the policy files [`read_dir`] picks up.
 pub const EXTENSION: &str = "themis";
