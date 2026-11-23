@@ -162,11 +162,38 @@ fn a_policy_written_to_a_file_reads_back_the_same() {
 }
 
 #[test]
-fn writing_in_a_syntax_not_yet_available_fails_before_touching_the_file() {
-    let dir = Scratch::new("unsupported");
+fn a_policy_written_in_another_syntax_is_read_back_as_the_same_policy() {
+    let dir = Scratch::new("other-syntax");
     let parsed = read_file(dir.write("in.themis", KINDS)).unwrap();
+    for language in [Language::Rules, Language::Actors] {
+        let out = dir.path().join(format!("out-{language}.themis"));
+        write_file(&out, &parsed.policy, language).unwrap();
+        let again = read_file(&out).unwrap();
+        assert_eq!(again.language, language);
+        assert!(parsed.policy.equivalent(&again.policy));
+    }
+}
+
+#[test]
+fn a_policy_the_syntax_cannot_say_fails_before_touching_the_file() {
+    let dir = Scratch::new("unrepresentable");
+    let mut policy = read_file(dir.write("in.themis", KINDS)).unwrap().policy;
+    policy.notes.push(themis::dsl::Note {
+        text: "orphan".into(),
+        anchor: themis::dsl::NoteAnchor {
+            element: "permission:gone".into(),
+            placement: themis::dsl::Placement::Before,
+        },
+        origin: themis::dsl::NoteOrigin {
+            file: "x".into(),
+            language: Language::Blocks,
+            line: 1,
+            column: 1,
+            field: None,
+        },
+    });
     let out = dir.path().join("out.themis");
-    let error = write_file(&out, &parsed.policy, Language::Rules).unwrap_err();
+    let error = write_file(&out, &policy, Language::Rules).unwrap_err();
     assert!(matches!(error, FsError::Print(_)));
     assert!(!out.exists());
 }
