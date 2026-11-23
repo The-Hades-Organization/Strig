@@ -2,10 +2,13 @@
 //! rewrites and subject matchers. A syntax drives a [`Cursor`] and calls these where its own
 //! text holds one of those pieces.
 
+use std::collections::BTreeMap;
+
 use crate::dsl::error::{PResult, Raw, Span};
 use crate::dsl::lex::{Tok, Token};
 use crate::{
-    Anchor, Condition, ObjectRef, Operand, Rewrite, SubjectMatcher, TargetSelector, Tuple, TupleSubject, Value,
+    Anchor, Condition, ObjectRef, Operand, Rewrite, RoleAssignment, Subject, SubjectMatcher, TargetSelector, Tuple,
+    TupleSubject, Value,
 };
 
 /// How deep nested groups, lists and conditions may go: input is external and unbounded.
@@ -31,6 +34,8 @@ pub(crate) struct Cursor {
     tokens: Vec<Token>,
     at: usize,
     depth: u32,
+    /// The token index where the current statement ends: from there on the cursor reads the end.
+    fence: Option<usize>,
 }
 
 impl Cursor {
@@ -39,7 +44,49 @@ impl Cursor {
             tokens,
             at: 0,
             depth: 0,
+            fence: None,
         }
+    }
+
+    /// The indices where a statement starts: the first token of every line, or, with a margin,
+    /// of every line that is not indented deeper than it (the deeper ones continue the line above).
+    pub fn statements(&self, margin: Option<u32>) -> Vec<usize> {
+        let mut starts = Vec::new();
+        for (at, token) in self.tokens.iter().enumerate() {
+            if token.tok == Tok::Eof || !token.bol {
+                continue;
+            }
+            if starts.is_empty() || margin.is_none_or(|m| token.span.col <= m) {
+                starts.push(at);
+            }
+        }
+        starts
+    }
+
+    /// Where the tokens end: the fence of the last statement.
+    pub fn end(&self) -> usize {
+        self.tokens.len().saturating_sub(1)
+    }
+
+    /// The column of the token at `at`.
+    pub fn column_at(&self, at: usize) -> u32 {
+        self.tokens.get(at).map_or(1, |t| t.span.col)
+    }
+
+    /// Starts reading the statement that spans the tokens `at..fence`.
+    pub fn goto(&mut self, at: usize, fence: usize) {
+        self.at = at;
+        self.fence = Some(fence);
+        self.depth = 0;
+    }
+
+    /// The token `ahead` places on, or the end.
+    pub fn peek(&self, ahead: usize) -> Tok {
+        let at = self.at + ahead;
+        if self.fence.is_some_and(|f| at >= f) {
+            return Tok::Eof;
+        }
+        self.tokens.get(at).map_or(Tok::Eof, |t| t.tok.clone())
     }
 
     pub fn index(&self) -> usize {
@@ -55,6 +102,18 @@ impl Cursor {
     }
 
     pub fn current(&self) -> Token {
+        if self.fence.is_some_and(|f| self.at >= f) {
+            let last = self.previous_span();
+            return Token {
+                tok: Tok::Eof,
+                span: Span {
+                    line: last.line,
+                    col: last.col + last.len.max(1),
+                    len: 1,
+                },
+                bol: true,
+            };
+        }
         self.tokens
             .get(self.at)
             .or_else(|| self.tokens.last())
@@ -63,7 +122,7 @@ impl Cursor {
     }
 
     pub fn peek_is_punct(&self, punct: &str) -> bool {
-        matches!(self.tokens.get(self.at + 1), Some(Token { tok: Tok::Punct(p), .. }) if *p == punct)
+        matches!(self.peek(1), Tok::Punct(p) if p == punct)
     }
 
     pub fn span(&self) -> Span {
@@ -412,6 +471,107 @@ pub(crate) fn tuple(cur: &mut Cursor) -> PResult<(Tuple, Span)> {
         },
         span,
     ))
+}
+
+/// `key = value, key = value`
+pub(crate) fn pairs(cur: &mut Cursor) -> PResult<BTreeMap<String, Value>> {
+    let mut entries = BTreeMap::new();
+    loop {
+        let (key, item) = pair(cur)?;
+        if entries.insert(key.v.clone(), item).is_some() {
+            return Err(Raw::new(key.span, format!("key `{}` is given twice", key.v)));
+        }
+        if !cur.eat_punct(",") {
+            return Ok(entries);
+        }
+    }
+}
+
+fn pair(cur: &mut Cursor) -> PResult<(Sp<String>, Value)> {
+    let key = cur.word("a key")?;
+    cur.expect_punct("=", &format!("after `{}`", key.v))?;
+    Ok((key, literal(cur)?))
+}
+
+/// A path and the attributes of the resource: `a > b:1 with tier = "gold", zone = 2`.
+pub(crate) fn resource(cur: &mut Cursor) -> PResult<(Vec<AnchorAt>, BTreeMap<String, Value>)> {
+    let steps = path(cur)?;
+    let attrs = if cur.eat_word("with") { pairs(cur)? } else { BTreeMap::new() };
+    Ok((steps, attrs))
+}
+
+/// What follows the role of an assignment: `in <scope> from <date> until <date>`, in any order.
+pub(crate) fn assignment(cur: &mut Cursor, role: String) -> PResult<RoleAssignment> {
+    let mut found = RoleAssignment {
+        role,
+        scope: None,
+        valid_from: None,
+        valid_until: None,
+    };
+    loop {
+        let word = if cur.is_word("in") || cur.is_word("from") || cur.is_word("until") {
+            cur.word("a clause")?
+        } else {
+            return Ok(found);
+        };
+        let twice = |w: &Sp<String>| Raw::new(w.span, format!("`{}` is given twice", w.v));
+        match word.v.as_str() {
+            "in" if found.scope.is_none() => found.scope = Some(anchor(cur)?.anchor),
+            "from" if found.valid_from.is_none() => found.valid_from = Some(cur.date()?.v),
+            "until" if found.valid_until.is_none() => found.valid_until = Some(cur.date()?.v),
+            _ => return Err(twice(&word)),
+        }
+    }
+}
+
+/// A member of an invariant: `kind:id`, or `kind:id (role r in scope, principal p, attr k = v)`.
+pub(crate) fn member(cur: &mut Cursor) -> PResult<Subject> {
+    let at = anchor(cur)?;
+    let Some(id) = at.anchor.id else {
+        return Err(Raw::new(at.span, "a member needs an id").hint("write kind:id"));
+    };
+    let mut subject = Subject::of_kind(at.anchor.kind, id);
+    if !cur.eat_punct("(") {
+        return Ok(subject);
+    }
+    loop {
+        let word = cur.word("role, principal or attr")?;
+        match word.v.as_str() {
+            "role" => {
+                let role = cur.word("a role name")?;
+                subject.roles.push(assignment(cur, role.v)?);
+            }
+            "principal" => subject.principals.push(cur.word("a principal name")?.v),
+            "attr" => {
+                let (key, item) = pair(cur)?;
+                if subject.attrs.insert(key.v.clone(), item).is_some() {
+                    return Err(Raw::new(key.span, format!("key `{}` is given twice", key.v)));
+                }
+            }
+            other => {
+                return Err(Raw::new(word.span, format!("a member can have a role, principal or attr, not `{other}`")));
+            }
+        }
+        if !cur.eat_punct(",") {
+            break;
+        }
+    }
+    cur.expect_punct(")", "to close the member")?;
+    Ok(subject)
+}
+
+/// `[member, member]`
+pub(crate) fn members(cur: &mut Cursor) -> PResult<Vec<Subject>> {
+    cur.expect_punct("[", "to start the list")?;
+    let mut items = Vec::new();
+    while !cur.is_punct("]") {
+        items.push(member(cur)?);
+        if !cur.eat_punct(",") {
+            break;
+        }
+    }
+    cur.expect_punct("]", "to close the list")?;
+    Ok(items)
 }
 
 // ---- subject matchers ---------------------------------------------------------------------
