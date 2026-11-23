@@ -77,6 +77,14 @@ impl Validity {
         }
     }
 
+    /// Has the window closed for good at `now`? True when `valid_until` is not after `now`. Without an
+    /// instant nothing is known to have ended. Not the same as "not in force": an item that starts
+    /// later is not in force yet but will be, so a rule that guards against handing out access must
+    /// still count it.
+    pub(crate) fn has_ended(&self, now: Option<u64>) -> bool {
+        matches!((now, self.valid_until), (Some(now), Some(until)) if until <= now)
+    }
+
     /// The next start or end strictly after `now`, if any.
     pub fn next_boundary(&self, now: u64) -> Option<u64> {
         [self.valid_from, self.valid_until]
