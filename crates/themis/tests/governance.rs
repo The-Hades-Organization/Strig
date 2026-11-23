@@ -134,10 +134,7 @@ fn duplicate_and_missing_ids_are_rejected() {
 }
 
 fn in_org(role: &str) -> RoleAssignment {
-    RoleAssignment {
-        role: role.into(),
-        scope: Some(org()),
-    }
+    RoleAssignment::in_scope(role, org())
 }
 
 fn assign(subject: Subject, role: RoleAssignment) -> Mutation {
@@ -185,10 +182,7 @@ fn admin_assigns_role_to_another_user() {
 fn revoking_with_a_different_scope_is_rejected() {
     let engine = engine();
     let member = Subject::user("u1").with_role_in("member", org());
-    let unscoped = RoleAssignment {
-        role: "member".into(),
-        scope: None,
-    };
+    let unscoped = RoleAssignment::new("member");
     let violations = Governance::new()
         .apply(
             &engine,
@@ -321,23 +315,14 @@ fn rejects_unknown_role_and_scope_kind() {
 
     let bad_scope = assign(
         Subject::user("u1"),
-        RoleAssignment {
-            role: "member".into(),
-            scope: Some(Anchor::new("planet", "earth")),
-        },
+        RoleAssignment::in_scope("member", Anchor::new("planet", "earth")),
     );
     let violations = gov
         .apply(&engine, &admin(), &base_grants(), &bad_scope, None)
         .unwrap_err();
     assert_eq!(invariants_of(&violations), ["catalog_conformance"]);
 
-    let cleanup = revoke(
-        Subject::user("u1").with_role("ghost"),
-        RoleAssignment {
-            role: "ghost".into(),
-            scope: None,
-        },
-    );
+    let cleanup = revoke(Subject::user("u1").with_role("ghost"), RoleAssignment::new("ghost"));
     assert!(gov.apply(&engine, &admin(), &base_grants(), &cleanup, None).is_ok());
 }
 
@@ -376,13 +361,7 @@ fn duplicate_assignment_and_missing_revocation_are_rejected() {
     let violations = gov.apply(&engine, &admin(), &base_grants(), &dup, None).unwrap_err();
     assert_eq!(invariants_of(&violations), ["mutation"]);
 
-    let other_scope = assign(
-        member.clone(),
-        RoleAssignment {
-            role: "member".into(),
-            scope: None,
-        },
-    );
+    let other_scope = assign(member.clone(), RoleAssignment::new("member"));
     assert!(gov.apply(&engine, &admin(), &base_grants(), &other_scope, None).is_ok());
 
     let missing = revoke(member, in_org("admin"));
