@@ -182,8 +182,12 @@ for (const backend of ['native', 'wasm']) {
     assert.equal(copy.mutations.length, 2);
     assert.equal(copy.mutations[0].add.id, 'bob:export');
     assert.deepEqual(copy.mutations[0].add.scope, { kind: 'org', id: 'o1' });
+    const snapshot = JSON.stringify(copy);
     template.grants.pop();
-    assert.equal(copy.mutations.length, 2, 'mudar o template não muda a cópia');
+    assert.equal(JSON.stringify(engine.materialize({ template: { ...template, grants: [...template.grants] }, subject: { kind: 'user', id: 'bob' }, scope: { kind: 'org', id: 'o1' }, idPrefix: 'bob' })).includes('bob:view'), false);
+    assert.equal(JSON.stringify(copy), snapshot, 'mudar o template não muda a cópia já feita');
+    copy.mutations[0].add.id = 'x';
+    assert.equal(template.grants[0].id, 'export', 'mudar a cópia não muda o template');
 
     const actor = { kind: 'user', id: 'root' };
     const base = { actor, current: [], subject: { kind: 'user', id: 'bob' }, idPrefix: 'bob', invariants: [{ kind: 'prerequisites' }, { kind: 'catalog_conformance' }], audit: { level: 'standard' } };

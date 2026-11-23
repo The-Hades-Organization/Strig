@@ -807,21 +807,134 @@ mod tests {
     #[test]
     fn apply_judges_the_actor_window_at_now() {
         let engine = EngineHandle::new(spec()).unwrap();
-        let input = |now: u64| {
+        let mine = allow("a", ana_matcher(), "project.edit", json!({"validUntil": T0}));
+        let input = |now: Value| {
             json!({
-                "actor": {"kind": "user", "id": "admin", "roles": [{"role": "owner", "validUntil": T0}]},
-                "current": [],
-                "mutation": {"add": allow("g", ana_matcher(), "project.view", json!({}))},
+                "actor": ana(),
+                "current": [mine],
+                "mutation": {"add": allow("b", json!({"kind": "user", "id": "bob"}), "project.edit", json!({}))},
                 "invariants": [{"kind": "no_escalation"}],
+                "audit": {"level": "standard"},
                 "now": now
             })
         };
-        assert_eq!(
-            engine.apply(input(T0 - 1), T0).unwrap()["ok"],
-            false,
-            "sem permissão o ator não escala"
-        );
+        let before = engine.apply(input(json!(T0 - 1)), T0 + 5_000).unwrap();
+        assert_eq!(before["ok"], true, "o grant do ator ainda vale");
+        assert_eq!(before["audit"]["at"], T0 - 1, "a auditoria usa o instante da entrada");
+        let after = engine.apply(input(json!(T0)), T0 + 5_000).unwrap();
+        assert_eq!(after["ok"], false, "o grant do ator venceu: não pode repassar");
+        assert_eq!(after["violations"][0]["invariant"], "no_escalation");
+
+        let fallback = engine.apply(input(Value::Null), T0 - 1).unwrap();
+        assert_eq!(fallback["ok"], true, "sem now vale o relógio do alvo");
+        assert_eq!(fallback["audit"]["at"], T0 - 1);
+
+        for bad in [json!(-1), json!("x"), json!(1.5)] {
+            assert_eq!(engine.apply(input(bad), T0).unwrap_err().code, "INVALID_INPUT");
+        }
         assert_eq!(engine.apply(json!({"actor": 5}), T0).unwrap_err().code, "INVALID_INPUT");
+    }
+
+    #[test]
+    fn expired_deny_stops_denying_at_its_end() {
+        let engine = EngineHandle::new(spec()).unwrap();
+        let mut deny = allow("d", ana_matcher(), "project.view", json!({"validUntil": T0}));
+        deny["effect"] = json!("deny");
+        let grants = json!([allow("a", ana_matcher(), "project.view", json!({})), deny]);
+        let mut ctx = ContextData::new(Some(json!({"grants": grants}))).unwrap();
+        ctx.set_now(json!(T0 - 1)).unwrap();
+        assert!(!engine.check(&ctx, view(&ana(), "p1")).unwrap(), "o deny vale");
+        ctx.set_now(json!(T0)).unwrap();
+        assert!(engine.check(&ctx, view(&ana(), "p1")).unwrap(), "o deny venceu");
+    }
+
+    #[test]
+    fn templates_materialize_and_apply_through_governance() {
+        let engine = EngineHandle::new(spec()).unwrap();
+        let template = json!({"id": "viewer", "version": 2, "grants": [
+            {"id": "view", "permission": "project.view", "target": {"kind": "project"}},
+            {"id": "edit", "permission": "project.edit", "target": {"kind": "project"}}
+        ]});
+        let input = json!({
+            "template": template,
+            "subject": {"kind": "user", "id": "bob"},
+            "idPrefix": "bob"
+        });
+        let copy = engine.materialize(input.clone()).unwrap();
+        assert_eq!(copy["templateVersion"], 2);
+        assert_eq!(copy["mutations"][0]["add"]["id"], "bob:view");
+
+        let mut apply = input.clone();
+        apply["actor"] = json!({"kind": "user", "id": "root"});
+        apply["current"] = json!([]);
+        apply["invariants"] = json!([{"kind": "catalog_conformance"}]);
+        apply["audit"] = json!({"level": "standard"});
+        let out = engine.apply_template(apply.clone(), T0).unwrap();
+        assert_eq!(out["ok"], true);
+        assert_eq!(out["grants"].as_array().unwrap().len(), 2);
+        assert_eq!(out["audits"].as_array().unwrap().len(), 2);
+
+        apply["template"]["grants"][0]["permission"] = json!("nope");
+        let refused = engine.apply_template(apply.clone(), T0).unwrap();
+        assert_eq!(refused["ok"], false);
+        assert_eq!(
+            refused["audits"].as_array().unwrap().len(),
+            1,
+            "só a recusa vai à trilha"
+        );
+
+        apply["now"] = json!("x");
+        assert_eq!(engine.apply_template(apply, T0).unwrap_err().code, "INVALID_INPUT");
+        assert_eq!(
+            engine.materialize(json!({"template": 5})).unwrap_err().code,
+            "INVALID_INPUT"
+        );
+    }
+
+    #[test]
+    fn lockout_refusal_carries_the_reserve_suggestion() {
+        let engine = EngineHandle::new(spec()).unwrap();
+        let owner = json!({"kind": "user", "id": "ana", "roles": [{"role": "owner"}]});
+        let zed = json!({"kind": "user", "id": "zed"});
+        let input = |reserve: Value| {
+            let mut lockout = json!({"kind": "no_lockout", "permissions": ["project.edit"],
+                                     "members": [owner, zed], "resource": project("p1")});
+            if !reserve.is_null() {
+                lockout["reserve"] = reserve;
+            }
+            json!({
+                "actor": {"kind": "user", "id": "root"},
+                "current": [allow("o", json!({"kind": "role", "id": "owner"}), "project.edit", json!({}))],
+                "mutation": {"revoke_role": {"subject": owner, "role": {"role": "owner"}}},
+                "invariants": [lockout]
+            })
+        };
+        let reserve = json!({"adminRole": {"role": "owner"}, "subjects": [zed]});
+        let out = engine.apply(input(reserve), T0).unwrap();
+        assert_eq!(out["ok"], false);
+        assert_eq!(out["violations"][0]["invariant"], "no_lockout");
+        assert_eq!(out["violations"][0]["suggestion"]["subject_id"], "zed");
+
+        let out = engine.apply(input(Value::Null), T0).unwrap();
+        assert_eq!(out["ok"], false);
+        assert!(
+            out["violations"][0].get("suggestion").is_none(),
+            "sem reserva não há sugestão"
+        );
+    }
+
+    #[test]
+    fn invalid_grants_are_refused_with_a_code() {
+        let engine = EngineHandle::new(spec()).unwrap();
+        let inverted = allow(
+            "w",
+            ana_matcher(),
+            "project.view",
+            json!({"validFrom": T0, "validUntil": T0}),
+        );
+        assert_eq!(engine.validate_grant(inverted).unwrap_err().code, "INVALID_GRANT");
+        let unknown = allow("u", ana_matcher(), "project.nope", json!({}));
+        assert_eq!(engine.validate_grant(unknown).unwrap_err().code, "INVALID_GRANT");
     }
 
     #[test]
