@@ -625,7 +625,9 @@ mod tests {
             .expect("the blocking job ended")
     }
 
-    #[tokio::test(start_paused = true)]
+    // These two run on the real clock: tokio does not advance a paused clock while a blocking
+    // job is in flight, so the deadline would never fire and the job would never be cancelled.
+    #[tokio::test]
     async fn work_nobody_waits_for_stops_at_its_next_check() {
         let state = state(1);
         let (ended_tx, ended) = mpsc::channel();
@@ -646,7 +648,7 @@ mod tests {
         assert!(state.workers.try_acquire().is_ok(), "the slot is free again");
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn an_expired_request_keeps_its_slot_until_the_work_ends_and_others_get_overloaded() {
         let state = state(1);
         let (release, held) = mpsc::channel::<()>();
@@ -675,17 +677,23 @@ mod tests {
         release.send(()).expect("the job waits for it");
         done(&ended);
         // the job has sent its last message; wait for the slot to be handed back
-        let third = loop {
-            match state
-                .answer(Deadline::after(Duration::from_millis(50)), |_, _| {
-                    Ok::<_, ApiError>(7_u8)
-                })
-                .await
-            {
-                Err(error) if error.code == ErrorCode::Overloaded => tokio::task::yield_now().await,
-                other => break other,
+        let third = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match state
+                    .answer(Deadline::after(Duration::from_millis(50)), |_, _| {
+                        Ok::<_, ApiError>(7_u8)
+                    })
+                    .await
+                {
+                    Err(error) if error.code == ErrorCode::Overloaded => {
+                        tokio::task::yield_now().await;
+                    }
+                    other => break other,
+                }
             }
-        };
+        })
+        .await
+        .expect("the slot came back");
         assert_eq!(third.ok().map(|Json(n)| n), Some(7));
     }
 }
