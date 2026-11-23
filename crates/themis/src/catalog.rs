@@ -140,6 +140,12 @@ pub enum CatalogError {
     UnknownParent { key: String, parent: String },
     #[error("'{key}' depende de chave inexistente '{prerequisite}'")]
     UnknownPrerequisite { key: String, prerequisite: String },
+    #[error("'{key}' mira o tipo '{target}', que o pré-requisito '{prerequisite}' não aceita: nunca seria permitida")]
+    UnreachablePrerequisite {
+        key: String,
+        prerequisite: String,
+        target: String,
+    },
     #[error("ciclo de pré-requisitos: {}", .0.join(" -> "))]
     PrerequisiteCycle(Vec<String>),
     #[error("'{key}' mira tipo de alvo não registrado '{target}'")]
@@ -368,6 +374,27 @@ impl CatalogBuilder {
                     key: def.key.clone(),
                     prerequisite: prerequisite.clone(),
                 });
+            }
+        }
+        // A prerequisite is judged on the same resource, so it must be grantable wherever the
+        // dependent is; otherwise the dependent would be denied everywhere it can be granted.
+        for def in &self.defs {
+            for prerequisite in def
+                .depends_on
+                .iter()
+                .filter_map(|p| index.get(p).map(|i| &self.defs[*i]))
+            {
+                for target in def
+                    .targets
+                    .iter()
+                    .filter(|t| !broad_targets.contains(*t) && !prerequisite.targets.contains(*t))
+                {
+                    errors.push(CatalogError::UnreachablePrerequisite {
+                        key: def.key.clone(),
+                        prerequisite: prerequisite.key.clone(),
+                        target: target.clone(),
+                    });
+                }
             }
         }
         if !errors.is_empty() {
