@@ -210,7 +210,9 @@ mod tests {
         clock.advance(99);
         assert!(breaker.acquire().is_none(), "still inside the wait");
         clock.advance(1);
-        let probe = breaker.acquire().expect("the probe goes through at the end of the wait");
+        let probe = breaker
+            .acquire()
+            .expect("the probe goes through at the end of the wait");
         assert_eq!(breaker.state(), BreakerState::HalfOpen);
         assert!(breaker.acquire().is_none(), "only one probe at a time");
         probe.success();
@@ -239,7 +241,10 @@ mod tests {
         drop(breaker.acquire().expect("the probe"));
         assert_eq!(breaker.state(), BreakerState::Open);
         clock.advance(100);
-        assert!(breaker.acquire().is_some(), "the circuit recovers instead of waiting for a lost probe");
+        assert!(
+            breaker.acquire().is_some(),
+            "the circuit recovers instead of waiting for a lost probe"
+        );
     }
 
     #[test]

@@ -86,7 +86,11 @@ impl Transport for HttpTransport {
             .header(TIMEOUT_HEADER, timeout.as_millis().to_string())
             .body(Full::new(Bytes::from(body)))
             .map_err(TransportError::unreachable)?;
-        let response = self.client.request(request).await.map_err(TransportError::unreachable)?;
+        let response = self
+            .client
+            .request(request)
+            .await
+            .map_err(TransportError::unreachable)?;
         let status = response.status().as_u16();
         let body = Limited::new(response.into_body(), self.max_response_bytes)
             .collect()

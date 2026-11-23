@@ -17,8 +17,8 @@ use crate::config::ServerConfig;
 use crate::error::{ApiError, ErrorCode};
 use crate::source::{DecisionSource, Snapshot};
 use crate::wire::{
-    AccessRequest, AccessResponse, BatchRequest, BatchResponse, CheckRequest, CheckResponse, ListRequest,
-    ListResponse, PartyDto, WhoEntry, WhoExcept, WhoRequest, WhoResponse, filter_parts, subject_dto, via_dto,
+    AccessRequest, AccessResponse, BatchRequest, BatchResponse, CheckRequest, CheckResponse, ListRequest, ListResponse,
+    PartyDto, WhoEntry, WhoExcept, WhoRequest, WhoResponse, filter_parts, subject_dto, via_dto,
 };
 
 /// The decision service: build it from a source, take the [`Router`], serve it.
@@ -102,10 +102,7 @@ impl AppState {
         T: Serialize + Send + 'static,
     {
         let timeout = self.config.timeout_for(headers)?;
-        let now = self
-            .clock
-            .now_ms()
-            .ok_or(ApiError::new(ErrorCode::ClockUnavailable))?;
+        let now = self.clock.now_ms().ok_or(ApiError::new(ErrorCode::ClockUnavailable))?;
         let run = Run {
             now,
             limits: self.config.query_limits,
@@ -173,7 +170,9 @@ async fn check(
     headers: HeaderMap,
     ApiJson(request): ApiJson<CheckRequest>,
 ) -> Result<Json<CheckResponse>, ApiError> {
-    state.answer(&headers, move |snapshot, run| decide(snapshot, run.now, &request)).await
+    state
+        .answer(&headers, move |snapshot, run| decide(snapshot, run.now, &request))
+        .await
 }
 
 async fn check_batch(
@@ -202,10 +201,16 @@ async fn list(
     headers: HeaderMap,
     ApiJson(request): ApiJson<ListRequest>,
 ) -> Result<Json<ListResponse>, ApiError> {
-    if request.resources.as_ref().is_some_and(|r| r.len() > state.config.max_resources) {
+    if request
+        .resources
+        .as_ref()
+        .is_some_and(|r| r.len() > state.config.max_resources)
+    {
         return Err(ApiError::new(ErrorCode::TooManyResources));
     }
-    state.answer(&headers, move |snapshot, run| list_filter(snapshot, run, &request)).await
+    state
+        .answer(&headers, move |snapshot, run| list_filter(snapshot, run, &request))
+        .await
 }
 
 async fn who(
@@ -213,7 +218,9 @@ async fn who(
     headers: HeaderMap,
     ApiJson(request): ApiJson<WhoRequest>,
 ) -> Result<Json<WhoResponse>, ApiError> {
-    state.answer(&headers, move |snapshot, run| who_holds(snapshot, run, &request)).await
+    state
+        .answer(&headers, move |snapshot, run| who_holds(snapshot, run, &request))
+        .await
 }
 
 async fn access(
@@ -221,7 +228,9 @@ async fn access(
     headers: HeaderMap,
     ApiJson(request): ApiJson<AccessRequest>,
 ) -> Result<Json<AccessResponse>, ApiError> {
-    state.answer(&headers, move |snapshot, run| access_on(snapshot, run, &request)).await
+    state
+        .answer(&headers, move |snapshot, run| access_on(snapshot, run, &request))
+        .await
 }
 
 #[derive(Serialize)]
@@ -299,7 +308,9 @@ fn list_filter(snapshot: &Snapshot, run: &Run, request: &ListRequest) -> Result<
         Some(kinds) => {
             let mut kinds = kinds.iter();
             let first = kinds.next().ok_or(ApiError::new(ErrorCode::InvalidRequest))?;
-            kinds.fold(PathLayout::new(first.as_str()), |layout, kind| layout.within(kind.as_str()))
+            kinds.fold(PathLayout::new(first.as_str()), |layout, kind| {
+                layout.within(kind.as_str())
+            })
         }
     };
     let env = env_at(&request.env, run.now)?;
