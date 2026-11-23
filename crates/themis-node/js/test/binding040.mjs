@@ -87,9 +87,9 @@ for (const backend of ['native', 'wasm']) {
     windowedAllow.setNow(NOW);
     windowedAllow.setNow(null);
     assert.equal(engine.check(windowedAllow, view), false, 'setNow(null) remove o instante');
-    assert.throws(() => windowedAllow.setNow(-1), code('INVALID_INPUT'));
-    assert.throws(() => windowedAllow.setNow(1.5), code('INVALID_INPUT'));
-    assert.throws(() => new Context({ now: 'agora' }), code('INVALID_INPUT'));
+    assert.throws(() => windowedAllow.setNow(-1), code('INVALID_ARGUMENT'));
+    assert.throws(() => windowedAllow.setNow(1.5), code('INVALID_ARGUMENT'));
+    assert.throws(() => new Context({ now: 'agora' }), code('INVALID_ARGUMENT'));
     assert.throws(() => engine.validateGrant(allow('w', { kind: 'any' }, 'project.view', undefined, { validFrom: NOW, validUntil: NOW })), code('INVALID_GRANT'));
     assert.equal(new Context({ now: NOW }).size, 0);
   });
@@ -112,7 +112,7 @@ for (const backend of ['native', 'wasm']) {
     const after = engine.apply(input(NOW));
     assert.equal(after.ok, false, 'o grant do ator venceu: não pode repassar');
     assert.equal(after.violations[0].invariant, 'no_escalation');
-    assert.throws(() => engine.apply(input(-5)), code('INVALID_INPUT'));
+    assert.throws(() => engine.apply(input(-5)), code('INVALID_ARGUMENT'));
     assert.throws(() => engine.apply({ ...input(NOW), mutation: { nope: 1 } }), code('INVALID_INPUT'));
   });
 
@@ -164,7 +164,7 @@ for (const backend of ['native', 'wasm']) {
     });
     assert.equal(out.ok, false);
     assert.equal(out.violations[0].invariant, 'no_lockout');
-    assert.deepEqual(out.violations[0].suggestion, { kind: 'assign_role', subject_id: 'zed', role: { role: 'owner' } });
+    assert.deepEqual(out.violations[0].suggestion, { kind: 'assign_role', subjectId: 'zed', role: { role: 'owner' } });
   });
 
   await test(tag('templates: cópia desconectada, lote aplicado e recusa'), () => {
@@ -204,7 +204,7 @@ for (const backend of ['native', 'wasm']) {
     assert.equal(refused.audits[0].outcome, 'rejected');
 
     assert.throws(() => engine.materialize({ template: 5 }), code('INVALID_INPUT'));
-    assert.throws(() => engine.applyTemplate({ ...base, template: full, now: 'x' }), code('INVALID_INPUT'));
+    assert.throws(() => engine.applyTemplate({ ...base, template: full, now: 'x' }), code('INVALID_ARGUMENT'));
   });
 
   await test(tag('list: forma, expressão, ids e erro'), () => {
@@ -258,7 +258,7 @@ for (const backend of ['native', 'wasm']) {
 
     const on = engine.whoCanOn(ctx, 'project.edit', p1);
     assert.equal(on.permission, 'project.edit');
-    assert.deepEqual(on.entries, [{ subject: { type: 'user', id: 'ana' }, via: { type: 'grant', grant_id: 'g2' } }]);
+    assert.deepEqual(on.entries, [{ subject: { type: 'user', id: 'ana' }, via: { type: 'grant', grantId: 'g2' } }]);
 
     const access = engine.accessOf(ctx, p1);
     const ana = access.find((p) => p.subject.type === 'user' && p.subject.id === 'ana');
@@ -266,7 +266,7 @@ for (const backend of ['native', 'wasm']) {
 
     const checked = engine.checkFor(ctx, { type: 'user', id: 'ana' }, 'project.edit', p1, [user('ana')]);
     assert.equal(checked.allowed, true);
-    assert.equal(checked.via.grant_id, 'g2');
+    assert.equal(checked.via.grantId, 'g2');
     assert.equal(checked.explanation.decision.effect, 'allow');
     const denied = engine.checkFor(ctx, { type: 'user', id: 'ana' }, 'project.view', p1, [user('ana')]);
     assert.equal(denied.allowed, false);
@@ -288,7 +288,7 @@ for (const backend of ['native', 'wasm']) {
     assert.throws(() => engine.accessOf(ctx, p1), code('QUERY_LIMIT_EXCEEDED'));
     ctx.setLimits(null);
     assert.equal(engine.whoCanOn(ctx, 'project.view', p1).entries.length, 3);
-    assert.throws(() => ctx.setLimits({ maxParties: -1 }), code('INVALID_INPUT'));
+    assert.throws(() => ctx.setLimits({ maxParties: -1 }), code('INVALID_ARGUMENT'));
     assert.throws(() => ctx.setLimits('muitos'), code('INVALID_INPUT'));
   });
 
@@ -320,7 +320,7 @@ for (const backend of ['native', 'wasm']) {
     const first = lock.acquire(engine, ctx, low, doc, { priority: 1, ttlMs: HOUR }, NOW);
     assert.equal(first.outcome, 'granted');
     assert.equal(first.lease.holder.id, 'low');
-    assert.equal(first.lease.expires_at, NOW + HOUR);
+    assert.equal(first.lease.expiresAt, NOW + HOUR);
 
     const same = lock.acquire(engine, ctx, user('low2', ['op']), doc, { priority: 1, ttlMs: HOUR }, NOW + 1);
     assert.equal(same.outcome, 'busy', 'prioridade igual nunca toma');
@@ -339,9 +339,9 @@ for (const backend of ['native', 'wasm']) {
     assert.throws(() => lock.acquire(engine, ctx, chief, doc, { priority: 'alta', ttlMs: HOUR }, NOW + 4), code('INVALID_INPUT'));
 
     assert.throws(() => lock.release(d1, { kind: 'user', id: 'low' }, NOW + 5), code('EXCLUSIVE_NOT_HOLDER'));
-    const renewed = lock.renew(d1, { kind: 'user', id: 'chief' }, 2 * HOUR, NOW + 6);
-    assert.equal(renewed.expires_at, NOW + 6 + 2 * HOUR);
-    assert.throws(() => lock.renew(d1, { kind: 'user', id: 'chief' }, 0, NOW + 7), code('EXCLUSIVE_ZERO_TTL'));
+    const renewed = lock.renew(engine, ctx, chief, doc, 2 * HOUR, NOW + 6);
+    assert.equal(renewed.expiresAt, NOW + 6 + 2 * HOUR);
+    assert.throws(() => lock.renew(engine, ctx, chief, doc, 0, NOW + 7), code('EXCLUSIVE_ZERO_TTL'));
 
     assert.deepEqual(lock.expire(NOW + 7), []);
     const expired = lock.expire(NOW + 7 + 2 * HOUR);
@@ -359,6 +359,65 @@ for (const backend of ['native', 'wasm']) {
     assert.throws(() => new Exclusive().validate(bare), code('EXCLUSIVE_UNKNOWN_PERMISSION'));
     new Exclusive({ permissions: { hold: 'doc.edit', preempt: 'doc.edit' } }).validate(bare);
     assert.throws(() => new Exclusive({ ttl: 5 }), code('INVALID_INPUT'));
+  });
+
+  await test(tag('now inválido: recusado com INVALID_ARGUMENT em todas as entradas'), () => {
+    const engine = new Engine(SPEC);
+    const base = { actor: user('root'), current: [], mutation: { add: allow('b', { kind: 'any' }, 'project.view') }, invariants: [], audit: { level: 'standard' } };
+    const tpl = { template: { id: 't', version: 1, grants: [{ id: 'v', permission: 'project.view', target: { kind: 'project' } }] }, subject: { kind: 'user', id: 'bob' }, idPrefix: 'bob', actor: user('root'), current: [], invariants: [], audit: { level: 'standard' } };
+    const lock = new Exclusive();
+    const ctx = new Context();
+    const bad = [Number.NaN, Infinity, -Infinity, '', '0', [], false, 0.5, -1];
+    for (const now of bad) {
+      const label = `now=${String(now)}`;
+      assert.throws(() => ctx.setNow(now), code('INVALID_ARGUMENT'), `setNow ${label}`);
+      assert.throws(() => new Context({ now }), code('INVALID_ARGUMENT'), `Context ${label}`);
+      assert.throws(() => engine.apply({ ...base, now }), code('INVALID_ARGUMENT'), `apply ${label}`);
+      assert.throws(() => engine.applyTemplate({ ...tpl, now }), code('INVALID_ARGUMENT'), `applyTemplate ${label}`);
+      assert.throws(() => lock.holder({ kind: 'document', id: 'd1' }, now), code('INVALID_ARGUMENT'), `holder ${label}`);
+      assert.throws(() => lock.expire(now), code('INVALID_ARGUMENT'), `expire ${label}`);
+    }
+    assert.equal(ctx.setNow(0), undefined, 'zero é um instante válido');
+  });
+
+  await test(tag('now inválido em setNow não limpa o instante guardado'), () => {
+    const engine = new Engine(SPEC);
+    const ctx = new Context({ grants: [allow('e', { kind: 'any' }, 'project.view', undefined, { validUntil: NOW + HOUR })] });
+    ctx.setNow(NOW);
+    assert.throws(() => ctx.setNow(Number.NaN), code('INVALID_ARGUMENT'));
+    assert.equal(engine.check(ctx, ask(user('ana'), 'project.view', p1)), true, 'o instante anterior segue valendo');
+  });
+
+  await test(tag('tipo errado em parâmetro tipado: INVALID_ARGUMENT'), () => {
+    const engine = new Engine(SPEC);
+    const ctx = new Context();
+    assert.throws(() => ctx.removeGrant(5), code('INVALID_ARGUMENT'));
+    assert.throws(() => engine.whoCan(ctx, 5), code('INVALID_ARGUMENT'));
+    assert.throws(() => new Exclusive().acquire(engine, ctx, user('a'), doc, { priority: 1, ttlMs: '5' }, NOW), code('INVALID_ARGUMENT'));
+    assert.throws(() => new Exclusive().renew(engine, ctx, user('a'), doc, '5', NOW), code('INVALID_ARGUMENT'));
+  });
+
+  await test(tag('now por chamada vence o do contexto'), () => {
+    const engine = new Engine(SPEC);
+    const view = ask(user('ana'), 'project.view', p1);
+    const ctx = new Context({ grants: [allow('e', { kind: 'any' }, 'project.view', undefined, { validUntil: NOW })] });
+    ctx.setNow(NOW - 1);
+    assert.equal(engine.check(ctx, view), true);
+    assert.equal(engine.check(ctx, view, NOW), false, 'o now da chamada decide');
+    assert.equal(engine.decide(ctx, view, NOW).effect, 'deny');
+    assert.equal(engine.whoCan(ctx, 'project.view', NOW).length, 0);
+    assert.throws(() => engine.check(ctx, view, Number.NaN), code('INVALID_ARGUMENT'));
+  });
+
+  await test(tag('posse exclusiva: renew de quem perdeu a permissão'), () => {
+    const engine = new Engine(SPEC);
+    const ctx = new Context({ grants: [allow('h', role('op'), 'exclusive.hold', { kind: 'document' }, { validUntil: NOW + 100 })] });
+    const lock = new Exclusive();
+    const low = user('low', ['op']);
+    lock.acquire(engine, ctx, low, doc, { priority: 1, ttlMs: HOUR }, NOW);
+    assert.equal(lock.renew(engine, ctx, low, doc, HOUR, NOW + 50).expiresAt, NOW + 50 + HOUR);
+    assert.throws(() => lock.renew(engine, ctx, low, doc, HOUR, NOW + 100), code('EXCLUSIVE_DENIED'));
+    assert.equal(lock.holder({ kind: 'document', id: 'd1' }, NOW + 60).expiresAt, NOW + 50 + HOUR, 'a posse não mudou');
   });
 }
 
