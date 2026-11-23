@@ -23,7 +23,7 @@ napi = ["dep:napi", "dep:napi-derive"]
 wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys"]
 
 [dependencies]
-themis.workspace = true
+themis = { workspace = true, features = ["exclusive"] }
 serde.workspace = true
 serde_json.workspace = true
 napi = { version = "3", default-features = false, features = ["napi6", "serde-json"], optional = true }
