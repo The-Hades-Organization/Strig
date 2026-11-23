@@ -696,7 +696,7 @@ impl AccessFilter {
             )
         };
         let allow_any = any(Effect::Allow, None);
-        let combined = match self.strategy.name() {
+        match self.strategy.name() {
             "most_specific" => {
                 let ranks: BTreeSet<usize> = ranked.iter().map(|(r, _, _)| *r).collect();
                 let mut none_before: Vec<Expr> = Vec::new();
@@ -732,8 +732,7 @@ impl AccessFilter {
                 self.strategy_residual.map_or(Expr::False, Expr::Residual),
                 allow_any,
             ]),
-        };
-        combined
+        }
     }
 
     // --- row evaluation --------------------------------------------------------------------
@@ -1016,7 +1015,7 @@ impl Engine {
                     .filter(|held| self.roles.expand([held.role.as_str()]).contains(id))
                     .map(|held| held.scope.clone().map_or(Expr::True, Expr::Within))
                     .collect();
-                (!alternatives.is_empty()).then(|| Expr::Or(alternatives))
+                (!alternatives.is_empty()).then_some(Expr::Or(alternatives))
             }
             SubjectMatcher::Relation { relation } => self.relation_gate(filter, ctx, subject, grant, relation),
         }
