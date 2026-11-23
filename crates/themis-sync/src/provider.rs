@@ -138,3 +138,50 @@ impl<L: GrantLoader> CapabilityProvider for EngineProvider<L> {
         (self.clock)()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use themis::{Catalog, PermissionDef, SubjectMatcher, TargetSelector};
+
+    fn engine() -> Arc<Engine> {
+        let catalog = Catalog::builder()
+            .target_kinds(["project"])
+            .broad_target("org")
+            .permission(PermissionDef::new("project.view").targets(["project"]))
+            .build()
+            .unwrap();
+        Arc::new(Engine::builder(catalog).build().unwrap())
+    }
+
+    fn view() -> Grant {
+        Grant::allow("g", SubjectMatcher::Any, "project.view", TargetSelector::kind("project"))
+    }
+
+    #[tokio::test]
+    async fn the_next_boundary_comes_from_candidates_that_start_later() {
+        let grants = vec![view().valid_from(5_000)];
+        let provider = EngineProvider::new(engine(), grants).with_clock(|| 1_000);
+        let evaluation = provider
+            .evaluate(&Subject::user("alice"), &Resource::new("project", "p1"))
+            .await
+            .unwrap();
+        assert!(evaluation.set.grants.is_empty());
+        assert_eq!(evaluation.next_boundary, Some(5_000));
+    }
+
+    #[tokio::test]
+    async fn a_cache_that_is_not_registered_on_the_hub_still_drops_an_expired_set() {
+        let now = now_ms();
+        let grants = vec![view().valid_until(now + 60)];
+        let cache = Arc::new(CapabilityCache::new(Duration::from_secs(60), 10));
+        let provider = EngineProvider::new(engine(), grants).with_cache(cache);
+        let (alice, scope) = (Subject::user("alice"), Resource::new("project", "p1"));
+
+        assert_eq!(provider.evaluate(&alice, &scope).await.unwrap().set.grants.len(), 1);
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        // Past the `valid_until`: the entry is a miss and the set is recomputed without the grant.
+        assert!(provider.evaluate(&alice, &scope).await.unwrap().set.grants.is_empty());
+    }
+}
