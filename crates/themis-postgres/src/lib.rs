@@ -24,6 +24,10 @@
 //! TLS: [`PgTransport::with_tls`] accepts any `tokio-postgres` connector
 //! (`postgres-native-tls`, `tokio-postgres-rustls`).
 
+mod window;
+
+pub use window::{InstantOutOfRange, WindowColumns, WindowPredicate, window_predicate};
+
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -119,7 +123,7 @@ pub async fn notify<C: GenericClient + Sync>(client: &C, channel: &str, change: 
         .map_err(connection)
 }
 
-fn quote_ident(name: &str) -> String {
+pub(crate) fn quote_ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
 
