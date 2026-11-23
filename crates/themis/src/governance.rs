@@ -622,3 +622,367 @@ impl Forbid {
         Ok(())
     }
 }
+
+/// Resource on which `grant` takes effect, as far as governance can tell without a concrete
+/// resource: the target step (a kind-only target becomes `kind:*`), the grant's scope and the scope
+/// of the role assignment that carries it. The implicit `global` is not repeated.
+fn grant_resource(grant: &Grant, role_scope: Option<&Anchor>) -> Resource {
+    let mut path: Vec<Anchor> = Vec::new();
+    let target = Anchor {
+        kind: grant.target.kind.clone(),
+        id: grant.target.id.clone().or_else(|| Some(KIND_WILDCARD.to_string())),
+    };
+    for anchor in [Some(target), grant.scope.clone(), role_scope.cloned()]
+        .into_iter()
+        .flatten()
+    {
+        if !anchor.is_global() && !path.contains(&anchor) {
+            path.push(anchor);
+        }
+    }
+    Resource {
+        path,
+        ..Resource::default()
+    }
+}
+
+/// Id of the synthetic step that stands for "any instance" of a kind-only target.
+const KIND_WILDCARD: &str = "*";
+
+/// Id of the probe subject built from a grant's matcher.
+const PROBE_ID: &str = "themis:probe";
+
+/// A subject that the grant's matcher selects. `None` for a relation, which depends on tuples.
+fn matcher_subject(matcher: &SubjectMatcher) -> Option<Subject> {
+    Some(match matcher {
+        SubjectMatcher::User { id } => Subject::user(id.clone()),
+        SubjectMatcher::Role { id } => Subject::user(PROBE_ID).with_role(id.clone()),
+        SubjectMatcher::Principal { name } => Subject::user(PROBE_ID).with_principal(name.clone()),
+        SubjectMatcher::Any => Subject::user(PROBE_ID),
+        SubjectMatcher::Relation { .. } => return None,
+    })
+}
+
+/// What a change hands out: one allow grant, on one resource, with every permission it confers.
+struct Conferred<'a> {
+    grant: &'a Grant,
+    resource: Resource,
+    /// The grant's permission and every permission it grants by implication.
+    keys: Vec<String>,
+}
+
+fn conferred_keys(engine: &Engine, permission: &str) -> Vec<String> {
+    let mut keys = vec![permission.to_string()];
+    keys.extend(engine.catalog().descendants(permission));
+    keys
+}
+
+/// The allow grants that the change gives to someone: the added grant, or, in a role assignment,
+/// the allow grants of the role (and of the roles it inherits) in the scope of the assignment.
+fn conferred<'a>(engine: &Engine, proposal: &Proposal<'a>) -> Vec<Conferred<'a>> {
+    match proposal.mutation {
+        Mutation::Add(grant) if grant.effect == Effect::Allow => vec![Conferred {
+            grant,
+            resource: grant_resource(grant, None),
+            keys: conferred_keys(engine, &grant.permission),
+        }],
+        Mutation::AssignRole { role, .. } => {
+            let roles = engine.roles().expand([role.role.as_str()]);
+            proposal
+                .before
+                .iter()
+                .filter(|g| g.effect == Effect::Allow)
+                .filter(|g| matches!(&g.subject, SubjectMatcher::Role { id } if roles.contains(id)))
+                .map(|grant| Conferred {
+                    grant,
+                    resource: grant_resource(grant, role.scope.as_ref()),
+                    keys: conferred_keys(engine, &grant.permission),
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Holding a permission requires holding its `depends_on` prerequisites on the same resource.
+/// The change is refused when it would leave someone with a permission and without one of its
+/// prerequisites: adding the permission alone, removing the prerequisite, or assigning or
+/// revoking a role that carries them.
+pub struct Prerequisites;
+
+impl Prerequisites {
+    /// The first prerequisite of `key` that `subject` lacks on `resource`, if the subject holds
+    /// `key` itself.
+    fn missing(
+        engine: &Engine,
+        ctx: &Context<'_>,
+        subject: &Subject,
+        key: &str,
+        resource: &Resource,
+    ) -> Option<String> {
+        if !engine.catalog().has_prerequisites(key)
+            || !engine
+                .decide_ignoring_prerequisites(ctx, &Request::new(subject, key, resource))
+                .is_allowed()
+        {
+            return None;
+        }
+        engine
+            .catalog()
+            .prerequisites(key)
+            .find(|p| !engine.check(ctx, &Request::new(subject, p, resource)))
+            .map(str::to_string)
+    }
+
+    fn violation(&self, key: &str, prerequisite: &str) -> Violation {
+        Violation::new(
+            self.name(),
+            format!("{key} exige {prerequisite} no mesmo recurso"),
+        )
+    }
+
+    /// Allow grants that `subject` (after the change) picks up through its user id or its roles,
+    /// each with the scope of the role assignment that carries it.
+    fn grants_of<'g>(
+        engine: &Engine,
+        subject: &Subject,
+        grants: &'g [Grant],
+    ) -> Vec<(&'g Grant, Option<Anchor>)> {
+        let mut found = Vec::new();
+        for grant in grants.iter().filter(|g| g.effect == Effect::Allow) {
+            match &grant.subject {
+                SubjectMatcher::User { id } if subject.id.as_deref() == Some(id.as_str()) => {
+                    found.push((grant, None));
+                }
+                SubjectMatcher::Role { id } => {
+                    let scope = subject
+                        .roles
+                        .iter()
+                        .find(|r| engine.roles().expand([r.role.as_str()]).contains(id))
+                        .map(|r| r.scope.clone());
+                    if let Some(scope) = scope {
+                        found.push((grant, scope));
+                    }
+                }
+                _ => {}
+            }
+        }
+        found
+    }
+}
+
+impl Invariant for Prerequisites {
+    fn name(&self) -> &str {
+        "prerequisites"
+    }
+
+    fn check(&self, engine: &Engine, proposal: &Proposal<'_>) -> Result<(), Violation> {
+        let ctx = proposal.after_context();
+        match proposal.mutation {
+            Mutation::Add(grant) => {
+                let Some(subject) = matcher_subject(&grant.subject) else {
+                    return Ok(());
+                };
+                for c in conferred(engine, proposal) {
+                    for key in &c.keys {
+                        if let Some(p) = Self::missing(engine, &ctx, &subject, key, &c.resource) {
+                            return Err(self.violation(key, &p));
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Mutation::Remove { .. } => {
+                let Some(removed) = proposal.grant() else {
+                    return Ok(());
+                };
+                for grant in proposal.after.iter().filter(|g| g.effect == Effect::Allow) {
+                    let Some(subject) = matcher_subject(&grant.subject) else {
+                        continue;
+                    };
+                    let resource = grant_resource(grant, None);
+                    for key in conferred_keys(engine, &grant.permission) {
+                        let relies_on_removed = engine
+                            .catalog()
+                            .prerequisites(&key)
+                            .any(|p| engine.catalog().implies(&removed.permission, p));
+                        if !relies_on_removed {
+                            continue;
+                        }
+                        if let Some(p) = Self::missing(engine, &ctx, &subject, &key, &resource) {
+                            return Err(self.violation(&key, &p));
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Mutation::AssignRole { subject, .. } | Mutation::RevokeRole { subject, .. } => {
+                let after = proposal.subject_after(subject);
+                for (grant, scope) in Self::grants_of(engine, &after, proposal.after) {
+                    let resource = grant_resource(grant, scope.as_ref());
+                    for key in conferred_keys(engine, &grant.permission) {
+                        if let Some(p) = Self::missing(engine, &ctx, &after, &key, &resource) {
+                            return Err(self.violation(&key, &p));
+                        }
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+/// A permission marked [`PermissionDef::non_delegable`](crate::PermissionDef::non_delegable) is only
+/// granted by an actor who holds `manager` on the resource: having the permission is not enough to
+/// pass it on. Applies to adding a grant and to assigning a role that carries the permission.
+pub struct NonDelegable {
+    manager: String,
+}
+
+impl NonDelegable {
+    pub fn new(manager: impl Into<String>) -> Self {
+        Self {
+            manager: manager.into(),
+        }
+    }
+}
+
+impl Invariant for NonDelegable {
+    fn name(&self) -> &str {
+        "non_delegable"
+    }
+
+    fn check(&self, engine: &Engine, proposal: &Proposal<'_>) -> Result<(), Violation> {
+        let ctx = proposal.before_context();
+        for c in conferred(engine, proposal) {
+            let Some(key) = c
+                .keys
+                .iter()
+                .find(|k| engine.catalog().get(k).is_some_and(|d| d.non_delegable))
+            else {
+                continue;
+            };
+            let request = Request::new(proposal.actor, &self.manager, &c.resource);
+            if !engine.check(&ctx, &request) {
+                return Err(Violation::new(
+                    self.name(),
+                    format!("{key} não é delegável: só quem tem {} concede", self.manager),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A permission marked [`PermissionDef::management_only`](crate::PermissionDef::management_only) is
+/// only granted to the management `roles`: never straight to a user, a principal or an ordinary
+/// role. Assigning a role outside `roles` that carries the permission is refused as well.
+pub struct ManagementOnly {
+    roles: Vec<String>,
+}
+
+impl ManagementOnly {
+    pub fn new<I, S>(roles: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            roles: roles.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    fn is_management(&self, role: &str) -> bool {
+        self.roles.iter().any(|r| r == role)
+    }
+}
+
+impl Invariant for ManagementOnly {
+    fn name(&self) -> &str {
+        "management_only"
+    }
+
+    fn check(&self, engine: &Engine, proposal: &Proposal<'_>) -> Result<(), Violation> {
+        for c in conferred(engine, proposal) {
+            let Some(key) = c
+                .keys
+                .iter()
+                .find(|k| engine.catalog().get(k).is_some_and(|d| d.management_only))
+            else {
+                continue;
+            };
+            let allowed = match proposal.mutation {
+                Mutation::AssignRole { role, .. } => self.is_management(&role.role),
+                _ => matches!(&c.grant.subject, SubjectMatcher::Role { id } if self.is_management(id)),
+            };
+            if !allowed {
+                return Err(Violation::new(
+                    self.name(),
+                    format!("{key} só pode ser concedida a papéis de gestão"),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Permission that exempts its holder from [`NoEscalation`] on `resource`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Bypass {
+    pub permission: String,
+    pub resource: Resource,
+}
+
+impl Bypass {
+    pub fn new(permission: impl Into<String>, resource: Resource) -> Self {
+        Self {
+            permission: permission.into(),
+            resource,
+        }
+    }
+}
+
+/// The actor only grants a permission, or assigns a role, on the resource where they hold
+/// everything they hand out (for a role: the permissions of the role in that scope). With
+/// [`NoEscalation::bypass`], whoever holds the bypass permission is exempt.
+#[derive(Default)]
+pub struct NoEscalation {
+    bypass: Option<Bypass>,
+}
+
+impl NoEscalation {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn bypass(mut self, bypass: Bypass) -> Self {
+        self.bypass = Some(bypass);
+        self
+    }
+}
+
+impl Invariant for NoEscalation {
+    fn name(&self) -> &str {
+        "no_escalation"
+    }
+
+    fn check(&self, engine: &Engine, proposal: &Proposal<'_>) -> Result<(), Violation> {
+        let ctx = proposal.before_context();
+        if let Some(bypass) = &self.bypass
+            && engine.check(&ctx, &Request::new(proposal.actor, &bypass.permission, &bypass.resource))
+        {
+            return Ok(());
+        }
+        for c in conferred(engine, proposal) {
+            let permission = &c.grant.permission;
+            if !engine.check(&ctx, &Request::new(proposal.actor, permission, &c.resource)) {
+                return Err(Violation::new(
+                    self.name(),
+                    format!("o ator não tem {permission} onde a concederia"),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
