@@ -202,6 +202,12 @@ impl Cursor {
         self.depth = self.depth.saturating_sub(1);
     }
 
+    /// Forgets the nesting of an element that failed half-read: a `?` skips the `leave` calls, and
+    /// the reading resumes at the top level.
+    pub fn reset_depth(&mut self) {
+        self.depth = 0;
+    }
+
     pub fn fail<T>(&self, span: Span, message: impl Into<String>) -> PResult<T> {
         Err(Raw::new(span, message))
     }
@@ -300,6 +306,11 @@ pub(crate) fn literal(cur: &mut Cursor) -> PResult<Value> {
 fn number_value(raw: &str, span: Span) -> PResult<Value> {
     if let Ok(int) = raw.parse::<i64>() {
         return Ok(Value::Int(int));
+    }
+    if !raw.contains('.') {
+        return Err(Raw::new(span, format!("`{raw}` does not fit in a whole number")).hint(
+            "whole numbers go from -9223372036854775808 to 9223372036854775807; write a decimal point for a float",
+        ));
     }
     match raw.parse::<f64>() {
         Ok(float) if float.is_finite() => Ok(Value::Float(float)),

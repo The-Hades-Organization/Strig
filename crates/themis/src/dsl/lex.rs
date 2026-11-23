@@ -8,8 +8,13 @@ use crate::dsl::time;
 const PUNCT2: [&str; 7] = ["==", "!=", "<=", ">=", "&&", "||", "->"];
 /// Single-character punctuation.
 const PUNCT1: &str = "{}()[],=:<>#@|&!-*";
-/// Punctuation after which a `-` starts a negative number instead of an exclusion.
-const BEFORE_NEGATIVE: [&str; 11] = ["=", "[", ",", "(", "==", "!=", "<", "<=", ">", ">=", ":"];
+/// Punctuation after which a `-` is an exclusion, not the sign of a number: the ones that close a
+/// value.
+const AFTER_VALUE: [&str; 3] = [")", "]", "}"];
+/// Words after which a `-` is the sign of a number, as after an operator.
+const BEFORE_NEGATIVE_WORDS: [&str; 4] = ["and", "or", "not", "in"];
+/// The most lexical errors kept: the rest is only counted, so hostile input stays small.
+const MAX_ERRORS: usize = 100;
 /// Characters a time-of-day may use after the `T` of a date.
 const TIME_CHARS: &str = "0123456789:.Z";
 
@@ -48,6 +53,25 @@ pub(crate) struct Lexed {
     pub tokens: Vec<Token>,
     pub comments: Vec<Comment>,
     pub errors: Vec<Raw>,
+    /// Errors past [`MAX_ERRORS`], counted and not kept.
+    pub hidden: usize,
+}
+
+/// The errors found so far, bounded.
+#[derive(Default)]
+struct Errors {
+    list: Vec<Raw>,
+    hidden: usize,
+}
+
+impl Errors {
+    fn push(&mut self, raw: Raw) {
+        if self.list.len() < MAX_ERRORS {
+            self.list.push(raw);
+        } else {
+            self.hidden += 1;
+        }
+    }
 }
 
 fn is_word(c: char) -> bool {
@@ -123,6 +147,13 @@ impl Scanner {
             while self.peek(len).is_some_and(|c| TIME_CHARS.contains(c)) {
                 len += 1;
             }
+            // A numeric offset (`-03:00`) is part of the word, so the error can say dates are UTC.
+            if matches!(self.peek(len), Some('+' | '-')) && self.digits_at(len + 1, 1) {
+                len += 1;
+                while self.peek(len).is_some_and(|c| c.is_ascii_digit() || c == ':') {
+                    len += 1;
+                }
+            }
         }
         if self.peek(len).is_some_and(|c| is_word(c) || c == '-') {
             return 0;
@@ -167,7 +198,7 @@ impl Scanner {
 /// going so one pass reports them all.
 pub(crate) fn lex(source: &str) -> Lexed {
     let mut sc = Scanner {
-        chars: source.chars().collect(),
+        chars: source.strip_prefix('\u{feff}').unwrap_or(source).chars().collect(),
         at: 0,
         line: 1,
         col: 1,
@@ -176,7 +207,9 @@ pub(crate) fn lex(source: &str) -> Lexed {
         tokens: Vec::new(),
         comments: Vec::new(),
         errors: Vec::new(),
+        hidden: 0,
     };
+    let mut errors = Errors::default();
     let mut token_line = 0;
     while let Some(c) = sc.peek(0) {
         if c.is_whitespace() {
@@ -203,15 +236,17 @@ pub(crate) fn lex(source: &str) -> Lexed {
         let bol = token_line != start.line;
         token_line = start.line;
         let previous_allows_negative = match out.tokens.last().map(|t| &t.tok) {
-            Some(Tok::Punct(p)) => BEFORE_NEGATIVE.contains(p),
-            _ => false,
+            Some(Tok::Punct(p)) => !AFTER_VALUE.contains(p),
+            Some(Tok::Ident(w)) => BEFORE_NEGATIVE_WORDS.contains(&w.as_str()),
+            Some(_) => false,
+            None => true,
         };
         let (tok, span) = if c == '"' {
-            match string(&mut sc, &mut out.errors) {
+            match string(&mut sc, &mut errors) {
                 Some(done) => done,
                 None => continue,
             }
-        } else if let Some(done) = date(&mut sc, &mut out.errors) {
+        } else if let Some(done) = date(&mut sc, &mut errors) {
             match done {
                 Some(done) => done,
                 None => continue,
@@ -241,7 +276,7 @@ pub(crate) fn lex(source: &str) -> Lexed {
             (Tok::Punct(p), start)
         } else {
             sc.bump();
-            out.errors.push(Raw::new(start, format!("unexpected character {c:?}")));
+            errors.push(Raw::new(start, format!("unexpected character {c:?}")));
             continue;
         };
         out.tokens.push(Token { tok, span, bol });
@@ -251,10 +286,12 @@ pub(crate) fn lex(source: &str) -> Lexed {
         span: sc.here(1),
         bol: true,
     });
+    out.errors = errors.list;
+    out.hidden = errors.hidden;
     out
 }
 
-fn string(sc: &mut Scanner, errors: &mut Vec<Raw>) -> Option<(Tok, Span)> {
+fn string(sc: &mut Scanner, errors: &mut Errors) -> Option<(Tok, Span)> {
     let start = sc.here(1);
     let began = sc.at;
     sc.bump();
@@ -312,7 +349,7 @@ fn string(sc: &mut Scanner, errors: &mut Vec<Raw>) -> Option<(Tok, Span)> {
 }
 
 /// `None`: not a date. `Some(None)`: a date-shaped word that is not a valid date (already reported).
-fn date(sc: &mut Scanner, errors: &mut Vec<Raw>) -> Option<Option<(Tok, Span)>> {
+fn date(sc: &mut Scanner, errors: &mut Errors) -> Option<Option<(Tok, Span)>> {
     let len = sc.date_len();
     if len == 0 {
         return None;

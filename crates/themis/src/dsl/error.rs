@@ -145,6 +145,23 @@ impl fmt::Display for Diagnostics {
 
 impl std::error::Error for Diagnostics {}
 
+/// The most diagnostics reported at once: past it the rest is only counted.
+pub(crate) const MAX_DIAGNOSTICS: usize = 100;
+
+/// Keeps the first [`MAX_DIAGNOSTICS`] and ends with "and N more" when `hidden` or the cut dropped
+/// some, so the size of a report never grows with a hostile input.
+pub(crate) fn capped(mut items: Vec<Diagnostic>, hidden: usize) -> Vec<Diagnostic> {
+    let mut more = hidden;
+    if items.len() > MAX_DIAGNOSTICS {
+        more += items.len() - MAX_DIAGNOSTICS;
+        items.truncate(MAX_DIAGNOSTICS);
+    }
+    if more > 0 {
+        items.push(Diagnostic::new(None, format!("and {more} more errors not shown")));
+    }
+    items
+}
+
 /// A policy that the printer cannot write in the chosen syntax.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]

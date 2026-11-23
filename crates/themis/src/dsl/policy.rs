@@ -69,7 +69,8 @@ pub enum Placement {
     Inline,
 }
 
-/// The element a comment is attached to and its side. See [`ids`] for the element ids.
+/// The element a comment is attached to and its side. The element is named by its id (see [`ids`]),
+/// never by a field of it, so every syntax gives the same anchor to the same comment.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct NoteAnchor {
     pub element: String,
@@ -83,6 +84,11 @@ pub struct NoteOrigin {
     pub language: Language,
     pub line: u32,
     pub column: u32,
+    /// The field of the element the comment was written next to (`when`, `label`), if it was
+    /// next to one: a hint for the printer to put it back in the same place. The anchor does not
+    /// carry it, so a syntax with no such field anchors the comment on the same element.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
 }
 
 /// A comment of the source, kept so the text can be rebuilt from the JSON.
@@ -148,11 +154,20 @@ impl Policy {
     /// True when both describe the same policy and carry the same comments on the same elements.
     /// The order of roles, subjects, tuples, relations and kinds does not count, and neither do
     /// the source positions of the notes.
+    ///
+    /// Comments on the same element and side keep their order: swapping two is a difference.
     pub fn equivalent(&self, other: &Policy) -> bool {
-        self.normalized() == other.normalized()
+        self.normalized(true) == other.normalized(true)
     }
 
-    fn normalized(&self) -> serde_json::Value {
+    /// Like [`Policy::equivalent`], but the comments of one anchor may come in any order. The
+    /// printer checks itself with this: it writes the fields in its own order, and the comments
+    /// that sat next to them travel along.
+    pub(crate) fn equivalent_unordered(&self, other: &Policy) -> bool {
+        self.normalized(false) == other.normalized(false)
+    }
+
+    fn normalized(&self, ordered: bool) -> serde_json::Value {
         let mut policy = self.clone();
         policy.catalog.target_kinds.sort();
         policy.catalog.broad_targets.sort();
@@ -164,7 +179,12 @@ impl Policy {
             relations.sort_by(|a, b| (&a.kind, &a.relation).cmp(&(&b.kind, &b.relation)));
         }
         let mut notes: Vec<_> = policy.notes.drain(..).map(|note| (note.anchor, note.text)).collect();
-        notes.sort();
+        if ordered {
+            // Stable: the notes of one anchor stay in the order they were written.
+            notes.sort_by(|a, b| a.0.cmp(&b.0));
+        } else {
+            notes.sort();
+        }
         let mut value = serde_json::to_value(&policy).unwrap_or(serde_json::Value::Null);
         sort_array(&mut value, "subjects");
         sort_array(&mut value, "tuples");
@@ -236,6 +256,23 @@ pub mod ids {
     pub fn field(element: &str, field: &str) -> String {
         format!("{element}/{field}")
     }
+
+    /// Splits the id of an extent into its element and the field under it, if any:
+    /// `grant:g/when` is the element `grant:g` and the field `when`, while a role assignment
+    /// (`subject:user:a/assign:r`) is an element of its own.
+    pub fn split(id: &str) -> (&str, Option<&str>) {
+        let mut from = 0;
+        while let Some(slash) = id[from..].find('/') {
+            let at = from + slash;
+            let rest = &id[at + 1..];
+            if rest.starts_with("assign:") {
+                from = at + 1;
+            } else {
+                return (&id[..at], Some(rest));
+            }
+        }
+        (id, None)
+    }
 }
 
 /// Source positions by element id. Looking an id up falls back to its parent (the id without
@@ -252,7 +289,9 @@ impl Origins {
         let below = format!("{from}/");
         let moved: Vec<String> = self
             .0
-            .keys()
+            .range::<str, _>((std::ops::Bound::Included(from), std::ops::Bound::Unbounded))
+            .map(|(id, _)| id)
+            .take_while(|id| id.starts_with(from))
             .filter(|id| id.as_str() == from || id.starts_with(&below))
             .cloned()
             .collect();

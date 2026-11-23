@@ -7,10 +7,10 @@ use crate::dsl::error::PrintError;
 use crate::dsl::lex::{Tok, lex};
 use crate::dsl::policy::{Placement, Policy, ids};
 use crate::dsl::time;
-use crate::dsl::validate::invariant_kind;
+use crate::dsl::validate::{invariant_kind, is_attr_path};
 use crate::{
     Anchor, Condition, Effect, InvariantSpec, Operand, OverrideRule, Resource, Rewrite, StrategySpec, Subject,
-    SubjectMatcher, Value,
+    SubjectMatcher, TupleSubject, Value,
 };
 
 type Printed<T> = Result<T, PrintError>;
@@ -87,6 +87,31 @@ fn id_part<'a>(text: &'a str, what: &str) -> Printed<&'a str> {
     }
 }
 
+fn date(ms: u64) -> Printed<String> {
+    time::format(ms).map_or_else(
+        || unrepresentable(format!("the instant {ms}"), "the language writes dates up to the year 9999"),
+        Ok,
+    )
+}
+
+/// A float as the lexer reads it: plain digits and a point, never an exponent.
+fn float(f: f64) -> Printed<String> {
+    if !f.is_finite() {
+        return unrepresentable("a number", "a non-finite number has no spelling");
+    }
+    let text = f.to_string();
+    Ok(if text.contains('.') { text } else { format!("{text}.0") })
+}
+
+/// An attribute path the parser reads back: `subject.`, `resource.` or `env.` and a name.
+fn attr(path: &str) -> Printed<&str> {
+    if is_attr_path(path) {
+        Ok(path)
+    } else {
+        unrepresentable(format!("the attribute `{path}`"), "it is not an attribute path the language can read")
+    }
+}
+
 fn quote(text: &str) -> String {
     let mut out = String::from("\"");
     for c in text.chars() {
@@ -134,8 +159,7 @@ fn value(v: &Value) -> Printed<String> {
         Value::Null => "null".to_string(),
         Value::Bool(b) => b.to_string(),
         Value::Int(i) => i.to_string(),
-        Value::Float(f) if f.is_finite() => format!("{f:?}"),
-        Value::Float(_) => return unrepresentable("a number", "a non-finite number has no spelling"),
+        Value::Float(f) => float(*f)?,
         Value::Str(s) => quote(s),
         Value::List(items) => {
             let parts: Printed<Vec<String>> = items.iter().map(value).collect();
@@ -148,7 +172,7 @@ fn value(v: &Value) -> Printed<String> {
 
 fn operand(o: &Operand) -> Printed<String> {
     match o {
-        Operand::Attr { attr } => Ok(attr.clone()),
+        Operand::Attr { attr: path } => Ok(attr(path)?.to_string()),
         Operand::Lit(v) => value(v),
         #[allow(unreachable_patterns, reason = "Operand may grow")]
         _ => unrepresentable("an operand", "the syntax does not know this kind of operand"),
@@ -176,7 +200,7 @@ fn condition(c: &Condition, parent: u8) -> Printed<String> {
         Condition::Gt { left, right } => compare(left, ">", right),
         Condition::Ge { left, right } => compare(left, ">=", right),
         Condition::In { item, set } => compare(item, "in", set),
-        Condition::Exists { attr } => Ok(format!("exists {attr}")),
+        Condition::Exists { attr: path } => Ok(format!("exists {}", attr(path)?)),
         Condition::All { of } => group(of, "and", "all", 2),
         Condition::Any { of } => group(of, "or", "any", 1),
         Condition::Not { cond } => Ok(format!("not {}", condition(cond, 3)?)),
@@ -543,10 +567,10 @@ impl Printer {
                 fields.push(("scope", anchor(scope)?));
             }
             if let Some(from) = assignment.valid_from {
-                fields.push(("valid_from", time::format(from)));
+                fields.push(("valid_from", date(from)?));
             }
             if let Some(until) = assignment.valid_until {
-                fields.push(("valid_until", time::format(until)));
+                fields.push(("valid_until", date(until)?));
             }
             self.fields(2, &assign_id, fields, false);
             self.close(1, &assign_id, parts == total);
@@ -583,10 +607,10 @@ impl Printer {
             fields.push(("when", condition(when, 0)?));
         }
         if let Some(from) = g.valid_from {
-            fields.push(("valid_from", time::format(from)));
+            fields.push(("valid_from", date(from)?));
         }
         if let Some(until) = g.valid_until {
-            fields.push(("valid_until", time::format(until)));
+            fields.push(("valid_until", date(until)?));
         }
         self.open(0, &id, &format!("grant {name}"));
         self.fields(1, &id, fields, false);
@@ -608,8 +632,19 @@ impl Printer {
         self.open(0, ids::TUPLES, "tuples");
         let count = p.tuples.len();
         for (at, tuple) in p.tuples.iter().enumerate() {
-            for part in [&tuple.object.kind, &tuple.object.id, &tuple.relation] {
-                id_part(part, "tuple part")?;
+            word(&tuple.object.kind, "tuple kind")?;
+            id_part(&tuple.object.id, "tuple id")?;
+            word(&tuple.relation, "tuple relation")?;
+            let (subject, set) = match &tuple.subject {
+                TupleSubject::Object(object) => (object, None),
+                TupleSubject::Userset(object, relation) => (object, Some(relation)),
+                #[allow(unreachable_patterns, reason = "TupleSubject may grow")]
+                _ => return unrepresentable("a tuple", "the syntax does not know its subject"),
+            };
+            word(&subject.kind, "tuple subject kind")?;
+            id_part(&subject.id, "tuple subject id")?;
+            if let Some(relation) = set {
+                word(relation, "tuple subject relation")?;
             }
             let text = tuple.to_string();
             self.leaf(1, &ids::tuple(&text), &text, at + 1 == count);

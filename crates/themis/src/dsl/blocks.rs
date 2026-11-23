@@ -219,23 +219,26 @@ impl Body {
 /// Reads every declaration up to the end of the file. Errors are reported on the builder and the
 /// reading goes on from the next declaration.
 pub(crate) fn parse(cur: &mut Cursor, b: &mut Builder) {
+    // The column the declarations sit at: 1 in a flush file, deeper in an indented one.
+    let base = cur.current().span.col;
     while !cur.at_eof() {
         let start = cur.index();
         if let Err(raw) = statement(cur, b) {
             b.report(raw);
+            cur.reset_depth();
             if cur.index() == start {
                 cur.advance();
             }
-            while !cur.at_eof() && !at_line_start(cur) {
+            while !cur.at_eof() && !at_line_start(cur, base) {
                 cur.advance();
             }
         }
     }
 }
 
-fn at_line_start(cur: &Cursor) -> bool {
+fn at_line_start(cur: &Cursor, base: u32) -> bool {
     let token = cur.current();
-    token.bol && token.span.col == 1
+    token.bol && token.span.col <= base
 }
 
 fn scoped<T>(
@@ -673,9 +676,10 @@ fn tuples(cur: &mut Cursor, b: &mut Builder, head: &Sp<String>) -> PResult<()> {
             match tuple(cur) {
                 Ok((tuple, at)) => {
                     let id = ids::tuple(&tuple.to_string());
+                    let repeated = duplicate(b, &id, at, &format!("the tuple `{tuple}`"));
                     b.open(&id, at);
                     b.close(cur.previous_span());
-                    if !b.policy.tuples.contains(&tuple) {
+                    if !repeated {
                         b.policy.tuples.push(tuple);
                     }
                 }
@@ -805,7 +809,20 @@ fn build_invariant(b: &mut Builder, kind: &str, head: &Sp<String>, body: &mut Bo
                         subjects: subjects_of(subjects)?,
                     })
                 }
-                None => None,
+                None => {
+                    // The reserve is all or nothing: a field of it with no role would be dropped.
+                    let orphan = body
+                        .anchors("reserve_subjects")
+                        .and_then(|items| items.first().map(|item| ("reserve_subjects", item.span)))
+                        .or_else(|| body.anchor("reserve_scope").map(|item| ("reserve_scope", item.span)));
+                    if let Some((field, span)) = orphan {
+                        b.report(
+                            Raw::new(span, format!("`{field}` has no meaning without `reserve_role`"))
+                                .hint("add a line: reserve_role = <role>"),
+                        );
+                    }
+                    None
+                }
             };
             InvariantSpec::NoLockout {
                 permissions: names(body.words("permissions")),
