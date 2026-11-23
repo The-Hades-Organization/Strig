@@ -1,0 +1,7 @@
+language blocks
+
+target_kinds = [org]
+
+permission org.read {
+  targets = [org]
+}

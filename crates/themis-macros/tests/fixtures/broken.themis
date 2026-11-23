@@ -1,0 +1,5 @@
+language blocks
+
+permission org.read {
+  bogus = 1
+}

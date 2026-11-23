@@ -1,0 +1,22 @@
+[package]
+name = "themis-macros"
+description = "Compile-time macros for the Themis policy language."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+themis = { workspace = true, features = ["dsl"] }
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", default-features = false, features = ["parsing", "proc-macro", "printing"] }
+
+[dev-dependencies]
+serde_json.workspace = true
