@@ -147,11 +147,14 @@ fn a_comment_on_a_missing_max_depth_cannot_be_printed() {
 }
 
 #[test]
-fn an_empty_relation_list_cannot_be_printed() {
+fn an_empty_relation_list_prints_back_in_every_syntax() {
     let mut policy = parse("g.themis", GRANT).unwrap().policy;
     policy.relations = Some(Vec::new());
-    let error = print(&policy, Language::Blocks).unwrap_err();
-    assert!(matches!(error, PrintError::Unrepresentable { .. }));
+    for language in [Language::Blocks, Language::Rules, Language::Actors] {
+        let text = print(&policy, language).unwrap();
+        let back = parse("back.themis", &text).unwrap().policy;
+        assert_eq!(back.relations, Some(Vec::new()), "{language:?}");
+    }
 }
 
 #[test]

@@ -20,11 +20,11 @@ permission project.write {
   depends_on = [org.read]  // never alone
 }
 
-role editor {
-}
-
 role admin {
   inherits = [editor]
+}
+
+role editor {
 }
 
 subject user:ana {
@@ -88,7 +88,7 @@ fn every_comment_becomes_a_note_with_its_anchor_and_origin() {
                 "permission:org.read",
                 Placement::Before
             ),
-            ("never alone", "permission:project.write", Placement::Inline),
+            ("never alone", "permission:project.write", Placement::Inside),
         ]
     );
     let origin = &policy.notes[1].origin;
@@ -133,7 +133,7 @@ fn json_has_the_notes_field() {
     let json: serde_json::Value = serde_json::from_str(&parsed().to_json().unwrap()).unwrap();
     let notes = json["notes"].as_array().unwrap();
     assert_eq!(notes.len(), 3);
-    assert_eq!(notes[2]["anchor"]["placement"], "inline");
+    assert_eq!(notes[2]["anchor"]["placement"], "inside");
     assert_eq!(notes[0]["origin"]["language"], "blocks");
 }
 
@@ -147,7 +147,7 @@ fn printing_twice_gives_the_same_text() {
 const FULL: &str = "\
 language blocks
 
-target_kinds = [org, doc]
+target_kinds = [doc, org]
 broad_targets = [org]
 max_depth = 4
 
@@ -244,10 +244,10 @@ fn an_unknown_language_is_refused_at_the_name() {
 }
 
 #[test]
-fn a_known_language_without_its_syntax_yet_is_refused_at_the_name() {
-    let (line, column, message) = first_error("// head\nlanguage rules\n");
-    assert_eq!((line, column), (2, 10));
-    assert!(message.contains("not available yet"), "{message}");
+fn every_known_language_is_read_from_its_declaration() {
+    for text in ["// head\nlanguage rules\n", "// head\nlanguage actors\n"] {
+        assert!(parse("empty.themis", text).is_ok(), "{text}");
+    }
 }
 
 #[test]

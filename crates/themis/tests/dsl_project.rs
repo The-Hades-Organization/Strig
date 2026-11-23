@@ -30,7 +30,7 @@ fn sources_in_separate_files_merge_into_one_policy() {
     let built = project(&[("kinds.themis", KINDS), ("read.themis", READ)])
         .build()
         .unwrap_or_else(|errors| panic!("{errors}"));
-    assert_eq!(built.policy.catalog.target_kinds, ["org", "doc"]);
+    assert_eq!(built.policy.catalog.target_kinds, ["doc", "org"]);
     assert_eq!(built.policy.catalog.permissions.len(), 1);
     assert_eq!(built.policy.invariants.len(), 1);
     let at = built.origins.get("permission:doc.read").unwrap();

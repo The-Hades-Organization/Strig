@@ -1,0 +1,15 @@
+language rules
+
+strategy first_applicable
+kinds doc
+
+permission doc.read on doc
+    label "Read a document"
+
+role editor
+
+// A deny wins by coming first.
+g-deny: deny role editor to doc.read on doc
+g-allow: allow role editor to doc.read on doc
+
+override resource-owner owner

@@ -17,9 +17,11 @@
 //! assert_eq!(print(&parsed.policy, Language::Blocks).unwrap(), text);
 //! ```
 
+mod actors;
 mod blocks;
 mod blocks_print;
 mod build;
+mod convert;
 mod error;
 #[cfg(feature = "dsl-fs")]
 pub mod fs;
@@ -27,6 +29,7 @@ mod grammar;
 mod lex;
 mod policy;
 mod project;
+mod rules;
 mod time;
 mod validate;
 
@@ -35,6 +38,7 @@ use std::sync::Arc;
 use build::Builder;
 use grammar::Cursor;
 
+pub use convert::{ConvertError, convert};
 pub use error::{Diagnostic, Diagnostics, Location, PrintError};
 pub use policy::{Language, Note, NoteAnchor, NoteOrigin, Origins, Placement, Policy};
 pub use project::{Built, MAX_PROJECT_BYTES, MAX_SOURCES, Project};
@@ -115,6 +119,13 @@ pub(crate) fn parse_unvalidated(file: &str, text: &str) -> Result<Parsed, Diagno
         let found = lexed.errors.into_iter().map(|raw| raw.locate(&file)).collect();
         return Err(Diagnostics::new(error::capped(found, lexed.hidden)));
     }
+    // The column each line starts at, for telling comments indented under an element.
+    let indents: std::collections::HashMap<u32, u32> = lexed
+        .tokens
+        .iter()
+        .filter(|t| t.bol)
+        .map(|t| (t.span.line, t.span.col))
+        .collect();
     let mut cursor = Cursor::new(lexed.tokens);
     let language = match header(&mut cursor) {
         Ok(found) => found,
@@ -123,11 +134,15 @@ pub(crate) fn parse_unvalidated(file: &str, text: &str) -> Result<Parsed, Diagno
     let mut builder = Builder::new(file, language.1);
     builder.open(policy::ids::LANGUAGE, language.0);
     builder.close(cursor.previous_span());
-    // `header` refuses the other languages until their syntaxes exist.
-    if language.1 == Language::Blocks {
-        blocks::parse(&mut cursor, &mut builder);
+    if language.1 != Language::Blocks {
+        check_indentation(text, &mut builder);
     }
-    let (policy, origins, found) = builder.finish(&lexed.comments);
+    match language.1 {
+        Language::Blocks => blocks::parse(&mut cursor, &mut builder),
+        Language::Rules => rules::parse(&mut cursor, &mut builder),
+        Language::Actors => actors::parse(&mut cursor, &mut builder),
+    }
+    let (policy, origins, found) = builder.finish(&lexed.comments, &indents);
     if !found.is_empty() {
         return Err(Diagnostics::new(found));
     }
@@ -136,6 +151,32 @@ pub(crate) fn parse_unvalidated(file: &str, text: &str) -> Result<Parsed, Diagno
         policy,
         origins,
     })
+}
+
+/// In Rules and Actors the indentation says what continues or belongs to what, so it is made of
+/// spaces: a tab or a no-break space would count as one column and read as something else.
+fn check_indentation(text: &str, builder: &mut Builder) {
+    for (at, line) in text.lines().enumerate() {
+        let lead = line.chars().take_while(|c| c.is_whitespace()).count();
+        if lead == line.chars().count() {
+            continue;
+        }
+        let Some(bad) = line.chars().take(lead).position(|c| c != ' ') else {
+            continue;
+        };
+        let place = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+        builder.report(
+            error::Raw::new(
+                error::Span {
+                    line: place(at.saturating_add(1)),
+                    col: place(bad.saturating_add(1)),
+                    len: 1,
+                },
+                "the indentation has a tab or another space character",
+            )
+            .hint("indent with spaces only"),
+        );
+    }
 }
 
 /// `language <name>`: the first significant token of every source.
@@ -151,12 +192,6 @@ fn header(cursor: &mut Cursor) -> error::PResult<(error::Span, Language)> {
         error::Raw::new(word.span, format!("unknown language `{}`", word.v))
             .hint("expected one of: blocks, rules, actors")
     })?;
-    if language != Language::Blocks {
-        return Err(
-            error::Raw::new(word.span, format!("the {language} syntax is not available yet"))
-                .hint("use: language blocks"),
-        );
-    }
     Ok((at, language))
 }
 
@@ -168,6 +203,7 @@ fn header(cursor: &mut Cursor) -> error::PResult<(error::Span, Language)> {
 pub fn print(policy: &Policy, language: Language) -> Result<String, PrintError> {
     match language {
         Language::Blocks => blocks_print::print(policy),
-        other => Err(PrintError::Unsupported(other.name())),
+        Language::Rules => rules::print(policy),
+        Language::Actors => actors::print(policy),
     }
 }
