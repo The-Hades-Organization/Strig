@@ -4,9 +4,9 @@ mod support;
 
 use support::*;
 use themis::{
-    Condition, Engine, Grant, InMemorySubjects, InMemoryTuples, ObjectRef, Operand, PermissionHolder, QueryContext,
-    QueryError, RelationSchema, Request, Resource, ResourceOwner, Rewrite, RoleGraph, Subject, SubjectMatcher,
-    SubjectRef, TargetSelector, Tuple, Via,
+    AccessVia, Condition, Engine, Grant, InMemorySubjects, InMemoryTuples, ObjectRef, Operand, PermissionHolder,
+    QueryContext, QueryError, RelationSchema, Request, Resource, ResourceOwner, Rewrite, RoleGraph, Subject,
+    SubjectMatcher, SubjectRef, TargetSelector, Tuple,
 };
 
 fn engine_with_roles() -> Engine {
@@ -226,7 +226,7 @@ fn check_for_explains_a_direct_role_grant() {
     assert!(answer.is_allowed());
     assert_eq!(
         answer.via,
-        Via::Role {
+        AccessVia::Role {
             grant_id: "view".into(),
             role: "member".into()
         }
@@ -248,7 +248,7 @@ fn check_for_explains_an_inherited_role() {
         .unwrap();
     assert_eq!(
         answer.via,
-        Via::InheritedRole {
+        AccessVia::InheritedRole {
             grant_id: "view".into(),
             role: "member".into(),
             from: "maintainer".into()
@@ -272,7 +272,7 @@ fn check_for_explains_a_relation_and_a_userset() {
             .unwrap();
         assert_eq!(
             answer.via,
-            Via::Relation {
+            AccessVia::Relation {
                 grant_id: "viewers".into(),
                 relation: "viewer".into(),
                 object: ObjectRef::new("project", PROJECT)
@@ -296,7 +296,7 @@ fn check_for_explains_an_override_and_a_refusal() {
         )
         .unwrap();
     assert!(owner.is_allowed());
-    assert!(matches!(owner.via, Via::Override { .. }));
+    assert!(matches!(owner.via, AccessVia::Override { .. }));
     let stranger = engine
         .check_for(
             &qctx,
@@ -307,7 +307,7 @@ fn check_for_explains_an_override_and_a_refusal() {
         )
         .unwrap();
     assert!(!stranger.is_allowed());
-    assert_eq!(stranger.via, Via::Nothing);
+    assert_eq!(stranger.via, AccessVia::Nothing);
 }
 
 #[test]

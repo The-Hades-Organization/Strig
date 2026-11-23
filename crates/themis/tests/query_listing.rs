@@ -6,9 +6,9 @@ use std::collections::BTreeSet;
 
 use support::*;
 use themis::{
-    Anchor, Condition, Context, DenyOverrides, Engine, FirstApplicable, Grant, InMemoryTuples, ObjectRef, Operand,
-    PathLayout, PermitOverrides, QueryContext, RelationSchema, Request, Residual, Resource, Rewrite, RoleGraph, Shape,
-    Subject, SubjectMatcher, TargetSelector, Tuple,
+    Anchor, Condition, Context, DenyOverrides, Engine, FilterResidual, FilterShape, FirstApplicable, Grant,
+    InMemoryTuples, ObjectRef, Operand, PathLayout, PermitOverrides, QueryContext, RelationSchema, Request, Resource,
+    Rewrite, RoleGraph, Subject, SubjectMatcher, TargetSelector, Tuple,
 };
 
 const PROJECTS: [(&str, &str); 3] = [("p1", "o1"), ("p2", "o1"), ("p3", "o2")];
@@ -318,7 +318,7 @@ fn condition_over_a_resource_attribute_is_a_residue_never_an_allow() {
         filter
             .residual()
             .iter()
-            .any(|r| matches!(r, Residual::Condition { grant_id, .. } if grant_id == "edit-drafts"))
+            .any(|r| matches!(r, FilterResidual::Condition { grant_id, .. } if grant_id == "edit-drafts"))
     );
     assert!(!filter.is_exact(&layout()));
     let draft = Resource::new("document", "x1")
@@ -345,7 +345,7 @@ fn whole_kind_is_reported_without_enumerating() {
     let filter = engine.list(&qctx, &Subject::user("anyone"), "document.view", "document");
     assert_eq!(
         filter.shape(&layout()),
-        Shape::Kind {
+        FilterShape::Kind {
             except: BTreeSet::new()
         }
     );
@@ -364,7 +364,7 @@ fn scoped_reach_is_reported_as_anchors() {
     let filter = engine.list(&qctx, &Subject::user("u9"), "document.view", "document");
     assert_eq!(
         filter.shape(&layout()),
-        Shape::Within(vec![Anchor::new("project", "p2")])
+        FilterShape::Within(vec![Anchor::new("project", "p2")])
     );
 }
 
@@ -379,7 +379,10 @@ fn single_resource_grant_is_reported_as_ids() {
     let qctx = QueryContext::new(&grants);
     let engine = &plain_engine();
     let filter = engine.list(&qctx, &Subject::user("u9"), "document.view", "document");
-    assert_eq!(filter.shape(&layout()), Shape::Ids(BTreeSet::from(["d3".to_string()])));
+    assert_eq!(
+        filter.shape(&layout()),
+        FilterShape::Ids(BTreeSet::from(["d3".to_string()]))
+    );
 }
 
 #[test]
@@ -392,14 +395,14 @@ fn nothing_is_reported_for_a_subject_without_grants_and_for_unknown_permissions(
         engine
             .list(&qctx, &stranger, "document.view", "document")
             .shape(&layout()),
-        Shape::Nothing
+        FilterShape::Nothing
     );
     let member = Subject::user("u1").with_role_in("member", org());
     assert_eq!(
         engine
             .list(&qctx, &member, "nonexistent.permission", "document")
             .shape(&layout()),
-        Shape::Nothing
+        FilterShape::Nothing
     );
 }
 
