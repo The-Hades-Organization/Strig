@@ -128,6 +128,9 @@ impl Builder {
     /// Hands out the result: the diagnostics sorted by position, and the comments anchored.
     pub fn finish(mut self, comments: &[Comment]) -> (Policy, Origins, Vec<Diagnostic>) {
         self.policy.notes = self.anchor_notes(comments);
+        // Stable: the comments of one anchor keep the order they were written in, and the order
+        // of the anchors no longer depends on how the syntax lays the elements out.
+        self.policy.notes.sort_by(|a, b| a.anchor.cmp(&b.anchor));
         let mut diagnostics = self.diagnostics;
         diagnostics.sort_by_key(|d| d.location.as_ref().map(|at| (at.line, at.column)));
         (self.policy, self.origins, capped(diagnostics, self.hidden))
