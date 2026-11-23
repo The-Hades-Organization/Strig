@@ -542,6 +542,10 @@ fn action_text(action: &AuditAction) -> &'static str {
         AuditAction::RoleAssign => "papel atribuído",
         AuditAction::RoleRevoke => "papel revogado",
         AuditAction::Decision => "decisão",
+        AuditAction::ExclusiveAcquire => "posse exclusiva adquirida",
+        AuditAction::ExclusivePreempt => "posse exclusiva tomada",
+        AuditAction::ExclusiveRelease => "posse exclusiva liberada",
+        AuditAction::ExclusiveExpire => "posse exclusiva expirada",
     }
 }
 

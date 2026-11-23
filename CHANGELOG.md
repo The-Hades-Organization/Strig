@@ -6,7 +6,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- `exclusive` feature (off by default): exclusive ownership of a resource with priority, preemption and a time limit. `ExclusiveRegistry` keeps one `Lease` per `ObjectRef` behind the `ExclusiveStore` trait (`MemoryExclusiveStore` included) and offers `acquire`, `release`, `renew`, `holder` and `expire`; time is a `now` parameter in milliseconds, so it stays free of clocks and IO and builds for WebAssembly. `acquire_checked` asks the engine for the ownership permission and, to take the resource from a lower-priority holder, for the preemption permission (names configurable through `ExclusivePermissions`, defaults `exclusive.hold` and `exclusive.preempt`). Equal priority never preempts, and the result carries the previous lease so the application can notify its holder. `with_max_ttl` caps lease lifetimes, and a holder raising its own priority needs the preemption permission too. `priority_from_attr` reads a priority from a subject attribute.
+- Audit: with `audit` and `exclusive` on, acquisitions, preemptions, refused claims, releases and expirations are recorded through `Auditor::exclusive`, using the new actions `exclusive_acquire`, `exclusive_preempt`, `exclusive_release` and `exclusive_expire`. Existing records keep their format.
 - Release: each `v*` tag now creates the GitHub release with the notes from this file and attaches the N-API modules (Linux x64/arm64, macOS x64/arm64, Windows x64), the WebAssembly package and `SHA256SUMS`.
+
+### Changed
+
+- **Breaking:** `AuditAction` has four new variants, present even when the `exclusive` feature is off. Code that matches it exhaustively needs arms for them (or a wildcard arm).
 
 ## [0.3.1] - 2026-11-22
 
