@@ -74,6 +74,16 @@ impl Change {
         Self::new(ChangeKind::Resync, Anchor::global())
     }
 
+    /// A grant or role assignment of `subject` (everyone, with `None`) started or stopped being in
+    /// force. Emitted by the hub's expiry scheduler, not by a write.
+    pub fn expiry(subject: Option<String>) -> Self {
+        let change = Self::new(ChangeKind::Grants, Anchor::global());
+        match subject {
+            Some(subject) => change.for_subject(subject),
+            None => change,
+        }
+    }
+
     pub fn for_subject(mut self, subject: impl Into<String>) -> Self {
         self.subject = Some(subject.into());
         self

@@ -1,6 +1,7 @@
 use std::hash::{BuildHasher, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Duration;
 
 use futures_util::StreamExt;
@@ -27,6 +28,19 @@ struct Inner {
     local: broadcast::Sender<Change>,
     transport: Option<Arc<dyn Transport>>,
     sinks: RwLock<Vec<Arc<dyn ChangeSink>>>,
+    expiries: Mutex<HashMap<ExpiryKey, JoinHandle<()>>>,
+}
+
+/// One pending expiry notice: the boundary and the subject it concerns.
+type ExpiryKey = (u64, Option<String>);
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        let pending = self.expiries.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner());
+        for (_, task) in pending.drain() {
+            task.abort();
+        }
+    }
 }
 
 /// Single point for permission changes of an instance.
@@ -77,6 +91,7 @@ impl HubBuilder {
                 local,
                 transport: self.transport,
                 sinks: RwLock::new(Vec::new()),
+                expiries: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -127,16 +142,53 @@ impl Hub {
     /// Stamps origin, sequence and time, delivers locally and publishes on the transport. Local
     /// delivery happens even if the transport fails; the error goes back to whoever published.
     pub async fn publish(&self, mut change: Change) -> Result<Change, TransportError> {
-        change.origin = self.inner.origin.clone();
-        change.seq = self.inner.seq.fetch_add(1, Ordering::Relaxed) + 1;
-        if change.at == 0 {
-            change.at = now_ms();
-        }
+        self.stamp(&mut change);
         self.deliver(&change);
         if let Some(transport) = &self.inner.transport {
             transport.publish(&change).await?;
         }
         Ok(change)
+    }
+
+    fn stamp(&self, change: &mut Change) {
+        change.origin = self.inner.origin.clone();
+        change.seq = self.inner.seq.fetch_add(1, Ordering::Relaxed) + 1;
+        if change.at == 0 {
+            change.at = now_ms();
+        }
+    }
+
+    /// Delivers `change` on this node when the clock reaches `boundary_ms` (milliseconds since the
+    /// Unix epoch), so sessions affected by a grant or role that starts or stops being in force
+    /// recompute without anyone publishing. `now_ms` is the caller's current instant; the wait is
+    /// `boundary_ms - now_ms`, at least 1 ms.
+    ///
+    /// Every instance schedules its own notice, so it is delivered locally and never goes through the
+    /// transport. Scheduling the same boundary and subject again is a no-op. Pending notices are
+    /// cancelled when the last clone of the hub is dropped. Returns `false`, scheduling nothing,
+    /// when called outside a Tokio runtime.
+    pub fn schedule_expiry(&self, boundary_ms: u64, now_ms: u64, change: Change) -> bool {
+        if tokio::runtime::Handle::try_current().is_err() {
+            return false;
+        }
+        let key = (boundary_ms, change.subject.clone());
+        let mut pending = self
+            .inner
+            .expiries
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if pending.contains_key(&key) {
+            return true;
+        }
+        let wait = Duration::from_millis(boundary_ms.saturating_sub(now_ms).max(1));
+        let inner = Arc::downgrade(&self.inner);
+        let task_key = key.clone();
+        let task = tokio::spawn(async move {
+            tokio::time::sleep(wait).await;
+            fire_expiry(inner, task_key, change);
+        });
+        pending.insert(key, task);
+        true
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Change> {
@@ -199,6 +251,21 @@ impl Hub {
         });
         RelayHandle { task }
     }
+}
+
+fn fire_expiry(inner: Weak<Inner>, key: ExpiryKey, mut change: Change) {
+    let Some(inner) = inner.upgrade() else {
+        return;
+    };
+    // Forget the key before delivering, so the session that reacts can schedule the next boundary.
+    inner
+        .expiries
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(&key);
+    let hub = Hub { inner };
+    hub.stamp(&mut change);
+    hub.deliver(&change);
 }
 
 /// Keeps the relay alive; drop it to stop.
@@ -299,5 +366,39 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(got.kind, ChangeKind::Resync);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn expiry_is_delivered_once_at_the_boundary() {
+        let hub = Hub::new();
+        let mut rx = hub.subscribe();
+        assert!(hub.schedule_expiry(1_500, 1_000, Change::expiry(None)));
+        assert!(hub.schedule_expiry(1_500, 1_000, Change::expiry(None)));
+
+        tokio::time::sleep(Duration::from_millis(499)).await;
+        assert!(rx.try_recv().is_err(), "nothing before the boundary");
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        let change = rx.try_recv().expect("notice at the boundary");
+        assert_eq!(change.kind, ChangeKind::Grants);
+        assert_eq!(change.origin, hub.origin());
+        assert!(rx.try_recv().is_err(), "the same boundary is scheduled once");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dropping_the_hub_cancels_pending_expiries() {
+        let hub = Hub::new();
+        let mut rx = hub.subscribe();
+        hub.schedule_expiry(2_000, 1_000, Change::expiry(None));
+        drop(hub);
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(matches!(
+            rx.try_recv(),
+            Err(broadcast::error::TryRecvError::Closed)
+        ));
+    }
+
+    #[test]
+    fn expiry_outside_a_runtime_schedules_nothing() {
+        assert!(!Hub::new().schedule_expiry(2_000, 1_000, Change::expiry(None)));
     }
 }
