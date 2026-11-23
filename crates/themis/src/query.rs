@@ -1607,3 +1607,47 @@ impl Engine {
         }
     }
 }
+
+#[cfg(test)]
+mod expr_tests {
+    use super::*;
+
+    fn leaf() -> Expr {
+        Expr::Within(Anchor::new("org", "o1"))
+    }
+
+    /// `simplify` rewrites a step with an id as a one-element id set.
+    fn simplified_leaf() -> Expr {
+        leaf().simplify()
+    }
+
+    #[test]
+    fn empty_and_is_true_and_empty_or_is_false() {
+        assert_eq!(Expr::And(vec![]).simplify(), Expr::True);
+        assert_eq!(Expr::Or(vec![]).simplify(), Expr::False);
+    }
+
+    #[test]
+    fn constants_absorb_in_and_or() {
+        assert_eq!(Expr::And(vec![leaf(), Expr::False]).simplify(), Expr::False);
+        assert_eq!(Expr::Or(vec![leaf(), Expr::True]).simplify(), Expr::True);
+        assert_eq!(Expr::And(vec![leaf(), Expr::True]).simplify(), simplified_leaf());
+    }
+
+    #[test]
+    fn double_negation_cancels() {
+        assert_eq!(Expr::not(Expr::not(leaf())).simplify(), simplified_leaf());
+    }
+
+    #[test]
+    fn bounds_of_a_residue_are_false_below_and_true_above() {
+        assert_eq!(Expr::Residual(0).bounds(), (Expr::False, Expr::True));
+    }
+
+    #[test]
+    fn a_residue_under_a_deny_never_widens_the_lower_bound() {
+        let (lower, upper) = Expr::And(vec![leaf(), Expr::not(Expr::Residual(0))]).bounds();
+        assert_eq!(lower, Expr::False);
+        assert_eq!(upper, simplified_leaf());
+    }
+}
