@@ -30,7 +30,7 @@ pub enum FsError {
     /// The directory holds more than [`MAX_FILES`] policy files.
     #[error("`{}` holds more than {MAX_FILES} policy files", path.display())]
     TooManyFiles { path: PathBuf },
-    /// A file resolved to a place outside the directory being read.
+    /// A file is a link or resolved to a place outside the directory being read.
     #[error("`{}` resolves outside the directory", path.display())]
     Outside { path: PathBuf },
     /// The text is not valid policy.
@@ -97,8 +97,10 @@ pub fn read_file(path: impl AsRef<Path>) -> Result<Parsed, FsError> {
 }
 
 /// Reads every `.themis` file of a directory (not its subdirectories) into a [`Project`], in
-/// alphabetical order. Links are not followed and every file must resolve inside the directory.
-/// The files hold at most [`MAX_FILES`] and, together, [`MAX_PROJECT_BYTES`] bytes.
+/// alphabetical order. Links are not followed: a `.themis` that is a link is refused with
+/// [`FsError::Outside`] naming it, and every file must resolve inside the directory. `path`
+/// itself is resolved following links, so it must come from a trusted source, never from
+/// external input. The files hold at most [`MAX_FILES`] and, together, [`MAX_PROJECT_BYTES`] bytes.
 ///
 /// The project is not built: call [`Project::build`] to merge and validate it.
 ///
@@ -114,7 +116,15 @@ pub fn read_dir(path: impl AsRef<Path>) -> Result<Project, FsError> {
         let entry = entry.map_err(io_error(dir))?;
         let file_type = entry.file_type().map_err(io_error(dir))?;
         let name = PathBuf::from(entry.file_name());
-        if !file_type.is_file() || name.extension().is_none_or(|e| e != EXTENSION) {
+        if name.extension().is_none_or(|e| e != EXTENSION) {
+            continue;
+        }
+        // A `.themis` that is a link is refused, never skipped: whoever expected the file would
+        // otherwise get a policy without it and no word about why.
+        if file_type.is_symlink() {
+            return Err(FsError::Outside { path: dir.join(&name) });
+        }
+        if !file_type.is_file() {
             continue;
         }
         if files.len() == MAX_FILES {
