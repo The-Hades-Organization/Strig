@@ -394,7 +394,7 @@ impl<S: ExclusiveStore> ExclusiveRegistry<S> {
 
     /// Extends the holder's lease to `now + ttl_ms`, keeping its priority. It checks no permission
     /// and writes no audit record: the caller vouches for `holder` and decides whether it may still
-    /// hold the resource.
+    /// hold the resource. Use [`ExclusiveRegistry::renew_checked`] to have the engine decide.
     ///
     /// # Errors
     /// [`ExclusiveError::ZeroTtl`], [`ExclusiveError::TtlTooLong`], [`ExclusiveError::NotHeld`] (including when the lease already
@@ -411,6 +411,33 @@ impl<S: ExclusiveStore> ExclusiveRegistry<S> {
         lease.expires_at = now.saturating_add(ttl_ms);
         self.store.put(lease.clone())?;
         Ok(lease)
+    }
+
+    /// Renews the lease of `subject` on `resource` after asking the engine: the ownership
+    /// permission must still hold at `now` (the instant of `ctx` is replaced by it), so a holder who
+    /// lost it cannot keep the resource by renewing. Preemption is not involved: the lease keeps
+    /// its priority. Like [`ExclusiveRegistry::renew`] it writes no audit record, and a refusal
+    /// leaves the lease as it was.
+    ///
+    /// # Errors
+    /// [`ExclusiveError::AnonymousSubject`], [`ExclusiveError::UnidentifiedResource`],
+    /// [`ExclusiveError::Denied`], plus the errors of [`ExclusiveRegistry::renew`].
+    pub fn renew_checked(
+        &mut self,
+        engine: &Engine,
+        ctx: &Context<'_>,
+        subject: &Subject,
+        resource: &Resource,
+        now: u64,
+        ttl_ms: u64,
+    ) -> Result<Lease, ExclusiveError> {
+        let holder = subject.object_ref().ok_or(ExclusiveError::AnonymousSubject)?;
+        let target = resource
+            .primary()
+            .and_then(|anchor| anchor.object_ref())
+            .ok_or(ExclusiveError::UnidentifiedResource)?;
+        self.require(engine, &ctx.at(now), subject, resource, &self.permissions.hold)?;
+        self.renew(&target, &holder, now, ttl_ms)
     }
 
     /// Removes the leases that ran out and returns them, ordered by resource.

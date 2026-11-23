@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const cache = new Map();
 
 function wrap(mod, backend) {
-  return { Engine: mod.Engine, Context: mod.Context, auditEstimate: mod.auditEstimate, backend };
+  return { Engine: mod.Engine, Context: mod.Context, auditEstimate: mod.auditEstimate, Exclusive: mod.Exclusive, backend };
 }
 
 async function loadWasm() {
