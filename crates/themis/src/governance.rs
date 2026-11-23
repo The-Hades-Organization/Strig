@@ -74,6 +74,18 @@ fn same_subject(a: &Subject, b: &Subject) -> bool {
     a.id.is_some() && a.id == b.id
 }
 
+/// The role assignments of `subject` that a rule guarding a change must count at `now`: the ones that
+/// have not ended and have a well-formed window. An assignment that starts later still counts, because
+/// the rule protects against what the holder will have, not only what they have at this instant;
+/// without an instant nothing is known to have ended. Compare with the engine, where only what is in
+/// force decides.
+fn standing_roles(subject: &Subject, now: Option<u64>) -> impl Iterator<Item = &RoleAssignment> {
+    subject
+        .roles
+        .iter()
+        .filter(move |r| r.check_window().is_ok() && !r.validity().has_ended(now))
+}
+
 fn role_label(role: &RoleAssignment) -> String {
     match &role.scope {
         Some(scope) => format!("{} em {scope}", role.role),
@@ -439,6 +451,9 @@ fn check_role_mutation(subject: &Subject, role: &RoleAssignment, assigned: bool)
             "papel só se atribui a sujeito identificado",
         )]);
     };
+    if assigned && let Err(error) = role.check_window() {
+        return Err(vec![Violation::new("mutation", error.to_string())]);
+    }
     let has = subject.roles.contains(role);
     let message = match (assigned, has) {
         (true, true) => format!("{id} já tem o papel {}", role_label(role)),
@@ -521,7 +536,7 @@ impl Invariant for NoSelfManagement {
             SubjectMatcher::User { id } => actor.id.as_deref() == Some(id.as_str()),
             SubjectMatcher::Role { id } => engine
                 .roles()
-                .expand(actor.roles.iter().map(|r| r.role.as_str()))
+                .expand(standing_roles(actor, proposal.now).map(|r| r.role.as_str()))
                 .contains(id),
             _ => false,
         };
