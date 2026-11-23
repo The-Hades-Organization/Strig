@@ -66,11 +66,12 @@ pub use governance::{
 };
 pub use grant::{Effect, Grant, GrantIndex, GrantSource, SubjectMatcher, TargetSelector};
 pub use overrides::{
-    FnOverride, Gate, Override, OverrideReach, PermissionHolder, ReachRequest, ResourceOwner, SubjectsRequest,
+    FnOverride, Override, OverrideGate, OverrideReach, PermissionHolder, ReachRequest, ResourceOwner, SubjectsRequest,
 };
 pub use query::{
-    Access, AccessFilter, Answer, Except, Expr, InMemorySubjects, Outcome, PathLayout, QueryContext, QueryError,
-    Residual, Resolution, Shape, SubjectRef, SubjectResolver, Via, WhoCan, WhoCanEntry,
+    AccessFilter, AccessVia, CheckAnswer, Expr, FilterOutcome, FilterResidual, FilterResolution, FilterShape,
+    InMemorySubjects, PartyAccess, PathLayout, QueryContext, QueryError, SubjectRef, SubjectResolver, WhoCan,
+    WhoCanEntry, WhoCanExcept,
 };
 pub use rbac::{RbacError, RoleGraph};
 pub use rebac::{InMemoryTuples, RebacError, RelationSchema, Rewrite, Tuple, TupleIndex, TupleStore, TupleSubject};

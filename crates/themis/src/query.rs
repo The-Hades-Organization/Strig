@@ -23,7 +23,7 @@ use crate::decision::{Decision, Reason, Request};
 use crate::engine::{Context, Engine};
 use crate::explain::Explanation;
 use crate::grant::{Effect, Grant, GrantIndex, SubjectMatcher, TargetSelector};
-use crate::overrides::{Gate, OverrideReach, ReachRequest, SubjectsRequest};
+use crate::overrides::{OverrideGate, OverrideReach, ReachRequest, SubjectsRequest};
 use crate::rebac::{TupleIndex, TupleStore, TupleSubject};
 use crate::resource::{Anchor, GLOBAL, ObjectRef, Resource};
 use crate::strategy::{Candidate, Strategy};
@@ -43,6 +43,7 @@ const NATIVE_STRATEGIES: [&str; 4] = [
 /// environment attributes. The counterpart of [`Context`] for the queries that start without a
 /// resource.
 #[derive(Clone, Copy)]
+#[non_exhaustive]
 pub struct QueryContext<'a> {
     pub grants: &'a dyn GrantIndex,
     pub tuples: Option<&'a dyn TupleIndex>,
@@ -80,6 +81,7 @@ impl<'a> QueryContext<'a> {
 
 /// Error of a query that names its subject by reference.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum QueryError {
     /// The [`SubjectResolver`] does not know the subject, and it is not a kind that can be
     /// represented without loading.
@@ -91,6 +93,7 @@ pub enum QueryError {
 /// subject (a user, a role, a principal, a userset), so a grant to a role is reported as the role,
 /// not as each of its members.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum SubjectRef {
     /// A subject by id (`SubjectMatcher::User`).
     User { id: String },
@@ -183,6 +186,7 @@ impl SubjectResolver for InMemorySubjects {
 /// The atoms that talk about the path assume that a kind appears at most once in a resource's
 /// path (a document has one project), which is how the path is built.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Expr {
     True,
     False,
@@ -430,7 +434,8 @@ impl PathLayout {
 
 /// The reach of a listing, in the simplest terms that describe it.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Shape {
+#[non_exhaustive]
+pub enum FilterShape {
     /// No resource.
     Nothing,
     /// Every resource of the kind except the listed ids (empty: the whole kind).
@@ -445,7 +450,7 @@ pub enum Shape {
 
 /// What an [`AccessFilter`] knows about one resource.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Outcome {
+pub enum FilterOutcome {
     Allowed,
     Denied,
     /// Depends on something the filter cannot inspect (an override that is a closure).
@@ -454,7 +459,7 @@ pub enum Outcome {
 
 /// Result of [`AccessFilter::resolve`].
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Resolution {
+pub struct FilterResolution {
     /// Ids of the resources the filter allows.
     pub allowed: Vec<String>,
     /// Ids of the resources the filter cannot decide: check them with [`Engine::check`] or
@@ -464,7 +469,8 @@ pub struct Resolution {
 
 /// A part of the decision that only the resource can settle.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Residual {
+#[non_exhaustive]
+pub enum FilterResidual {
     /// A condition over resource attributes, to evaluate row by row.
     Condition { grant_id: String, condition: Condition },
     /// An override that cannot describe where it decides.
@@ -506,7 +512,7 @@ pub struct AccessFilter {
     strategy: Arc<dyn Strategy>,
     entries: Vec<Entry>,
     overrides: Vec<OverridePlan>,
-    residuals: Vec<Residual>,
+    residuals: Vec<FilterResidual>,
     strategy_residual: Option<usize>,
     warnings: Vec<String>,
 }
@@ -534,8 +540,14 @@ impl AccessFilter {
     }
 
     /// The parts that only the resource can settle.
-    pub fn residual(&self) -> &[Residual] {
+    pub fn residual(&self) -> &[FilterResidual] {
         &self.residuals
+    }
+
+    /// The parts that only the resource can settle, including the ones that depend on `layout`
+    /// (the indexes `Expr::Residual` of [`AccessFilter::expr`] point into this list).
+    pub fn residual_for(&self, _layout: &PathLayout) -> Vec<FilterResidual> {
+        self.residuals.clone()
     }
 
     /// Problems found while planning (a relation grant with no tuple store, a condition that
@@ -552,25 +564,25 @@ impl AccessFilter {
 
     /// Decides one resource from the filter alone (no engine, no sources). Resources of another
     /// kind are denied.
-    pub fn allows(&self, resource: &Resource) -> Outcome {
+    pub fn allows(&self, resource: &Resource) -> FilterOutcome {
         if resource.primary().is_none_or(|anchor| anchor.kind != self.kind) {
-            return Outcome::Denied;
+            return FilterOutcome::Denied;
         }
         self.decide_row(resource, true)
     }
 
     /// Ids of the resources of the kind that the filter allows, evaluating it over `resources`
     /// (for in-memory sources). The undecided ones are reported apart.
-    pub fn resolve<'r>(&self, resources: impl IntoIterator<Item = &'r Resource>) -> Resolution {
-        let mut out = Resolution::default();
+    pub fn resolve<'r>(&self, resources: impl IntoIterator<Item = &'r Resource>) -> FilterResolution {
+        let mut out = FilterResolution::default();
         for resource in resources {
             let Some(id) = resource.primary().and_then(|a| a.id.clone()) else {
                 continue;
             };
             match self.allows(resource) {
-                Outcome::Allowed => out.allowed.push(id),
-                Outcome::Undecided => out.undecided.push(id),
-                Outcome::Denied => {}
+                FilterOutcome::Allowed => out.allowed.push(id),
+                FilterOutcome::Undecided => out.undecided.push(id),
+                FilterOutcome::Denied => {}
             }
         }
         out
@@ -610,28 +622,28 @@ impl AccessFilter {
     }
 
     /// The reach in its simplest description.
-    pub fn shape(&self, layout: &PathLayout) -> Shape {
+    pub fn shape(&self, layout: &PathLayout) -> FilterShape {
         let expr = self.expr(layout);
         let own = layout.kinds().first().map(String::as_str).unwrap_or_default();
         match &expr {
-            Expr::False => Shape::Nothing,
-            Expr::True => Shape::Kind {
+            Expr::False => FilterShape::Nothing,
+            Expr::True => FilterShape::Kind {
                 except: BTreeSet::new(),
             },
-            Expr::AnchorIn { kind, ids } if kind == own => Shape::Ids(ids.clone()),
+            Expr::AnchorIn { kind, ids } if kind == own => FilterShape::Ids(ids.clone()),
             Expr::Not(inner) => match inner.as_ref() {
-                Expr::AnchorIn { kind, ids } if kind == own => Shape::Kind { except: ids.clone() },
-                _ => Shape::Compound(expr),
+                Expr::AnchorIn { kind, ids } if kind == own => FilterShape::Kind { except: ids.clone() },
+                _ => FilterShape::Compound(expr),
             },
-            Expr::AnchorIn { .. } => Shape::Within(Self::anchors_of(&expr)),
+            Expr::AnchorIn { .. } => FilterShape::Within(Self::anchors_of(&expr)),
             Expr::Or(items)
                 if items
                     .iter()
                     .all(|e| matches!(e, Expr::AnchorIn { kind, .. } if kind != own)) =>
             {
-                Shape::Within(items.iter().flat_map(Self::anchors_of).collect())
+                FilterShape::Within(items.iter().flat_map(Self::anchors_of).collect())
             }
-            _ => Shape::Compound(expr),
+            _ => FilterShape::Compound(expr),
         }
     }
 
@@ -662,11 +674,11 @@ impl AccessFilter {
         acc
     }
 
-    fn gate_expr(gate: &Gate, layout: &PathLayout) -> Expr {
+    fn gate_expr(gate: &OverrideGate, layout: &PathLayout) -> Expr {
         match gate {
-            Gate::Expr(expr) => expr.clone(),
-            Gate::Holds(filter) if filter.known => filter.grants_expr(layout),
-            Gate::Holds(_) => Expr::False,
+            OverrideGate::Expr(expr) => expr.clone(),
+            OverrideGate::Holds(filter) if filter.known => filter.grants_expr(layout),
+            OverrideGate::Holds(_) => Expr::False,
         }
     }
 
@@ -739,7 +751,7 @@ impl AccessFilter {
 
     fn residual_holds(&self, index: usize, resource: &Resource) -> Option<bool> {
         match self.residuals.get(index)? {
-            Residual::Condition { condition, .. } => {
+            FilterResidual::Condition { condition, .. } => {
                 let ctx = EvalContext {
                     subject: &self.subject,
                     resource,
@@ -747,37 +759,37 @@ impl AccessFilter {
                 };
                 condition.evaluate(&ctx, &self.conditions).ok()
             }
-            Residual::Override { .. } | Residual::Strategy { .. } => None,
+            FilterResidual::Override { .. } | FilterResidual::Strategy { .. } => None,
         }
     }
 
-    fn gate_holds(&self, gate: &Gate, resource: &Resource) -> Option<bool> {
+    fn gate_holds(&self, gate: &OverrideGate, resource: &Resource) -> Option<bool> {
         match gate {
-            Gate::Expr(expr) => expr.holds(resource, &|i| self.residual_holds(i, resource)),
-            Gate::Holds(filter) => match filter.decide_row(resource, false) {
-                Outcome::Allowed => Some(true),
-                Outcome::Denied => Some(false),
-                Outcome::Undecided => None,
+            OverrideGate::Expr(expr) => expr.holds(resource, &|i| self.residual_holds(i, resource)),
+            OverrideGate::Holds(filter) => match filter.decide_row(resource, false) {
+                FilterOutcome::Allowed => Some(true),
+                FilterOutcome::Denied => Some(false),
+                FilterOutcome::Undecided => None,
             },
         }
     }
 
-    fn decide_row(&self, resource: &Resource, with_overrides: bool) -> Outcome {
+    fn decide_row(&self, resource: &Resource, with_overrides: bool) -> FilterOutcome {
         if !self.known {
-            return Outcome::Denied;
+            return FilterOutcome::Denied;
         }
         if with_overrides {
             for plan in &self.overrides {
                 let (gate, effect) = match &plan.reach {
                     OverrideReach::Never => continue,
-                    OverrideReach::Opaque => return Outcome::Undecided,
-                    OverrideReach::Allows(gate) => (gate, Outcome::Allowed),
-                    OverrideReach::Denies(gate) => (gate, Outcome::Denied),
+                    OverrideReach::Opaque => return FilterOutcome::Undecided,
+                    OverrideReach::Allows(gate) => (gate, FilterOutcome::Allowed),
+                    OverrideReach::Denies(gate) => (gate, FilterOutcome::Denied),
                 };
                 match self.gate_holds(gate, resource) {
                     Some(true) => return effect,
                     Some(false) => {}
-                    None => return Outcome::Undecided,
+                    None => return FilterOutcome::Undecided,
                 }
             }
         }
@@ -801,8 +813,8 @@ impl AccessFilter {
             candidates.push((rank, entry.grant.effect, index));
         }
         match self.combine(&candidates) {
-            Some(Effect::Allow) => Outcome::Allowed,
-            _ => Outcome::Denied,
+            Some(Effect::Allow) => FilterOutcome::Allowed,
+            _ => FilterOutcome::Denied,
         }
     }
 
@@ -905,7 +917,7 @@ impl Engine {
             return filter;
         };
         if !strategy_native {
-            filter.residuals.push(Residual::Strategy {
+            filter.residuals.push(FilterResidual::Strategy {
                 name: self.strategy.name().to_string(),
             });
             filter.strategy_residual = Some(filter.residuals.len() - 1);
@@ -935,7 +947,7 @@ impl Engine {
                     kind,
                 });
                 let residual = matches!(reach, OverrideReach::Opaque).then(|| {
-                    filter.residuals.push(Residual::Override { name: name.clone() });
+                    filter.residuals.push(FilterResidual::Override { name: name.clone() });
                     filter.residuals.len() - 1
                 });
                 filter.overrides.push(OverridePlan { reach, residual });
@@ -965,7 +977,7 @@ impl Engine {
         let mut residual = None;
         if let Some(condition) = &grant.condition {
             if reads_resource(condition) {
-                filter.residuals.push(Residual::Condition {
+                filter.residuals.push(FilterResidual::Condition {
                     grant_id: grant.id.clone(),
                     condition: condition.clone(),
                 });
@@ -1078,7 +1090,8 @@ impl Engine {
 
 /// How a decision was reached, in the terms of the question "why does this subject have access".
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Via {
+#[non_exhaustive]
+pub enum AccessVia {
     /// An override decided before the grants.
     Override { name: String },
     /// A grant to the subject itself, to a principal it carries or to everyone.
@@ -1103,14 +1116,14 @@ pub enum Via {
 
 /// Decision of [`Engine::check_for`], with the path that led to it.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Answer {
+pub struct CheckAnswer {
     pub subject: SubjectRef,
     pub decision: Decision,
-    pub via: Via,
+    pub via: AccessVia,
     pub explanation: Explanation,
 }
 
-impl Answer {
+impl CheckAnswer {
     pub fn is_allowed(&self) -> bool {
         self.decision.is_allowed()
     }
@@ -1120,12 +1133,12 @@ impl Answer {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhoCanEntry {
     pub subject: SubjectRef,
-    pub via: Via,
+    pub via: AccessVia,
 }
 
 /// Two parties that each hold the permission but are denied when one subject is both.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Except {
+pub struct WhoCanExcept {
     pub allowed: SubjectRef,
     pub with: SubjectRef,
 }
@@ -1141,7 +1154,7 @@ pub struct WhoCan {
     pub permission: String,
     pub resource: Option<Resource>,
     pub entries: Vec<WhoCanEntry>,
-    pub except: Vec<Except>,
+    pub except: Vec<WhoCanExcept>,
 }
 
 impl WhoCan {
@@ -1189,7 +1202,7 @@ impl WhoCan {
 
 /// What a subject can do on a resource, from [`Engine::access_of`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Access {
+pub struct PartyAccess {
     pub subject: SubjectRef,
     pub permissions: BTreeSet<String>,
 }
@@ -1419,7 +1432,7 @@ impl Engine {
             for other in denied.iter().filter(|d| *d != party) {
                 let merged = self.decide_parties(ctx, &[party, other], permission, resource, with_overrides);
                 if !merged.decision.is_allowed() {
-                    result.except.push(Except {
+                    result.except.push(WhoCanExcept {
                         allowed: party.clone(),
                         with: other.clone(),
                     });
@@ -1483,7 +1496,7 @@ impl Engine {
 
     /// Who has access to the resource, with the permissions of each party. A party is listed with
     /// what it holds alone; [`Engine::check_for`] is the authority for a subject that is several.
-    pub fn access_of(&self, ctx: &QueryContext<'_>, resource: &Resource) -> Vec<Access> {
+    pub fn access_of(&self, ctx: &QueryContext<'_>, resource: &Resource) -> Vec<PartyAccess> {
         let grants = self.grants_on_path(ctx, None, resource);
         let (mut parties, _) = self.parties_on(ctx, &grants, resource);
         for def in self.catalog.all() {
@@ -1511,7 +1524,7 @@ impl Engine {
                 .map(|def| def.key.clone())
                 .collect();
             if !permissions.is_empty() {
-                out.push(Access {
+                out.push(PartyAccess {
                     subject: party,
                     permissions,
                 });
@@ -1536,7 +1549,7 @@ impl Engine {
         subject: &SubjectRef,
         permission: &str,
         resource: &Resource,
-    ) -> Result<Answer, QueryError> {
+    ) -> Result<CheckAnswer, QueryError> {
         let loaded = resolver.resolve(subject);
         let (decision, explanation) = match loaded {
             Some(loaded) => {
@@ -1554,7 +1567,7 @@ impl Engine {
             }
         };
         let via = self.via(&explanation);
-        Ok(Answer {
+        Ok(CheckAnswer {
             subject: subject.clone(),
             decision,
             via,
@@ -1563,19 +1576,19 @@ impl Engine {
     }
 
     /// The path of a decision, from its explanation.
-    fn via(&self, explanation: &Explanation) -> Via {
+    fn via(&self, explanation: &Explanation) -> AccessVia {
         match &explanation.decision.reason {
-            Reason::Override { name } => Via::Override { name: name.clone() },
+            Reason::Override { name } => AccessVia::Override { name: name.clone() },
             Reason::Grant { grant_id, .. } => {
                 let Some(trace) = explanation.decisive() else {
-                    return Via::Nothing;
+                    return AccessVia::Nothing;
                 };
                 let grant_id = grant_id.clone();
                 match &trace.grant.subject {
                     SubjectMatcher::Role { id } => {
                         let held = explanation.subject.roles_for(&explanation.resource).any(|r| r == id);
                         if held {
-                            return Via::Role {
+                            return AccessVia::Role {
                                 grant_id,
                                 role: id.clone(),
                             };
@@ -1586,24 +1599,24 @@ impl Engine {
                             .find(|direct| self.roles.expand([*direct]).contains(id))
                             .unwrap_or(id)
                             .to_string();
-                        Via::InheritedRole {
+                        AccessVia::InheritedRole {
                             grant_id,
                             role: id.clone(),
                             from,
                         }
                     }
                     SubjectMatcher::Relation { relation } => match trace.anchor.as_ref().and_then(Anchor::object_ref) {
-                        Some(object) => Via::Relation {
+                        Some(object) => AccessVia::Relation {
                             grant_id,
                             relation: relation.clone(),
                             object,
                         },
-                        None => Via::Grant { grant_id },
+                        None => AccessVia::Grant { grant_id },
                     },
-                    _ => Via::Grant { grant_id },
+                    _ => AccessVia::Grant { grant_id },
                 }
             }
-            Reason::NoApplicableGrant | Reason::UnknownPermission => Via::Nothing,
+            Reason::NoApplicableGrant | Reason::UnknownPermission => AccessVia::Nothing,
         }
     }
 }

@@ -11,7 +11,8 @@
 
 use std::collections::BTreeMap;
 
-use themis::{AccessFilter, Anchor, Expr, GLOBAL, Grant, ObjectRef, PathLayout, Residual, SubjectMatcher, Tuple};
+use themis::query::FilterResidual;
+use themis::{AccessFilter, Expr, GLOBAL, Grant, ObjectRef, PathLayout, SubjectMatcher, Tuple};
 use tokio_postgres::GenericClient;
 use tokio_postgres::types::ToSql;
 
@@ -19,8 +20,10 @@ use crate::quote_ident;
 
 /// Error of the index queries and of the `WHERE` translation.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum PgQueryError {
-    /// A table or column name is not a plain identifier (`[A-Za-z_][A-Za-z0-9_]*`).
+    /// A table or column name is not a plain identifier (`[A-Za-z_][A-Za-z0-9_]*`), or a table name
+    /// is too long for the names of its indexes to fit in the 63 bytes Postgres keeps.
     #[error("invalid identifier: {0:?}")]
     InvalidIdentifier(String),
     /// The filter reads a resource attribute that the [`PgTable`] has no column for.
@@ -30,10 +33,14 @@ pub enum PgQueryError {
     /// as "no row has it" would open access under a deny, so it is an error.
     #[error("no column mapped for path kind {0:?}")]
     UnmappedKind(String),
-    /// The filter names a step by kind only; a column holds ids, so it cannot be matched the way
-    /// the engine matches it (a step with no id).
-    #[error("step of kind {0:?} has no id and cannot be translated")]
-    KindOnlyStep(String),
+    /// The expression has a node this version of the translation does not know. It is an error
+    /// because reading it as `FALSE` could open access under a deny.
+    #[error("expression node has no SQL form")]
+    UnsupportedExpr,
+    /// A userset tuple with an empty relation would be stored as a direct tuple, which grants to a
+    /// different subject than the caller meant.
+    #[error("userset tuple with an empty relation")]
+    EmptyUsersetRelation,
     /// The expression carries a residue, which has no SQL form.
     #[error("expression has a residue; translate with `filter_where`")]
     Residual,
@@ -43,16 +50,33 @@ pub enum PgQueryError {
     Decode(#[from] serde_json::Error),
 }
 
-fn identifier(name: impl Into<String>) -> Result<String, PgQueryError> {
+/// Postgres keeps 63 bytes of an identifier and silently cuts the rest.
+const MAX_IDENTIFIER: usize = 63;
+
+/// Longest suffix added to a table name to name one of its indexes (`_target_kind_idx`).
+const INDEX_SUFFIX: usize = 16;
+
+fn identifier_up_to(name: impl Into<String>, max: usize) -> Result<String, PgQueryError> {
     let name = name.into();
     let mut chars = name.chars();
-    let valid = chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+    let valid = name.len() <= max
+        && chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
     if valid {
         Ok(name)
     } else {
         Err(PgQueryError::InvalidIdentifier(name))
     }
+}
+
+fn identifier(name: impl Into<String>) -> Result<String, PgQueryError> {
+    identifier_up_to(name, MAX_IDENTIFIER)
+}
+
+/// A table name that leaves room for the suffix of its index names, so two indexes never collide
+/// after Postgres truncates them.
+fn table_identifier(name: impl Into<String>) -> Result<String, PgQueryError> {
+    identifier_up_to(name, MAX_IDENTIFIER - INDEX_SUFFIX)
 }
 
 /// Names of the grant table and of the tuple table.
@@ -74,15 +98,21 @@ impl Default for PgTables {
 impl PgTables {
     /// # Errors
     ///
-    /// [`PgQueryError::InvalidIdentifier`] when a name is not a plain identifier.
+    /// [`PgQueryError::InvalidIdentifier`] when a name is not a plain identifier or is longer than
+    /// 47 bytes (its index names would not fit in the 63 bytes of a Postgres identifier).
     pub fn new(grants: impl Into<String>, tuples: impl Into<String>) -> Result<Self, PgQueryError> {
         Ok(Self {
-            grants: identifier(grants)?,
-            tuples: identifier(tuples)?,
+            grants: table_identifier(grants)?,
+            tuples: table_identifier(tuples)?,
         })
     }
 
     /// DDL of both tables with the indexes the queries of this module use. Safe to run twice.
+    ///
+    /// The `permission` and `target_kind` columns must agree with the JSON in `data`, which is what
+    /// the engine reads; a `CHECK` rejects a row written outside [`PgTables::put_grant`] that
+    /// disagrees, so an indexed query never skips a grant (a deny) the engine would apply. A table
+    /// created by an earlier version has no such `CHECK`: add it before relying on it.
     pub fn schema_sql(&self) -> String {
         let (grants, tuples) = (quote_ident(&self.grants), quote_ident(&self.tuples));
         let index = |table: &str, suffix: &str| quote_ident(&format!("{table}_{suffix}"));
@@ -93,7 +123,9 @@ impl PgTables {
                 subject_kind text NOT NULL, \
                 subject_value text, \
                 target_kind text NOT NULL, \
-                data jsonb NOT NULL);\
+                data jsonb NOT NULL, \
+                CHECK (permission = data->>'permission'), \
+                CHECK (target_kind = data->'target'->>'kind'));\
             CREATE INDEX IF NOT EXISTS {gp} ON {grants} (permission);\
             CREATE INDEX IF NOT EXISTS {gt} ON {grants} (target_kind);\
             CREATE INDEX IF NOT EXISTS {gs} ON {grants} (subject_kind, subject_value);\
@@ -141,10 +173,14 @@ impl PgTables {
     ///
     /// # Errors
     ///
+    /// [`PgQueryError::EmptyUsersetRelation`] for a userset with an empty relation,
     /// [`PgQueryError::Database`] when the statement fails.
     pub async fn put_tuple<C: GenericClient>(&self, client: &C, tuple: &Tuple) -> Result<(), PgQueryError> {
         let (subject, set_relation) = match &tuple.subject {
             themis::TupleSubject::Object(object) => (object, ""),
+            themis::TupleSubject::Userset(_, relation) if relation.is_empty() => {
+                return Err(PgQueryError::EmptyUsersetRelation);
+            }
             themis::TupleSubject::Userset(object, relation) => (object, relation.as_str()),
         };
         let sql = format!(
@@ -372,36 +408,52 @@ impl PgParam {
 }
 
 /// A listing as SQL.
+///
+/// The two conditions are separate queries, so each carries its own parameters: binding the
+/// parameters of one to the other fails, because Postgres rejects a statement bound to a different
+/// number of parameters than it declares.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct PgFilter {
     /// Condition that every allowed row meets (the rows it also admits are settled by `residual`).
     pub where_sql: String,
+    /// Parameters of `where_sql`, from `$first_param` onwards.
+    pub where_params: Vec<PgParam>,
     /// Condition that a row meets only if it is allowed, whatever the residue says. Present only
     /// when there is a residue: the rows in `where_sql` but not here are the ones to check.
     pub settled_sql: Option<String>,
-    /// Parameters `$first` onwards, used by both conditions.
-    pub params: Vec<PgParam>,
+    /// Parameters of `settled_sql`, from `$first_param` onwards (empty without `settled_sql`).
+    pub settled_params: Vec<PgParam>,
     /// What the database cannot settle: check the rows of `where_sql` outside `settled_sql` one by
     /// one with the engine.
-    pub residual: Vec<Residual>,
+    pub residual: Vec<FilterResidual>,
 }
 
 impl PgFilter {
-    /// The parameters as the slice `tokio-postgres` takes, after the `first_param - 1` caller's own.
-    pub fn sql_params(&self) -> Vec<&(dyn ToSql + Sync)> {
-        self.params.iter().map(PgParam::as_sql).collect()
+    /// The parameters of `where_sql` as the slice `tokio-postgres` takes, after the caller's own.
+    pub fn where_sql_params(&self) -> Vec<&(dyn ToSql + Sync)> {
+        self.where_params.iter().map(PgParam::as_sql).collect()
+    }
+
+    /// The parameters of `settled_sql` as the slice `tokio-postgres` takes, after the caller's own.
+    pub fn settled_sql_params(&self) -> Vec<&(dyn ToSql + Sync)> {
+        self.settled_params.iter().map(PgParam::as_sql).collect()
     }
 }
 
 /// Translates a listing into a parameterized `WHERE` condition over `table`. Placeholders start at
 /// `$first_param`, so the caller can add its own (tenant, paging) before them.
 ///
+/// Every atom is `TRUE` or `FALSE`, never `NULL`: a row whose path or attribute column is `NULL`
+/// does not have that step or attribute, which is what [`themis::Engine::check`] sees, and a `NOT`
+/// over it holds. Without that, `NOT (project_id = $1)` would be `NULL` and drop a row that a deny
+/// elsewhere does not reach.
+///
 /// # Errors
 ///
 /// [`PgQueryError::UnmappedAttribute`] when the filter reads an attribute with no column;
-/// [`PgQueryError::UnmappedKind`] when it reads a path kind with no column, and
-/// [`PgQueryError::KindOnlyStep`] for a step with no id. Both fail loudly because a deny turns a
-/// "no row" reading into an allow.
+/// [`PgQueryError::UnmappedKind`] when it reads a path kind with no column. Both fail loudly because
+/// a deny turns a "no row" reading into an allow.
 pub fn filter_where(
     filter: &AccessFilter,
     layout: &PathLayout,
@@ -410,18 +462,20 @@ pub fn filter_where(
 ) -> Result<PgFilter, PgQueryError> {
     let expr = filter.expr(layout);
     let (lower, upper) = expr.bounds();
-    let mut params = Vec::new();
-    let where_sql = to_sql(&upper, table, first_param, &mut params)?;
+    let mut where_params = Vec::new();
+    let where_sql = to_sql(&upper, table, first_param, &mut where_params)?;
+    let mut settled_params = Vec::new();
     let settled_sql = if expr.has_residual() {
-        Some(to_sql(&lower, table, first_param, &mut params)?)
+        Some(to_sql(&lower, table, first_param, &mut settled_params)?)
     } else {
         None
     };
     Ok(PgFilter {
         where_sql,
+        where_params,
         settled_sql,
-        params,
-        residual: filter.residual().to_vec(),
+        settled_params,
+        residual: filter.residual_for(layout),
     })
 }
 
@@ -445,41 +499,37 @@ fn placeholder(first_param: usize, params: &mut Vec<PgParam>, param: PgParam) ->
     format!("${}", first_param + params.len() - 1)
 }
 
+/// The path goes through a step of `kind`, with this id or with any id.
 fn step_sql(
     table: &PgTable,
-    anchor: &Anchor,
+    kind: &str,
+    id: Option<&str>,
     first_param: usize,
     params: &mut Vec<PgParam>,
 ) -> Result<String, PgQueryError> {
-    if anchor.kind == GLOBAL {
+    if kind == GLOBAL {
         return Ok("TRUE".to_string());
     }
     let column = table
-        .column_of(&anchor.kind)
-        .ok_or_else(|| PgQueryError::UnmappedKind(anchor.kind.clone()))?;
-    let id = anchor
-        .id
-        .as_ref()
-        .ok_or_else(|| PgQueryError::KindOnlyStep(anchor.kind.clone()))?;
-    Ok(format!(
-        "{} = {}",
-        quote_ident(column),
-        placeholder(first_param, params, PgParam::Text(id.clone()))
-    ))
+        .column_of(kind)
+        .ok_or_else(|| PgQueryError::UnmappedKind(kind.to_string()))?;
+    Ok(match id {
+        // A column holds the id of the step, so a step of the kind is there when it is set.
+        None => format!("{} IS NOT NULL", quote_ident(column)),
+        Some(id) => format!(
+            "({} = {}) IS TRUE",
+            quote_ident(column),
+            placeholder(first_param, params, PgParam::Text(id.to_string()))
+        ),
+    })
 }
 
 fn to_sql(expr: &Expr, table: &PgTable, first_param: usize, params: &mut Vec<PgParam>) -> Result<String, PgQueryError> {
     Ok(match expr {
         Expr::True => "TRUE".to_string(),
         Expr::False | Expr::Residual(_) => "FALSE".to_string(),
-        Expr::Within(anchor) => step_sql(table, anchor, first_param, params)?,
-        Expr::OnPath(selector) => {
-            let anchor = Anchor {
-                kind: selector.kind.clone(),
-                id: selector.id.clone(),
-            };
-            step_sql(table, &anchor, first_param, params)?
-        }
+        Expr::Within(anchor) => step_sql(table, &anchor.kind, anchor.id.as_deref(), first_param, params)?,
+        Expr::OnPath(selector) => step_sql(table, &selector.kind, selector.id.as_deref(), first_param, params)?,
         Expr::AnchorIn { kind, ids } => {
             let column = table
                 .column_of(kind)
@@ -488,7 +538,7 @@ fn to_sql(expr: &Expr, table: &PgTable, first_param: usize, params: &mut Vec<PgP
                 "FALSE".to_string()
             } else {
                 format!(
-                    "{} = ANY({}::text[])",
+                    "({} = ANY({}::text[])) IS TRUE",
                     quote_ident(column),
                     placeholder(first_param, params, PgParam::TextArray(ids.iter().cloned().collect()))
                 )
@@ -500,7 +550,7 @@ fn to_sql(expr: &Expr, table: &PgTable, first_param: usize, params: &mut Vec<PgP
                 .get(attr)
                 .ok_or_else(|| PgQueryError::UnmappedAttribute(attr.clone()))?;
             format!(
-                "{} = {}",
+                "({} = {}) IS TRUE",
                 quote_ident(column),
                 placeholder(first_param, params, PgParam::Text(value.clone()))
             )
@@ -510,6 +560,8 @@ fn to_sql(expr: &Expr, table: &PgTable, first_param: usize, params: &mut Vec<PgP
         Expr::Or(items) if items.is_empty() => "FALSE".to_string(),
         Expr::And(items) => join(items, " AND ", table, first_param, params)?,
         Expr::Or(items) => join(items, " OR ", table, first_param, params)?,
+        // `Expr` is non-exhaustive: a node added later must not read as FALSE under a deny.
+        _ => return Err(PgQueryError::UnsupportedExpr),
     })
 }
 
@@ -530,6 +582,8 @@ fn join(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+
+    use themis::Anchor;
 
     use super::*;
 
@@ -572,7 +626,7 @@ mod tests {
         assert!(!sql.contains('\''));
         assert_eq!(
             sql,
-            "(\"project_id\" = ANY($3::text[])) AND (\"owner_id\" = $4) AND (\"org_id\" = $5)"
+            "((\"project_id\" = ANY($3::text[])) IS TRUE) AND ((\"owner_id\" = $4) IS TRUE) AND ((\"org_id\" = $5) IS TRUE)"
         );
         assert_eq!(params.len(), 3);
     }
@@ -582,10 +636,6 @@ mod tests {
         assert!(matches!(
             to_where(&Expr::not(Expr::Within(Anchor::new("team", "t1"))), &table(), 1),
             Err(PgQueryError::UnmappedKind(kind)) if kind == "team"
-        ));
-        assert!(matches!(
-            to_where(&Expr::Within(Anchor::kind_only("project")), &table(), 1),
-            Err(PgQueryError::KindOnlyStep(kind)) if kind == "project"
         ));
         assert!(matches!(
             to_where(&Expr::Residual(0), &table(), 1),
@@ -599,6 +649,55 @@ mod tests {
             to_where(&attr, &table(), 1),
             Err(PgQueryError::UnmappedAttribute(name)) if name == "status"
         ));
+    }
+
+    /// F1: a grant on every project (`TargetSelector::kind`) is the commonest shape; it must
+    /// translate, as "the path has a step of this kind".
+    #[test]
+    fn a_step_with_no_id_is_a_kind_predicate_not_an_error() {
+        let (sql, params) = to_where(&Expr::Within(Anchor::kind_only("project")), &table(), 1).unwrap();
+        assert_eq!(sql, "\"project_id\" IS NOT NULL");
+        assert!(params.is_empty());
+        let on_path = Expr::OnPath(themis::TargetSelector::kind("project"));
+        assert_eq!(to_where(&on_path, &table(), 1).unwrap().0, "\"project_id\" IS NOT NULL");
+        // The listed kind itself is the id column.
+        let own = Expr::OnPath(themis::TargetSelector::kind("document"));
+        assert_eq!(to_where(&own, &table(), 1).unwrap().0, "\"id\" IS NOT NULL");
+        // A kind with no column still fails loudly.
+        assert!(matches!(
+            to_where(&Expr::OnPath(themis::TargetSelector::kind("team")), &table(), 1),
+            Err(PgQueryError::UnmappedKind(_))
+        ));
+    }
+
+    /// F3: a NULL column never makes an atom NULL, so `NOT` over it holds and a deny elsewhere does
+    /// not drop the row.
+    #[test]
+    fn every_atom_is_total_over_null_columns() {
+        let ids = Expr::AnchorIn {
+            kind: "project".into(),
+            ids: BTreeSet::from(["p1".to_string()]),
+        };
+        let attr = Expr::AttrEq {
+            attr: "owner".into(),
+            value: "u1".into(),
+        };
+        for expr in [ids, attr, Expr::Within(Anchor::new("org", "o1"))] {
+            let sql = to_where(&Expr::not(expr), &table(), 1).unwrap().0;
+            assert!(sql.starts_with("NOT (("), "{sql}");
+            assert!(sql.ends_with(") IS TRUE)"), "{sql}");
+        }
+    }
+
+    #[test]
+    fn table_names_leave_room_for_the_index_suffix() {
+        let long = "t".repeat(48);
+        assert!(PgTables::new(&long, "themis_tuples").is_err());
+        let fits = "t".repeat(47);
+        let tables = PgTables::new(&fits, "themis_tuples").unwrap();
+        let sql = tables.schema_sql();
+        assert!(sql.contains(&format!("\"{fits}_target_kind_idx\"")));
+        assert!(PgTable::new("document", "c".repeat(64)).is_err());
     }
 
     #[test]

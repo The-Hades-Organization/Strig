@@ -53,6 +53,8 @@ fn grants() -> Vec<Grant> {
 }
 
 fn documents() -> Vec<Resource> {
+    // d12 sits in no project: its `project_id` is NULL, and the deny on `p2` must not reach it.
+    let no_project = Resource::new("document", "d12").within("org", "o1");
     (0..12)
         .map(|n| {
             let mut doc = Resource::new("document", format!("d{n}"))
@@ -63,6 +65,7 @@ fn documents() -> Vec<Resource> {
             }
             doc
         })
+        .chain(std::iter::once(no_project))
         .collect()
 }
 
@@ -79,7 +82,7 @@ async fn listing_translated_to_sql_matches_check_row_by_row() {
     client.batch_execute(&tables.schema_sql()).await.unwrap();
     client
         .batch_execute(&format!(
-            "CREATE TABLE {docs_table} (id text PRIMARY KEY, project_id text NOT NULL, org_id text NOT NULL, \
+            "CREATE TABLE {docs_table} (id text PRIMARY KEY, project_id text, org_id text NOT NULL, \
              status text)"
         ))
         .await
@@ -90,8 +93,7 @@ async fn listing_translated_to_sql_matches_check_row_by_row() {
         let id = doc.primary().and_then(|a| a.id.clone()).unwrap();
         let project = doc
             .locate(&TargetSelector::kind("project"))
-            .and_then(|(_, a)| a.id.clone())
-            .unwrap();
+            .and_then(|(_, a)| a.id.clone());
         let org = doc
             .locate(&TargetSelector::kind("org"))
             .and_then(|(_, a)| a.id.clone())
@@ -178,13 +180,13 @@ async fn listing_translated_to_sql_matches_check_row_by_row() {
             let filter = engine.list(&qctx, &subject, key, "document");
             let translated = filter_where(&filter, &layout, &table, 1).unwrap();
             let sql = format!("SELECT id FROM {docs_table} WHERE {} ORDER BY id", translated.where_sql);
-            let rows = client.query(&sql, &translated.sql_params()).await.unwrap();
+            let rows = client.query(&sql, &translated.where_sql_params()).await.unwrap();
             let candidates: BTreeSet<String> = rows.iter().map(|row| row.get(0)).collect();
             let settled: BTreeSet<String> = match &translated.settled_sql {
                 Some(settled_sql) => {
                     let sql = format!("SELECT id FROM {docs_table} WHERE {settled_sql} ORDER BY id");
                     client
-                        .query(&sql, &translated.sql_params())
+                        .query(&sql, &translated.settled_sql_params())
                         .await
                         .unwrap()
                         .iter()

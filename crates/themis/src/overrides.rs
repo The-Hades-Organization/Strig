@@ -8,6 +8,7 @@ use crate::subject::Subject;
 
 /// What an [`Override`] is asked when a listing is planned: for this subject, permission and
 /// resource kind, which resources would the override decide on?
+#[non_exhaustive]
 pub struct ReachRequest<'a> {
     pub engine: &'a Engine,
     pub ctx: &'a QueryContext<'a>,
@@ -26,6 +27,7 @@ impl ReachRequest<'_> {
 
 /// What an [`Override`] is asked in a reverse query: which subjects does it let through on this
 /// resource?
+#[non_exhaustive]
 pub struct SubjectsRequest<'a> {
     pub engine: &'a Engine,
     pub ctx: &'a QueryContext<'a>,
@@ -46,7 +48,8 @@ impl SubjectsRequest<'_> {
 
 /// Where an override applies, as a condition on the resource.
 #[derive(Debug, Clone)]
-pub enum Gate {
+#[non_exhaustive]
+pub enum OverrideGate {
     /// A structural condition on the resource.
     Expr(Expr),
     /// Wherever the nested listing (by the grants only) includes the resource.
@@ -55,6 +58,7 @@ pub enum Gate {
 
 /// How an override answers a listing.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub enum OverrideReach {
     /// The override cannot be inspected without the resource: the listing leaves the resources it
     /// might decide on as undecided residue, never as allowed.
@@ -63,9 +67,9 @@ pub enum OverrideReach {
     /// The override never decides for this subject.
     Never,
     /// Allows wherever the gate holds.
-    Allows(Gate),
+    Allows(OverrideGate),
     /// Denies wherever the gate holds.
-    Denies(Gate),
+    Denies(OverrideGate),
 }
 
 /// Decides before the grants. Meant for the resource owner, superadmin, suspended account.
@@ -117,7 +121,7 @@ impl Override for ResourceOwner {
     fn reach(&self, request: &ReachRequest<'_>) -> OverrideReach {
         match request.subject.id.as_deref() {
             None => OverrideReach::Never,
-            Some(id) => OverrideReach::Allows(Gate::Expr(Expr::AttrEq {
+            Some(id) => OverrideReach::Allows(OverrideGate::Expr(Expr::AttrEq {
                 attr: self.attr.clone(),
                 value: id.to_string(),
             })),
@@ -169,7 +173,7 @@ impl Override for PermissionHolder {
     }
 
     fn reach(&self, request: &ReachRequest<'_>) -> OverrideReach {
-        OverrideReach::Allows(Gate::Holds(Box::new(request.holds(&self.key))))
+        OverrideReach::Allows(OverrideGate::Holds(Box::new(request.holds(&self.key))))
     }
 
     fn subjects(&self, request: &SubjectsRequest<'_>) -> Vec<SubjectRef> {
