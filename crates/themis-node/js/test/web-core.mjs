@@ -157,9 +157,10 @@ await test('client: a call that outlives the timeout is aborted and denied', asy
 });
 
 await test('authorizer: needs exactly one mode and a subject function', async () => {
+  const local = await localMode();
   assert.throws(() => createAuthorizer({ subject: subjectOf, resource: resourceOf }), TypeError);
-  assert.throws(() => createAuthorizer({ subject: subjectOf, local: await localMode(), remote: new RemoteClient({ url: 'http://x' }) }), TypeError);
-  assert.throws(() => createAuthorizer({ local: await localMode() }), TypeError);
+  assert.throws(() => createAuthorizer({ subject: subjectOf, local, remote: new RemoteClient({ url: 'http://x' }) }), TypeError);
+  assert.throws(() => createAuthorizer({ local }), TypeError);
 });
 
 await test('authorizer: checkFor mode decides through the binding', async () => {
