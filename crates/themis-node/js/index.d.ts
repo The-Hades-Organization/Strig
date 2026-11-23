@@ -22,9 +22,31 @@ export interface Grant {
   condition?: unknown;
 }
 
+export type Reason =
+  | { kind: 'override'; name: string }
+  | { kind: 'grant'; grant_id: string; permission: string; rank: number; strategy: string }
+  | { kind: 'no_applicable_grant' }
+  | { kind: 'unknown_permission' }
+  /** The permission would be allowed, but a `depends_on` prerequisite is not allowed on the same resource. */
+  | { kind: 'missing_prerequisite'; permission: string; prerequisite: string };
+
+export type Verdict =
+  | { kind: 'candidate' }
+  | { kind: 'candidate_fail_safe'; problem: string }
+  | { kind: 'permission_unrelated' }
+  | { kind: 'out_of_scope' }
+  | { kind: 'target_not_on_path' }
+  | { kind: 'subject_mismatch' }
+  | { kind: 'subject_unresolved'; problem: string }
+  | { kind: 'condition_false' }
+  | { kind: 'condition_unresolved'; problem: string }
+  /** The grant, or the requested permission, is `override_only`: grants are ignored. */
+  | { kind: 'override_only' }
+  | { kind: 'not_reached' };
+
 export interface Decision {
   effect: 'allow' | 'deny';
-  reason: { kind: string; [key: string]: unknown };
+  reason: Reason;
   matched?: string[];
   warnings?: string[];
 }
@@ -39,11 +61,13 @@ export interface Explanation {
   overrides: Array<{ name: string; outcome: 'excepted' | 'abstained' | 'allowed' | 'denied' }>;
   grants: Array<{
     grant: Grant;
-    verdict: { kind: string; problem?: string };
+    verdict: Verdict;
     rank?: number;
     anchor?: { kind: string; id?: string };
     condition?: ConditionTrace;
   }>;
+  /** Prerequisites (`depends_on`, transitive) consulted for an allowed permission, each with its outcome. */
+  prerequisites?: Array<{ permission: string; allowed: boolean }>;
   strategy: string;
   decision: Decision;
 }
@@ -84,12 +108,20 @@ export interface ApplyInput {
   meta?: Record<string, unknown>;
 }
 
+/**
+ * Compensating change a refusal proposes. It names the subject by id and carries only the role;
+ * nothing is applied. Send it back as an `assign_role` or `revoke_role` change with the stored subject.
+ */
+export type Suggestion =
+  | { kind: 'assign_role'; subject_id: string; role: RoleAssignment }
+  | { kind: 'revoke_role'; subject_id: string; role: RoleAssignment };
+
 export interface ApplyResult {
   ok: boolean;
   grants?: Grant[];
   /** Subject with the role applied, on an accepted role change. */
   subject?: Subject;
-  violations?: Array<{ invariant: string; message: string }>;
+  violations?: Array<{ invariant: string; message: string; suggestion?: Suggestion }>;
   audit?: Record<string, unknown> | null;
 }
 
