@@ -32,6 +32,8 @@ pub mod catalog;
 pub mod condition;
 pub mod decision;
 pub mod engine;
+#[cfg(feature = "exclusive")]
+pub mod exclusive;
 pub mod explain;
 pub mod governance;
 pub mod grant;
@@ -43,6 +45,8 @@ pub mod resource;
 pub mod spec;
 pub mod strategy;
 pub mod subject;
+pub mod template;
+pub mod validity;
 
 pub use attr::{Attributes, Value};
 #[cfg(feature = "audit")]
@@ -57,12 +61,18 @@ pub use catalog::{
 pub use condition::{Condition, ConditionError, ConditionRegistry, EvalContext, Operand};
 pub use decision::{Decision, Reason, Request};
 pub use engine::{CapabilitySet, Context, Engine, EngineBuilder, EngineError, GrantError};
+#[cfg(feature = "exclusive")]
+pub use exclusive::{
+    Acquisition, Claim, ExclusiveError, ExclusivePermissions, ExclusiveRegistry, ExclusiveStore, Lease,
+    MemoryExclusiveStore, Preemption, StoreError, Terms, priority_from_attr,
+};
 pub use explain::{
-    ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, TraceResult, Verdict, trace_condition,
+    ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, PrerequisiteStep, TraceResult, Verdict,
+    trace_condition,
 };
 pub use governance::{
-    CatalogConformance, Forbid, Governance, Invariant, Mutation, NoLockout, NoSelfManagement, Proposal,
-    RequirePermission, Violation,
+    Bypass, CatalogConformance, Forbid, Governance, GovernanceAt, Invariant, ManagementOnly, Mutation, NoEscalation,
+    NoLockout, NoSelfManagement, NonDelegable, Prerequisites, Proposal, RequirePermission, Suggestion, Violation,
 };
 pub use grant::{Effect, Grant, GrantIndex, GrantSource, SubjectMatcher, TargetSelector};
 pub use overrides::{
@@ -77,9 +87,11 @@ pub use rbac::{RbacError, RoleGraph};
 pub use rebac::{InMemoryTuples, RebacError, RelationSchema, Rewrite, Tuple, TupleIndex, TupleStore, TupleSubject};
 pub use resource::{Anchor, GLOBAL, ObjectRef, Resource};
 pub use spec::{
-    EngineSpec, InvariantSpec, OverrideRule, OverrideSpec, RelationSpec, RoleSpec, SpecError, StrategySpec,
+    EngineSpec, InvariantSpec, OverrideRule, OverrideSpec, RelationSpec, ReserveSpec, RoleSpec, SpecError, StrategySpec,
 };
 pub use strategy::{
     Candidate, DenyOverrides, FirstApplicable, MostSpecific, NativeStrategy, PermitOverrides, Strategy,
 };
 pub use subject::{ANONYMOUS, AUTHENTICATED, RoleAssignment, Subject};
+pub use template::{Materialized, RoleTemplate, TemplateGrant};
+pub use validity::{Validity, ValidityError, next_boundary};

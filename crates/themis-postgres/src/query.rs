@@ -16,7 +16,7 @@ use themis::{AccessFilter, Expr, GLOBAL, Grant, ObjectRef, PathLayout, SubjectMa
 use tokio_postgres::GenericClient;
 use tokio_postgres::types::ToSql;
 
-use crate::quote_ident;
+use crate::{WindowColumns, quote_ident, window_predicate};
 
 /// Error of the index queries and of the `WHERE` translation.
 #[derive(Debug, thiserror::Error)]
@@ -44,10 +44,20 @@ pub enum PgQueryError {
     /// The expression carries a residue, which has no SQL form.
     #[error("expression has a residue; translate with `filter_where`")]
     Residual,
+    /// A validity bound or the instant of a query does not fit in a `bigint` column.
+    #[error(transparent)]
+    InstantOutOfRange(#[from] crate::InstantOutOfRange),
     #[error("database error")]
     Database(#[from] tokio_postgres::Error),
     #[error("stored grant is not valid JSON")]
     Decode(#[from] serde_json::Error),
+}
+
+/// A validity bound as the `bigint` the grant table stores.
+fn window_bound(bound: Option<u64>) -> Result<Option<i64>, PgQueryError> {
+    bound
+        .map(|value| i64::try_from(value).map_err(|_| crate::InstantOutOfRange(value).into()))
+        .transpose()
 }
 
 /// Postgres keeps 63 bytes of an identifier and silently cuts the rest.
@@ -112,7 +122,9 @@ impl PgTables {
     /// The `permission` and `target_kind` columns must agree with the JSON in `data`, which is what
     /// the engine reads; a `CHECK` rejects a row written outside [`PgTables::put_grant`] that
     /// disagrees, so an indexed query never skips a grant (a deny) the engine would apply. A table
-    /// created by an earlier version has no such `CHECK`: add it before relying on it.
+    /// created by an earlier version has no such `CHECK`: add it before relying on it. The `effect`,
+    /// `valid_from` and `valid_until` columns (milliseconds since the Unix epoch) feed the window
+    /// predicate of the grant queries and are held to the JSON the same way.
     pub fn schema_sql(&self) -> String {
         let (grants, tuples) = (quote_ident(&self.grants), quote_ident(&self.tuples));
         let index = |table: &str, suffix: &str| quote_ident(&format!("{table}_{suffix}"));
@@ -123,9 +135,15 @@ impl PgTables {
                 subject_kind text NOT NULL, \
                 subject_value text, \
                 target_kind text NOT NULL, \
+                effect text NOT NULL, \
+                valid_from bigint, \
+                valid_until bigint, \
                 data jsonb NOT NULL, \
                 CHECK (permission = data->>'permission'), \
-                CHECK (target_kind = data->'target'->>'kind'));\
+                CHECK (target_kind = data->'target'->>'kind'), \
+                CHECK (effect = data->>'effect'), \
+                CHECK (valid_from IS NOT DISTINCT FROM (data->>'validFrom')::bigint), \
+                CHECK (valid_until IS NOT DISTINCT FROM (data->>'validUntil')::bigint));\
             CREATE INDEX IF NOT EXISTS {gp} ON {grants} (permission);\
             CREATE INDEX IF NOT EXISTS {gt} ON {grants} (target_kind);\
             CREATE INDEX IF NOT EXISTS {gs} ON {grants} (subject_kind, subject_value);\
@@ -154,16 +172,32 @@ impl PgTables {
         let (kind, value) = subject_columns(&grant.subject);
         let data = serde_json::to_string(grant)?;
         let sql = format!(
-            "INSERT INTO {} (id, permission, subject_kind, subject_value, target_kind, data) \
-             VALUES ($1, $2, $3, $4, $5, $6::text::jsonb) \
+            "INSERT INTO {} (id, permission, subject_kind, subject_value, target_kind, effect, valid_from, \
+             valid_until, data) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::jsonb) \
              ON CONFLICT (id) DO UPDATE SET permission = $2, subject_kind = $3, subject_value = $4, \
-             target_kind = $5, data = $6::text::jsonb",
+             target_kind = $5, effect = $6, valid_from = $7, valid_until = $8, data = $9::text::jsonb",
             quote_ident(&self.grants)
         );
+        let effect = match grant.effect {
+            themis::Effect::Allow => "allow",
+            themis::Effect::Deny => "deny",
+        };
+        let (valid_from, valid_until) = (window_bound(grant.valid_from)?, window_bound(grant.valid_until)?);
         client
             .execute(
                 &sql,
-                &[&grant.id, &grant.permission, &kind, &value, &grant.target.kind, &data],
+                &[
+                    &grant.id,
+                    &grant.permission,
+                    &kind,
+                    &value,
+                    &grant.target.kind,
+                    &effect,
+                    &valid_from,
+                    &valid_until,
+                    &data,
+                ],
             )
             .await?;
         Ok(())
@@ -206,49 +240,76 @@ impl PgTables {
 
     /// Grants of any of the permission keys (the permission and what implies it).
     ///
+    /// `now` is the instant of the query, in milliseconds since the Unix epoch: the rows come back
+    /// through [`window_predicate`], so a grant outside its window is left out. Without `now` the
+    /// filter fails closed as the engine does: a grant with a window is dropped unless it may be a
+    /// deny.
+    ///
     /// # Errors
     ///
-    /// [`PgQueryError::Database`] or [`PgQueryError::Decode`].
+    /// [`PgQueryError::Database`], [`PgQueryError::Decode`] or [`PgQueryError::InstantOutOfRange`].
     pub async fn grants_by_permission<C: GenericClient>(
         &self,
         client: &C,
         permissions: &[&str],
+        now: Option<u64>,
     ) -> Result<Vec<Grant>, PgQueryError> {
         let keys: Vec<String> = permissions.iter().map(|p| (*p).to_string()).collect();
-        self.grants_where(client, "permission = ANY($1::text[])", &[&keys])
+        self.grants_where(client, "permission = ANY($1::text[])", &[&keys], now)
             .await
     }
 
-    /// Grants whose target is of `kind` (`global` for the implicit step).
+    /// Grants whose target is of `kind` (`global` for the implicit step). `now` as in
+    /// [`PgTables::grants_by_permission`].
     ///
     /// # Errors
     ///
-    /// [`PgQueryError::Database`] or [`PgQueryError::Decode`].
+    /// [`PgQueryError::Database`], [`PgQueryError::Decode`] or [`PgQueryError::InstantOutOfRange`].
     pub async fn grants_by_target_kind<C: GenericClient>(
         &self,
         client: &C,
         kind: &str,
+        now: Option<u64>,
     ) -> Result<Vec<Grant>, PgQueryError> {
-        self.grants_where(client, "target_kind = $1", &[&kind]).await
+        self.grants_where(client, "target_kind = $1", &[&kind], now).await
     }
 
-    /// Grants to exactly this subject matcher.
+    /// Grants to exactly this subject matcher. `now` as in [`PgTables::grants_by_permission`].
     ///
     /// # Errors
     ///
-    /// [`PgQueryError::Database`] or [`PgQueryError::Decode`].
+    /// [`PgQueryError::Database`], [`PgQueryError::Decode`] or [`PgQueryError::InstantOutOfRange`].
     pub async fn grants_by_subject<C: GenericClient>(
         &self,
         client: &C,
         subject: &SubjectMatcher,
+        now: Option<u64>,
     ) -> Result<Vec<Grant>, PgQueryError> {
         let (kind, value) = subject_columns(subject);
         self.grants_where(
             client,
             "subject_kind = $1 AND subject_value IS NOT DISTINCT FROM $2",
             &[&kind, &value],
+            now,
         )
         .await
+    }
+
+    /// The grant query for `condition` (using `$1..$bound`) with the window filter, and the instant
+    /// to bind after the caller's parameters.
+    fn grants_sql(
+        &self,
+        condition: &str,
+        bound: usize,
+        now: Option<u64>,
+    ) -> Result<(String, Option<i64>), PgQueryError> {
+        let window = window_predicate(&WindowColumns::default(), bound + 1, now)?;
+        let sql = format!(
+            "SELECT data::text FROM {} WHERE {condition} AND {} ORDER BY id",
+            quote_ident(&self.grants),
+            window.sql
+        );
+        Ok((sql, window.param))
     }
 
     async fn grants_where<C: GenericClient>(
@@ -256,12 +317,14 @@ impl PgTables {
         client: &C,
         condition: &str,
         params: &[&(dyn ToSql + Sync)],
+        now: Option<u64>,
     ) -> Result<Vec<Grant>, PgQueryError> {
-        let sql = format!(
-            "SELECT data::text FROM {} WHERE {condition} ORDER BY id",
-            quote_ident(&self.grants)
-        );
-        let rows = client.query(&sql, params).await?;
+        let (sql, instant) = self.grants_sql(condition, params.len(), now)?;
+        let mut bound: Vec<&(dyn ToSql + Sync)> = params.to_vec();
+        if let Some(instant) = &instant {
+            bound.push(instant);
+        }
+        let rows = client.query(&sql, &bound).await?;
         rows.iter()
             .map(|row| serde_json::from_str(row.get::<_, &str>(0)).map_err(PgQueryError::from))
             .collect()
@@ -596,6 +659,22 @@ mod tests {
             .unwrap()
             .attr_column("owner", "owner_id")
             .unwrap()
+    }
+
+    #[test]
+    fn grant_queries_filter_by_window_and_bind_the_instant() {
+        let tables = PgTables::new("themis_grants", "themis_tuples").unwrap();
+        let (with_now, instant) = tables.grants_sql("target_kind = $1", 1, Some(150)).unwrap();
+        assert!(with_now.contains("valid_from") && with_now.contains("valid_until"));
+        assert!(with_now.contains("$2"), "the instant is the next parameter: {with_now}");
+        assert_eq!(instant, Some(150));
+        let (without, none) = tables.grants_sql("target_kind = $1", 1, None).unwrap();
+        assert!(none.is_none());
+        assert!(
+            without.contains("valid_until"),
+            "no instant still filters windows: {without}"
+        );
+        assert!(tables.grants_sql("x", 1, Some(u64::MAX)).is_err());
     }
 
     #[test]

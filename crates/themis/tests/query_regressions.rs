@@ -423,3 +423,146 @@ fn a_query_past_its_limits_fails_instead_of_answering_in_part() {
         5
     );
 }
+
+// Validity windows: every query answers like `Engine::check` at the same instant.
+
+const BEFORE: u64 = 50;
+const INSIDE: u64 = 150;
+const AFTER: u64 = 250;
+
+fn user_allow(id: &str) -> Grant {
+    Grant::allow(id, SubjectMatcher::user("u1"), "document.view", at_org())
+}
+
+/// Every query, at `now`, against `Engine::check` for the same instant.
+fn agrees_at(grants: &[Grant], subject: &Subject, now: Option<u64>) -> bool {
+    let engine = engine();
+    let doc = document("d1", "invoice");
+    let grants = grants.to_vec();
+    let qctx = match now {
+        Some(now) => QueryContext::new(&grants).at(now),
+        None => QueryContext::new(&grants),
+    };
+    let ctx = qctx.context();
+    let checked = engine.check(&ctx, &Request::new(subject, "document.view", &doc));
+    let listed = engine
+        .list(&qctx, subject, "document.view", "document")
+        .resolve_with(&engine, &ctx, [&doc])
+        == ["d1"];
+    assert_eq!(listed, checked, "list disagrees with check at {now:?}");
+    if let Some(id) = &subject.id {
+        let me = themis::SubjectRef::User { id: id.clone() };
+        // A subject that holds a role is reported as the role, not as the user, so the user
+        // party only matches `check` for subjects with no assignments.
+        if subject.roles.is_empty() {
+            let reverse = engine
+                .who_can_on(&qctx, "document.view", &doc)
+                .unwrap()
+                .subjects()
+                .any(|s| *s == me);
+            assert_eq!(reverse, checked, "who_can_on disagrees with check at {now:?}");
+        }
+        let resolver = themis::InMemorySubjects::new().with(subject.clone());
+        let answer = engine.check_for(&qctx, &resolver, &me, "document.view", &doc).unwrap();
+        assert_eq!(answer.decision.is_allowed(), checked, "check_for disagrees at {now:?}");
+    }
+    checked
+}
+
+#[test]
+fn an_allow_that_has_not_started_grants_nothing_until_it_does() {
+    let grants = [user_allow("g").valid_from(100)];
+    let who = Subject::user("u1");
+    assert!(!agrees_at(&grants, &who, Some(BEFORE)));
+    assert!(agrees_at(&grants, &who, Some(INSIDE)));
+}
+
+#[test]
+fn an_expired_allow_grants_nothing() {
+    let grants = [user_allow("g").valid_until(200)];
+    let who = Subject::user("u1");
+    assert!(agrees_at(&grants, &who, Some(INSIDE)));
+    assert!(!agrees_at(&grants, &who, Some(AFTER)));
+}
+
+#[test]
+fn an_allow_with_a_window_grants_nothing_without_an_instant() {
+    let grants = [user_allow("g").valid_between(100, 200)];
+    assert!(!agrees_at(&grants, &Subject::user("u1"), None));
+}
+
+#[test]
+fn a_deny_with_a_window_stops_denying_only_when_proved_outside_it() {
+    let grants = [
+        user_allow("allow"),
+        Grant::deny("deny", SubjectMatcher::user("u1"), "document.view", at_org()).valid_between(100, 200),
+    ];
+    let who = Subject::user("u1");
+    assert!(agrees_at(&grants, &who, Some(BEFORE)));
+    assert!(!agrees_at(&grants, &who, Some(INSIDE)));
+    assert!(agrees_at(&grants, &who, Some(AFTER)));
+    assert!(
+        !agrees_at(&grants, &who, None),
+        "without an instant the deny still holds"
+    );
+}
+
+#[test]
+fn a_role_assignment_outside_its_window_gives_no_allow() {
+    let grants = [role_grant("g", "member", "document.view", true, at_org())];
+    let held = |from, until| {
+        Subject::user("u1")
+            .with_assignment(themis::RoleAssignment::in_scope("member", org()).valid_between(from, until))
+    };
+    let who = held(100, 200);
+    assert!(!agrees_at(&grants, &who, Some(BEFORE)));
+    assert!(agrees_at(&grants, &who, Some(INSIDE)));
+    assert!(!agrees_at(&grants, &who, Some(AFTER)));
+    assert!(!agrees_at(&grants, &who, None));
+}
+
+#[test]
+fn a_role_assignment_outside_its_window_still_carries_a_deny_without_an_instant() {
+    let grants = [
+        user_allow("allow"),
+        role_grant("deny", "blocked", "document.view", false, at_org()),
+    ];
+    let who =
+        Subject::user("u1").with_assignment(themis::RoleAssignment::in_scope("blocked", org()).valid_between(100, 200));
+    assert!(!agrees_at(&grants, &who, None));
+    assert!(!agrees_at(&grants, &who, Some(INSIDE)));
+    assert!(agrees_at(&grants, &who, Some(AFTER)));
+}
+
+#[test]
+fn who_can_leaves_out_an_allow_outside_its_window() {
+    let grants = vec![user_allow("g").valid_between(100, 200)];
+    let engine = engine();
+    let me = themis::SubjectRef::User { id: "u1".into() };
+    assert!(
+        engine
+            .who_can(&QueryContext::new(&grants).at(INSIDE), "document.view")
+            .contains(&me)
+    );
+    assert!(
+        !engine
+            .who_can(&QueryContext::new(&grants).at(AFTER), "document.view")
+            .contains(&me)
+    );
+    assert!(
+        !engine
+            .who_can(&QueryContext::new(&grants), "document.view")
+            .contains(&me)
+    );
+}
+
+#[test]
+fn access_of_leaves_out_a_party_whose_only_grant_is_outside_its_window() {
+    let grants = vec![user_allow("g").valid_between(100, 200)];
+    let engine = engine();
+    let doc = document("d1", "invoice");
+    let parties = |qctx: &QueryContext<'_>| engine.access_of(qctx, &doc).unwrap().len();
+    assert_eq!(parties(&QueryContext::new(&grants).at(INSIDE)), 1);
+    assert_eq!(parties(&QueryContext::new(&grants).at(AFTER)), 0);
+    assert_eq!(parties(&QueryContext::new(&grants)), 0);
+}

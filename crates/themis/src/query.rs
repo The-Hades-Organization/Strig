@@ -89,6 +89,10 @@ pub struct QueryContext<'a> {
     pub tuples: Option<&'a dyn TupleIndex>,
     pub env: &'a Attributes,
     pub limits: QueryLimits,
+    /// The instant the queries are answered at, in milliseconds since the Unix epoch. Without it a
+    /// grant or a role assignment with a validity window grants nothing, and a `deny` with a window
+    /// still holds, exactly as in [`Engine::check`] with no instant.
+    pub now: Option<u64>,
 }
 
 impl<'a> QueryContext<'a> {
@@ -97,6 +101,7 @@ impl<'a> QueryContext<'a> {
             grants,
             tuples: None,
             env: &EMPTY_ENV,
+            now: None,
             limits: QueryLimits {
                 max_parties: QueryLimits::DEFAULT_MAX_PARTIES,
                 max_decisions: QueryLimits::DEFAULT_MAX_DECISIONS,
@@ -115,6 +120,14 @@ impl<'a> QueryContext<'a> {
         self
     }
 
+    /// Answers the queries at `now`, like [`Context::at`]: grants and role assignments outside
+    /// their validity window stop counting.
+    #[must_use]
+    pub fn at(mut self, now: u64) -> Self {
+        self.now = Some(now);
+        self
+    }
+
     pub fn with_env(mut self, env: &'a Attributes) -> Self {
         self.env = env;
         self
@@ -123,6 +136,9 @@ impl<'a> QueryContext<'a> {
     /// The same data as a [`Context`], to run [`Engine::check`] over the same sources.
     pub fn context(&self) -> Context<'a> {
         let mut ctx = Context::new(self.grants).with_env(self.env);
+        if let Some(now) = self.now {
+            ctx = ctx.at(now);
+        }
         if let Some(tuples) = self.tuples {
             ctx = ctx.with_tuples(tuples);
         }
@@ -605,6 +621,16 @@ pub struct AccessFilter {
     residuals: Vec<FilterResidual>,
     strategy_residual: Option<usize>,
     warnings: Vec<String>,
+    /// The listings of the permission's `depends_on` closure: an allow only stands where all of
+    /// them allow too, as in `check`.
+    prerequisites: Vec<PrerequisitePlan>,
+}
+
+/// The listing of one prerequisite, with where its residuals were copied into the outer filter.
+#[derive(Clone)]
+struct PrerequisitePlan {
+    filter: AccessFilter,
+    offset: usize,
 }
 
 impl fmt::Debug for AccessFilter {
@@ -658,6 +684,9 @@ impl AccessFilter {
             if let Some(nested) = plan.nested() {
                 ids.extend(nested.outside_layout(layout));
             }
+        }
+        for plan in &self.prerequisites {
+            ids.extend(plan.filter.outside_layout(layout));
         }
         ids.into_iter().collect()
     }
@@ -784,7 +813,21 @@ impl AccessFilter {
                 }
             }
         }
-        acc
+        if self.prerequisites.is_empty() {
+            return acc;
+        }
+        let mut parts = vec![acc];
+        for plan in &self.prerequisites {
+            let own = plan.filter.residuals.len();
+            parts.push(if plan.filter.known {
+                plan.filter
+                    .full_expr(layout)
+                    .map_residuals(&|i| if i < own { i + plan.offset } else { outside })
+            } else {
+                Expr::False
+            });
+        }
+        Expr::And(parts)
     }
 
     /// The gate of an override as an expression over the outer filter's residuals: the residuals
@@ -925,6 +968,22 @@ impl AccessFilter {
     }
 
     fn decide_row(&self, resource: &Resource, with_overrides: bool) -> FilterOutcome {
+        let own = self.decide_row_core(resource, with_overrides);
+        if own == FilterOutcome::Denied || self.prerequisites.is_empty() {
+            return own;
+        }
+        let mut outcome = own;
+        for plan in &self.prerequisites {
+            match plan.filter.decide_row_core(resource, with_overrides) {
+                FilterOutcome::Denied => return FilterOutcome::Denied,
+                FilterOutcome::Undecided => outcome = FilterOutcome::Undecided,
+                FilterOutcome::Allowed => {}
+            }
+        }
+        outcome
+    }
+
+    fn decide_row_core(&self, resource: &Resource, with_overrides: bool) -> FilterOutcome {
         if !self.known {
             return FilterOutcome::Denied;
         }
@@ -1047,20 +1106,41 @@ fn effect_runs(entries: &[Entry]) -> usize {
 
 /// The roles a subject holds with everything they inherit, expanded once per listing.
 struct HeldRoles {
-    /// Each held role: its scope and the roles it stands for (itself and what it inherits).
+    /// Each role held at `now`: its scope and the roles it stands for (itself and what it inherits).
     held: Vec<(Option<Anchor>, BTreeSet<String>)>,
+    /// Like `held`, but counting the assignments whose window could not be checked (no `now`): a
+    /// `deny` keyed on a role uses this set, as in `check`.
+    held_for_denial: Vec<(Option<Anchor>, BTreeSet<String>)>,
     all: BTreeSet<String>,
 }
 
 impl HeldRoles {
-    fn new(engine: &Engine, subject: &Subject) -> Self {
-        let held: Vec<(Option<Anchor>, BTreeSet<String>)> = subject
-            .roles
+    fn new(engine: &Engine, subject: &Subject, now: Option<u64>) -> Self {
+        let expand = |holds_without_now: bool| -> Vec<(Option<Anchor>, BTreeSet<String>)> {
+            subject
+                .roles
+                .iter()
+                .filter(|r| r.validity().in_force(now, holds_without_now))
+                .map(|r| (r.scope.clone(), engine.roles.expand([r.role.as_str()])))
+                .collect()
+        };
+        let held_for_denial = expand(true);
+        let all = held_for_denial
             .iter()
-            .map(|r| (r.scope.clone(), engine.roles.expand([r.role.as_str()])))
+            .flat_map(|(_, expanded)| expanded.iter().cloned())
             .collect();
-        let all = held.iter().flat_map(|(_, expanded)| expanded.iter().cloned()).collect();
-        Self { held, all }
+        Self {
+            held: expand(false),
+            held_for_denial,
+            all,
+        }
+    }
+
+    fn for_effect(&self, effect: Effect) -> &[(Option<Anchor>, BTreeSet<String>)] {
+        match effect {
+            Effect::Allow => &self.held,
+            Effect::Deny => &self.held_for_denial,
+        }
     }
 
     /// Cheap test, before a grant is copied: could the grant's subject side hold for this subject?
@@ -1101,6 +1181,29 @@ impl Engine {
         kind: &str,
         with_overrides: bool,
     ) -> AccessFilter {
+        let mut filter = self.plan_core(ctx, subject, permission, kind, with_overrides);
+        if !filter.known || !self.catalog.has_prerequisites(permission) {
+            return filter;
+        }
+        for prerequisite in self.catalog.prerequisites(permission) {
+            let nested = self.plan_core(ctx, subject, prerequisite, kind, with_overrides);
+            let offset = filter.residuals.len();
+            filter.residuals.extend(nested.residuals.iter().cloned());
+            filter.warnings.extend(nested.warnings.iter().cloned());
+            filter.prerequisites.push(PrerequisitePlan { filter: nested, offset });
+        }
+        filter
+    }
+
+    /// The listing of one permission, without its prerequisites.
+    fn plan_core(
+        &self,
+        ctx: &QueryContext<'_>,
+        subject: &Subject,
+        permission: &str,
+        kind: &str,
+        with_overrides: bool,
+    ) -> AccessFilter {
         let native = self.strategy.native();
         let mut filter = AccessFilter {
             kind: kind.to_string(),
@@ -1116,6 +1219,7 @@ impl Engine {
             residuals: Vec::new(),
             strategy_residual: None,
             warnings: Vec::new(),
+            prerequisites: Vec::new(),
         };
         let Some(effective) = self.catalog.effective(permission) else {
             filter.known = false;
@@ -1130,7 +1234,7 @@ impl Engine {
         let keys: Vec<&str> = effective.iter().map(String::as_str).collect();
         let who = SubjectPlan {
             subject,
-            roles: HeldRoles::new(self, subject),
+            roles: HeldRoles::new(self, subject, ctx.now),
             probe: Resource::new(kind, ""),
         };
         let mut grants = Vec::new();
@@ -1187,6 +1291,11 @@ impl Engine {
     /// Settles the subject side of one grant, and the condition when it does not read the resource.
     fn plan_grant(&self, filter: &mut AccessFilter, ctx: &QueryContext<'_>, who: &SubjectPlan<'_>, grant: Grant) {
         let (subject, probe) = (who.subject, &who.probe);
+        // Outside its window an allow grants nothing and a deny that is provably expired stops
+        // denying; with no instant a windowed deny still holds.
+        if !grant.in_force(ctx.now) {
+            return;
+        }
         let fail_safe = grant.effect == Effect::Deny;
         let mut parts = Vec::new();
         if let Some(scope) = &grant.scope {
@@ -1246,7 +1355,7 @@ impl Engine {
             SubjectMatcher::Role { id } => {
                 let alternatives: Vec<Expr> = who
                     .roles
-                    .held
+                    .for_effect(grant.effect)
                     .iter()
                     .filter(|(_, expanded)| expanded.contains(id))
                     .map(|(scope, _)| scope.clone().map_or(Expr::True, Expr::Within))
@@ -1505,10 +1614,7 @@ fn archetype(parties: &[&SubjectRef]) -> (Subject, Vec<(ObjectRef, String)>) {
                 subject.kind = kind.clone();
                 subject.id = Some(crate::rebac::WILDCARD.to_string());
             }
-            SubjectRef::Role { id } => subject.roles.push(RoleAssignment {
-                role: id.clone(),
-                scope: None,
-            }),
+            SubjectRef::Role { id } => subject.roles.push(RoleAssignment::new(id.clone())),
             SubjectRef::Principal { name } => subject.principals.push(name.clone()),
             SubjectRef::Userset { object, relation } => usersets.push((object.clone(), relation.clone())),
             SubjectRef::Anyone => {}
@@ -1559,7 +1665,7 @@ impl Engine {
         let mut all = BTreeSet::new();
         let mut denied = BTreeSet::new();
         for grant in grants {
-            if grant.scope.as_ref().is_some_and(|scope| !resource.contains(scope)) {
+            if !grant.in_force(ctx.now) || grant.scope.as_ref().is_some_and(|scope| !resource.contains(scope)) {
                 continue;
             }
             let Some((_, anchor)) = resource.locate(&grant.target) else {
@@ -1736,7 +1842,7 @@ impl Engine {
         let keys: Vec<&str> = effective.iter().map(String::as_str).collect();
         let mut out = BTreeSet::new();
         ctx.grants.visit_by_permission(&keys, &mut |grant| {
-            if grant.effect != Effect::Allow || !effective.contains(&grant.permission) {
+            if grant.effect != Effect::Allow || !effective.contains(&grant.permission) || !grant.in_force(ctx.now) {
                 return;
             }
             match &grant.subject {
@@ -1902,7 +2008,9 @@ impl Engine {
                     _ => AccessVia::Grant { grant_id },
                 }
             }
-            Reason::NoApplicableGrant | Reason::UnknownPermission => AccessVia::Nothing,
+            Reason::NoApplicableGrant | Reason::UnknownPermission | Reason::MissingPrerequisite { .. } => {
+                AccessVia::Nothing
+            }
         }
     }
 }

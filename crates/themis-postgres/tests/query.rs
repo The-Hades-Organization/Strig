@@ -118,12 +118,22 @@ async fn listing_translated_to_sql_matches_check_row_by_row() {
     tables.put_tuple(&client, &tuple).await.unwrap();
     tables.put_tuple(&client, &tuple).await.unwrap();
 
-    let by_permission = tables.grants_by_permission(&client, &["document.view"]).await.unwrap();
+    let by_permission = tables
+        .grants_by_permission(&client, &["document.view"], None)
+        .await
+        .unwrap();
     assert_eq!(by_permission.len(), 2);
-    assert_eq!(tables.grants_by_target_kind(&client, "project").await.unwrap().len(), 2);
     assert_eq!(
         tables
-            .grants_by_subject(&client, &SubjectMatcher::role("member"))
+            .grants_by_target_kind(&client, "project", None)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        tables
+            .grants_by_subject(&client, &SubjectMatcher::role("member"), None)
             .await
             .unwrap()
             .len(),
@@ -142,7 +152,7 @@ async fn listing_translated_to_sql_matches_check_row_by_row() {
     );
 
     let loaded = tables
-        .grants_by_permission(&client, &["document.view", "document.edit"])
+        .grants_by_permission(&client, &["document.view", "document.edit"], None)
         .await
         .unwrap();
     let store: InMemoryTuples = tables
