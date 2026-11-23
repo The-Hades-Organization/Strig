@@ -492,15 +492,17 @@ fn attr_path(word: &Sp<String>) -> PResult<()> {
 
 fn operand(cur: &mut Cursor) -> PResult<Operand> {
     let token = cur.current();
-    if let Tok::Ident(w) = &token.tok {
-        if w != "true" && w != "false" && w != "null" {
-            let word = cur.word("a value")?;
-            attr_path(&word).map_err(|e| {
-                Raw::new(e.span, format!("`{}` is not a value", word.v))
-                    .hint("attributes start with subject., resource. or env.; text goes in quotes")
-            })?;
-            return Ok(Operand::Attr { attr: word.v });
-        }
+    if let Tok::Ident(w) = &token.tok
+        && w != "true"
+        && w != "false"
+        && w != "null"
+    {
+        let word = cur.word("a value")?;
+        attr_path(&word).map_err(|e| {
+            Raw::new(e.span, format!("`{}` is not a value", word.v))
+                .hint("attributes start with subject., resource. or env.; text goes in quotes")
+        })?;
+        return Ok(Operand::Attr { attr: word.v });
     }
     Ok(Operand::Lit(literal(cur)?))
 }

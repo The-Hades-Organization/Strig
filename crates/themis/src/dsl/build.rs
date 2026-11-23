@@ -98,10 +98,10 @@ impl Builder {
 
     /// Ends the innermost open element at the last token consumed.
     pub fn close(&mut self, last: Span) {
-        if let Some(at) = self.open.pop() {
-            if let Some(extent) = self.extents.get_mut(at) {
-                extent.last = extent.last.max(last.line);
-            }
+        if let Some(at) = self.open.pop()
+            && let Some(extent) = self.extents.get_mut(at)
+        {
+            extent.last = extent.last.max(last.line);
         }
     }
 
