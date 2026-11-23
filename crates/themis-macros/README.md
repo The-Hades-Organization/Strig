@@ -4,8 +4,8 @@ Compile-time macros for the Themis policy language: a policy that does not valid
 
 ```toml
 [dependencies]
-themis-auth = { version = "0.3", features = ["dsl"] }
-themis-macros = "0.3"
+themis-auth = { version = "0.4", features = ["dsl"] }
+themis-macros = "0.4"
 ```
 
 ```rust
@@ -56,6 +56,5 @@ message may change, not the message.
 
 ## Use the crate directly
 
-`themis-auth` does not re-export these macros behind a `macros` feature. The macros run the parser while compiling, so
-`themis-macros` depends on `themis-auth`; a re-export would make a package cycle, which Cargo refuses. Add
-`themis-macros` to your own `Cargo.toml`, as above.
+`themis-auth` has no `macros` feature. Add `themis-macros` to your own `Cargo.toml`, as above; the
+[guide](../../docs/dsl.md) explains why.
