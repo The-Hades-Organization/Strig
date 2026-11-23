@@ -165,7 +165,7 @@ pub struct PartyDto {
 
 /// A party named by a grant or a tuple.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum SubjectDto {
     User { id: String },
     Object { kind: String, id: String },
