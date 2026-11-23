@@ -25,13 +25,6 @@ impl Report<'_> {
         diagnostic.hint = hint;
         self.out.push(diagnostic);
     }
-
-    fn clash(&mut self, id: &str, first_id: &str, message: impl Into<String>) {
-        let related = self.at(first_id);
-        let mut diagnostic = Diagnostic::new(self.at(id), message);
-        diagnostic.related = related;
-        self.out.push(diagnostic);
-    }
 }
 
 /// Every problem of the policy, ordered by position. Empty when the policy is sound.

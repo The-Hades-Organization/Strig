@@ -323,15 +323,6 @@ pub(crate) fn word_list(cur: &mut Cursor, what: &str) -> PResult<Vec<Sp<String>>
     Ok(items)
 }
 
-/// `a, b, c` on one line.
-pub(crate) fn comma_words(cur: &mut Cursor, what: &str) -> PResult<Vec<Sp<String>>> {
-    let mut items = vec![cur.word(what)?];
-    while cur.eat_punct(",") {
-        items.push(cur.word(what)?);
-    }
-    Ok(items)
-}
-
 // ---- anchors, paths, tuples ---------------------------------------------------------------
 
 fn id_part(cur: &mut Cursor) -> PResult<String> {

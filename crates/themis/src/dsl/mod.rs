@@ -9,7 +9,7 @@
 //! The feature is pure: no IO, no clock, no async. Reading files lives in the `dsl-fs` feature.
 //!
 //! ```
-//! use themis_auth::dsl::{parse, print, Language};
+//! use themis::dsl::{parse, print, Language};
 //!
 //! let text = "language blocks\n\ntarget_kinds = [org]\n\npermission org.read {\n  targets = [org]\n}\n";
 //! let parsed = parse("policy.themis", text).unwrap();
@@ -21,6 +21,8 @@ mod blocks;
 mod blocks_print;
 mod build;
 mod error;
+#[cfg(feature = "dsl-fs")]
+pub mod fs;
 mod grammar;
 mod lex;
 mod policy;
@@ -35,7 +37,7 @@ use grammar::Cursor;
 
 pub use error::{Diagnostic, Diagnostics, Location, PrintError};
 pub use policy::{Language, Note, NoteAnchor, NoteOrigin, Origins, Placement, Policy};
-pub use project::Project;
+pub use project::{Built, Project};
 
 /// The largest source accepted: input is external and unbounded.
 pub const MAX_SOURCE_BYTES: usize = 4 * 1024 * 1024;
