@@ -120,7 +120,9 @@ fn flush_in(ctx: &Ctx, b: &mut Builder) {
     if let Ctx::Actor(actor) = ctx
         && let Some(at) = actor.empty_in
     {
-        b.report(Raw::new(at, "an `in` line has no rule under it").hint("indent the rules that take the scope under it"));
+        b.report(
+            Raw::new(at, "an `in` line has no rule under it").hint("indent the rules that take the scope under it"),
+        );
     }
 }
 
@@ -341,7 +343,8 @@ fn child(cur: &mut Cursor, b: &mut Builder, ctx: &mut Ctx, col: u32) -> PResult<
             }
             if let Some(at) = actor.empty_in.take() {
                 b.report(
-                    Raw::new(at, "an `in` line has no rule under it").hint("indent the rules that take the scope under it"),
+                    Raw::new(at, "an `in` line has no rule under it")
+                        .hint("indent the rules that take the scope under it"),
                 );
             }
             actor.scope = None;

@@ -64,7 +64,11 @@ fn a_hundred_thousand_roles_with_a_ring_end_with_a_capped_report() {
         }
         let start = Instant::now();
         let errors = parse("ring.themis", &text).expect_err("a cycle");
-        assert!(start.elapsed() < BUDGET, "{language}: the ring took {:?}", start.elapsed());
+        assert!(
+            start.elapsed() < BUDGET,
+            "{language}: the ring took {:?}",
+            start.elapsed()
+        );
         assert!(errors.len() <= 101, "{language}: {} errors", errors.len());
     }
 }
@@ -108,7 +112,10 @@ fn stray_bytes_never_panic() {
                 chunk,
                 chunk
             );
-            assert!(!timed(&format!("noise in {language}"), &text), "{language}: noise is an error");
+            assert!(
+                !timed(&format!("noise in {language}"), &text),
+                "{language}: noise is an error"
+            );
         }
     }
 }
