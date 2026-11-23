@@ -53,3 +53,35 @@ jobs:
       - run: cargo clippy -p themis-node --features wasm --target wasm32-unknown-unknown -- -D warnings
       - run: cargo build -p themis-auth --features exclusive --target wasm32-unknown-unknown
       - run: cargo build -p themis-auth --features dsl --target wasm32-unknown-unknown
+
+  node:
+    name: node binding (native and wasm)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Cache wasm-bindgen-cli
+        id: wasm-bindgen
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/wasm-bindgen
+          key: wasm-bindgen-cli-0.2.130
+      - name: Install wasm-bindgen-cli (same version as the crate dependency)
+        if: steps.wasm-bindgen.outputs.cache-hit != 'true'
+        run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
+      - name: Build both targets
+        working-directory: crates/themis-node
+        run: sh scripts/build.sh all
+      - name: Install the JavaScript dependencies
+        working-directory: crates/themis-node/js
+        run: npm ci
+      - name: Run the JavaScript tests
+        working-directory: crates/themis-node/js
+        run: node test/run.mjs
