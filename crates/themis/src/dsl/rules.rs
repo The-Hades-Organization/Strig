@@ -220,7 +220,7 @@ fn mark(b: &mut Builder, id: &str, field: &str, span: Span) {
 
 // ---- header ---------------------------------------------------------------------------------
 
-fn kinds(cur: &mut Cursor, b: &mut Builder, at: &Span, target_kinds: bool) -> PResult<()> {
+pub(crate) fn kinds(cur: &mut Cursor, b: &mut Builder, at: &Span, target_kinds: bool) -> PResult<()> {
     let id = if target_kinds { ids::TARGET_KINDS } else { ids::BROAD_TARGETS };
     let repeated = duplicate(b, id, *at, &format!("`{id}`"));
     let list = scoped(cur, b, id, *at, |cur, _| comma_words(cur, "a kind"))?;
@@ -235,7 +235,7 @@ fn kinds(cur: &mut Cursor, b: &mut Builder, at: &Span, target_kinds: bool) -> PR
     Ok(())
 }
 
-fn strategy(cur: &mut Cursor, b: &mut Builder, at: Span) -> PResult<()> {
+pub(crate) fn strategy(cur: &mut Cursor, b: &mut Builder, at: Span) -> PResult<()> {
     let repeated = duplicate(b, ids::STRATEGY, at, "`strategy`");
     let chosen = scoped(cur, b, ids::STRATEGY, at, |cur, _| {
         let word = cur.word("a strategy")?;
@@ -257,7 +257,7 @@ fn strategy(cur: &mut Cursor, b: &mut Builder, at: Span) -> PResult<()> {
     Ok(())
 }
 
-fn depth(cur: &mut Cursor, b: &mut Builder, at: Span) -> PResult<()> {
+pub(crate) fn depth(cur: &mut Cursor, b: &mut Builder, at: Span) -> PResult<()> {
     let repeated = duplicate(b, ids::MAX_DEPTH, at, "`depth`");
     let found = scoped(cur, b, ids::MAX_DEPTH, at, |cur, _| Ok(cur.number()?.v))?;
     if !repeated {
@@ -268,7 +268,7 @@ fn depth(cur: &mut Cursor, b: &mut Builder, at: Span) -> PResult<()> {
 
 // ---- catalog, roles, subjects ---------------------------------------------------------------
 
-fn permission(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
+pub(crate) fn permission(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     let key = cur.word("a permission key")?;
     let id = ids::permission(&key.v);
     let repeated = duplicate(b, &id, key.span, &format!("permission `{}`", key.v));
@@ -314,7 +314,7 @@ fn permission(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     Ok(())
 }
 
-fn role(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
+pub(crate) fn role(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     let name = cur.word("a role name")?;
     let id = ids::role(&name.v);
     let repeated = duplicate(b, &id, name.span, &format!("role `{}`", name.v));
@@ -517,7 +517,7 @@ fn relations_none(cur: &mut Cursor, b: &mut Builder, at: Span) -> PResult<()> {
     Ok(())
 }
 
-fn relation(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
+pub(crate) fn relation(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     let kind = cur.word("a kind")?;
     cur.expect_punct("#", "between the kind and the relation")?;
     let name = cur.word("a relation name")?;
@@ -543,7 +543,7 @@ fn relation(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     Ok(())
 }
 
-fn tuple_line(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
+pub(crate) fn tuple_line(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     let (tuple, at) = tuple(cur)?;
     let id = ids::tuple(&tuple.to_string());
     let repeated = duplicate(b, &id, at, &format!("the tuple `{tuple}`"));
@@ -555,7 +555,7 @@ fn tuple_line(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     Ok(())
 }
 
-fn override_line(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
+pub(crate) fn override_line(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     let kind = cur.word("an override kind")?;
     let owner = match kind.v.replace('-', "_").as_str() {
         "resource_owner" => true,
@@ -595,7 +595,7 @@ fn override_line(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
 }
 
 /// `always <kind> name value name value`: the names are the fields of the invariant.
-fn always(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
+pub(crate) fn always(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     let word = cur.word("an invariant kind")?;
     let kind = word.v.replace('-', "_");
     let Some(schema) = invariant_schema(&kind) else {
@@ -644,7 +644,7 @@ pub(crate) fn print(policy: &Policy) -> Printed<String> {
     printer.complete(policy)
 }
 
-fn list(items: &[String], what: &str) -> Printed<String> {
+pub(crate) fn list(items: &[String], what: &str) -> Printed<String> {
     if items.is_empty() {
         return Err(PrintError::Unrepresentable {
             what: format!("an empty list of {what}s"),
@@ -655,7 +655,7 @@ fn list(items: &[String], what: &str) -> Printed<String> {
     Ok(parts?.join(", "))
 }
 
-fn strategy_word(s: StrategySpec) -> Printed<&'static str> {
+pub(crate) fn strategy_word(s: StrategySpec) -> Printed<&'static str> {
     Ok(match s {
         StrategySpec::MostSpecific => "most_specific",
         StrategySpec::DenyOverrides => "deny_overrides",
@@ -673,22 +673,24 @@ fn strategy_word(s: StrategySpec) -> Printed<&'static str> {
 
 fn lines(p: &mut Printer, policy: &Policy) -> Printed<()> {
     p.leaf(0, ids::LANGUAGE, "language rules", false);
-    header(p, policy)?;
+    let found = header_items(p, policy)?;
+    if !found.is_empty() {
+        p.blank();
+        for (id, text) in found {
+            p.leaf(0, id, &text, false);
+        }
+    }
     let mut section = Section::default();
     for def in &policy.catalog.permissions {
         section.start(p);
-        permission_text(p, def)?;
+        let (id, text) = permission_text(def)?;
+        p.leaf(0, &id, &format!("permission {text}"), false);
     }
     section = Section::default();
     for role in &policy.roles {
         section.start(p);
-        let name = bp::word(&role.role, "role")?;
-        let text = if role.inherits.is_empty() {
-            format!("role {name}")
-        } else {
-            format!("role {name} inherits {}", list(&role.inherits, "role")?)
-        };
-        p.leaf(0, &ids::role(name), &text, false);
+        let (id, text) = role_text(role)?;
+        p.leaf(0, &id, &text, false);
     }
     section = Section::default();
     for subject in &policy.subjects {
@@ -708,35 +710,61 @@ fn lines(p: &mut Printer, policy: &Policy) -> Printed<()> {
         }
         for relation in relations {
             section.start(p);
-            let kind = bp::word(&relation.kind, "kind")?;
-            let name = bp::word(&relation.relation, "relation")?;
-            let text = format!("relation {kind}#{name} = {}", bp::rewrite(&relation.rewrite, true)?);
-            p.leaf(0, &ids::relation(kind, name), &text, false);
+            let (id, text) = relation_text(relation)?;
+            p.leaf(0, &id, &format!("relation {text}"), false);
         }
     }
     section = Section::default();
     for tuple in &policy.tuples {
         section.start(p);
-        tuple_text(p, tuple)?;
+        let (id, text) = tuple_text(tuple)?;
+        p.leaf(0, &id, &format!("tuple {text}"), false);
     }
     section = Section::default();
     for spec in &policy.overrides {
         section.start(p);
-        override_text(p, spec)?;
+        let (id, text) = override_text(spec)?;
+        p.leaf(0, &id, &text, false);
     }
-    let mut ordinals: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut ordinals = BTreeMap::new();
     for spec in &policy.invariants {
-        let kind = invariant_kind(spec);
-        let ordinal = ordinals.entry(kind).or_insert(0);
-        *ordinal += 1;
         section.start(p);
-        let mut text = format!("always {}", kind.replace('_', "-"));
-        for (name, value) in bp::invariant_fields(spec)? {
-            text.push_str(&format!(" {name} {value}"));
-        }
-        p.leaf(0, &ids::invariant(kind, *ordinal), &text, false);
+        let (id, text) = invariant_text(spec, &mut ordinals)?;
+        p.leaf(0, &id, &format!("always {text}"), false);
     }
     Ok(())
+}
+
+pub(crate) fn role_text(role: &RoleSpec) -> Printed<(String, String)> {
+    let name = bp::word(&role.role, "role")?;
+    let text = if role.inherits.is_empty() {
+        format!("role {name}")
+    } else {
+        format!("role {name} inherits {}", list(&role.inherits, "role")?)
+    };
+    Ok((ids::role(name), text))
+}
+
+pub(crate) fn relation_text(relation: &RelationSpec) -> Printed<(String, String)> {
+    let kind = bp::word(&relation.kind, "kind")?;
+    let name = bp::word(&relation.relation, "relation")?;
+    let text = format!("{kind}#{name} = {}", bp::rewrite(&relation.rewrite, true)?);
+    Ok((ids::relation(kind, name), text))
+}
+
+/// `kind field value ...`, numbering the invariants of each kind as the reading does.
+pub(crate) fn invariant_text(
+    spec: &crate::InvariantSpec,
+    ordinals: &mut BTreeMap<&'static str, usize>,
+) -> Printed<(String, String)> {
+    let kind = invariant_kind(spec);
+    let ordinal = ordinals.entry(kind).or_insert(0);
+    *ordinal += 1;
+    let mut text = kind.replace('_', "-");
+    for (name, value) in bp::invariant_fields(spec)? {
+        text.push_str(&format!(" {name} {value}"));
+    }
+    Ok((ids::invariant(kind, *ordinal), text))
 }
 
 /// A run of lines of one kind: a blank line comes before the first.
@@ -754,8 +782,9 @@ impl Section {
     }
 }
 
-fn header(p: &mut Printer, policy: &Policy) -> Printed<()> {
-    let mut found: Vec<(&str, String)> = Vec::new();
+/// The lines of the header (kinds, broad, strategy, depth) that the policy needs, with their ids.
+pub(crate) fn header_items(p: &Printer, policy: &Policy) -> Printed<Vec<(&'static str, String)>> {
+    let mut found: Vec<(&'static str, String)> = Vec::new();
     for (id, word, items) in [
         (ids::TARGET_KINDS, "kinds", &policy.catalog.target_kinds),
         (ids::BROAD_TARGETS, "broad", &policy.catalog.broad_targets),
@@ -782,19 +811,12 @@ fn header(p: &mut Printer, policy: &Policy) -> Printed<()> {
         }
         None => {}
     }
-    if found.is_empty() {
-        return Ok(());
-    }
-    p.blank();
-    for (id, text) in found {
-        p.leaf(0, id, &text, false);
-    }
-    Ok(())
+    Ok(found)
 }
 
-fn permission_text(p: &mut Printer, def: &PermissionDef) -> Printed<()> {
+pub(crate) fn permission_text(def: &PermissionDef) -> Printed<(String, String)> {
     let key = bp::word(&def.key, "permission key")?;
-    let mut text = format!("permission {key} on {}", list(&def.targets, "kind")?);
+    let mut text = format!("{key} on {}", list(&def.targets, "kind")?);
     if !def.implied_by.is_empty() {
         text.push_str(&format!(" implied by {}", list(&def.implied_by, "permission")?));
     }
@@ -820,8 +842,7 @@ fn permission_text(p: &mut Printer, def: &PermissionDef) -> Printed<()> {
     if !def.meta.is_empty() {
         text.push_str(&format!(" meta {}", bp::pairs(&def.meta)?));
     }
-    p.leaf(0, &ids::permission(key), &text, false);
-    Ok(())
+    Ok((ids::permission(key), text))
 }
 
 fn subject_lines(p: &mut Printer, s: &Subject) -> Printed<()> {
@@ -903,7 +924,7 @@ fn grant_line(p: &mut Printer, g: &Grant) -> Printed<()> {
     Ok(())
 }
 
-fn tuple_text(p: &mut Printer, tuple: &crate::Tuple) -> Printed<()> {
+pub(crate) fn tuple_text(tuple: &crate::Tuple) -> Printed<(String, String)> {
     use crate::TupleSubject;
     bp::word(&tuple.object.kind, "tuple kind")?;
     bp::id_part(&tuple.object.id, "tuple id")?;
@@ -925,11 +946,10 @@ fn tuple_text(p: &mut Printer, tuple: &crate::Tuple) -> Printed<()> {
         bp::word(relation, "tuple subject relation")?;
     }
     let text = tuple.to_string();
-    p.leaf(0, &ids::tuple(&text), &format!("tuple {text}"), false);
-    Ok(())
+    Ok((ids::tuple(&text), text))
 }
 
-fn override_text(p: &mut Printer, spec: &OverrideSpec) -> Printed<()> {
+pub(crate) fn override_text(spec: &OverrideSpec) -> Printed<(String, String)> {
     let (id, mut text) = match &spec.rule {
         OverrideRule::ResourceOwner { attr } => (
             ids::override_owner(attr),
@@ -950,6 +970,5 @@ fn override_text(p: &mut Printer, spec: &OverrideSpec) -> Printed<()> {
     if !spec.except.is_empty() {
         text.push_str(&format!(" except {}", list(&spec.except, "permission")?));
     }
-    p.leaf(0, &id, &text, false);
-    Ok(())
+    Ok((id, text))
 }
