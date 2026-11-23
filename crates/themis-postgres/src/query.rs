@@ -26,6 +26,17 @@ pub enum PgQueryError {
     /// The filter reads a resource attribute that the [`PgTable`] has no column for.
     #[error("no column mapped for resource attribute {0:?}")]
     UnmappedAttribute(String),
+    /// The filter reads a step of the path whose kind the [`PgTable`] has no column for. Reading it
+    /// as "no row has it" would open access under a deny, so it is an error.
+    #[error("no column mapped for path kind {0:?}")]
+    UnmappedKind(String),
+    /// The filter names a step by kind only; a column holds ids, so it cannot be matched the way
+    /// the engine matches it (a step with no id).
+    #[error("step of kind {0:?} has no id and cannot be translated")]
+    KindOnlyStep(String),
+    /// The expression carries a residue, which has no SQL form.
+    #[error("expression has a residue; translate with `filter_where`")]
+    Residual,
     #[error("database error")]
     Database(#[from] tokio_postgres::Error),
     #[error("stored grant is not valid JSON")]
@@ -387,8 +398,10 @@ impl PgFilter {
 ///
 /// # Errors
 ///
-/// [`PgQueryError::UnmappedAttribute`] when the filter reads an attribute with no column. A kind
-/// of the path with no column is read as a step that no row has, which fails closed.
+/// [`PgQueryError::UnmappedAttribute`] when the filter reads an attribute with no column;
+/// [`PgQueryError::UnmappedKind`] when it reads a path kind with no column, and
+/// [`PgQueryError::KindOnlyStep`] for a step with no id. Both fail loudly because a deny turns a
+/// "no row" reading into an allow.
 pub fn filter_where(
     filter: &AccessFilter,
     layout: &PathLayout,
@@ -412,12 +425,16 @@ pub fn filter_where(
     })
 }
 
-/// Translates a structural expression with no residue; `Residual` parts read as false.
+/// Translates a structural expression with no residue.
 ///
 /// # Errors
 ///
-/// [`PgQueryError::UnmappedAttribute`] when the expression reads an attribute with no column.
+/// [`PgQueryError::Residual`] when the expression has a residue; the errors of [`filter_where`]
+/// for unmapped attributes and kinds.
 pub fn to_where(expr: &Expr, table: &PgTable, first_param: usize) -> Result<(String, Vec<PgParam>), PgQueryError> {
+    if expr.has_residual() {
+        return Err(PgQueryError::Residual);
+    }
     let mut params = Vec::new();
     let sql = to_sql(expr, table, first_param, &mut params)?;
     Ok((sql, params))
@@ -428,43 +445,55 @@ fn placeholder(first_param: usize, params: &mut Vec<PgParam>, param: PgParam) ->
     format!("${}", first_param + params.len() - 1)
 }
 
-fn step_sql(table: &PgTable, anchor: &Anchor, first_param: usize, params: &mut Vec<PgParam>) -> String {
+fn step_sql(
+    table: &PgTable,
+    anchor: &Anchor,
+    first_param: usize,
+    params: &mut Vec<PgParam>,
+) -> Result<String, PgQueryError> {
     if anchor.kind == GLOBAL {
-        return "TRUE".to_string();
+        return Ok("TRUE".to_string());
     }
-    let Some(column) = table.column_of(&anchor.kind) else {
-        return "FALSE".to_string();
-    };
-    let column = quote_ident(column);
-    match &anchor.id {
-        Some(id) => format!(
-            "{column} = {}",
-            placeholder(first_param, params, PgParam::Text(id.clone()))
-        ),
-        None => format!("{column} IS NOT NULL"),
-    }
+    let column = table
+        .column_of(&anchor.kind)
+        .ok_or_else(|| PgQueryError::UnmappedKind(anchor.kind.clone()))?;
+    let id = anchor
+        .id
+        .as_ref()
+        .ok_or_else(|| PgQueryError::KindOnlyStep(anchor.kind.clone()))?;
+    Ok(format!(
+        "{} = {}",
+        quote_ident(column),
+        placeholder(first_param, params, PgParam::Text(id.clone()))
+    ))
 }
 
 fn to_sql(expr: &Expr, table: &PgTable, first_param: usize, params: &mut Vec<PgParam>) -> Result<String, PgQueryError> {
     Ok(match expr {
         Expr::True => "TRUE".to_string(),
         Expr::False | Expr::Residual(_) => "FALSE".to_string(),
-        Expr::Within(anchor) => step_sql(table, anchor, first_param, params),
+        Expr::Within(anchor) => step_sql(table, anchor, first_param, params)?,
         Expr::OnPath(selector) => {
             let anchor = Anchor {
                 kind: selector.kind.clone(),
                 id: selector.id.clone(),
             };
-            step_sql(table, &anchor, first_param, params)
+            step_sql(table, &anchor, first_param, params)?
         }
-        Expr::AnchorIn { kind, ids } => match table.column_of(kind) {
-            Some(column) if !ids.is_empty() => format!(
-                "{} = ANY({}::text[])",
-                quote_ident(column),
-                placeholder(first_param, params, PgParam::TextArray(ids.iter().cloned().collect()))
-            ),
-            _ => "FALSE".to_string(),
-        },
+        Expr::AnchorIn { kind, ids } => {
+            let column = table
+                .column_of(kind)
+                .ok_or_else(|| PgQueryError::UnmappedKind(kind.clone()))?;
+            if ids.is_empty() {
+                "FALSE".to_string()
+            } else {
+                format!(
+                    "{} = ANY({}::text[])",
+                    quote_ident(column),
+                    placeholder(first_param, params, PgParam::TextArray(ids.iter().cloned().collect()))
+                )
+            }
+        }
         Expr::AttrEq { attr, value } => {
             let column = table
                 .attr_columns
@@ -549,9 +578,19 @@ mod tests {
     }
 
     #[test]
-    fn unmapped_kinds_fail_closed_and_unmapped_attributes_are_errors() {
-        let (sql, params) = to_where(&Expr::Within(Anchor::new("team", "t1")), &table(), 1).unwrap();
-        assert_eq!((sql.as_str(), params.len()), ("FALSE", 0));
+    fn unmapped_kinds_and_attributes_are_errors_not_false() {
+        assert!(matches!(
+            to_where(&Expr::not(Expr::Within(Anchor::new("team", "t1"))), &table(), 1),
+            Err(PgQueryError::UnmappedKind(kind)) if kind == "team"
+        ));
+        assert!(matches!(
+            to_where(&Expr::Within(Anchor::kind_only("project")), &table(), 1),
+            Err(PgQueryError::KindOnlyStep(kind)) if kind == "project"
+        ));
+        assert!(matches!(
+            to_where(&Expr::Residual(0), &table(), 1),
+            Err(PgQueryError::Residual)
+        ));
         let attr = Expr::AttrEq {
             attr: "status".into(),
             value: "draft".into(),
