@@ -8,8 +8,8 @@ use std::time::Duration;
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 use support::*;
-use themis::{Resource, Subject};
-use themis_server::{BrokenClock, DecisionServer, MemorySource, ServerConfig, TIMEOUT_HEADER};
+use themis::{Grant, Resource, Subject, SubjectMatcher, TargetSelector};
+use themis_server::{BrokenClock, DecisionServer, ManualClock, MemorySource, ServerConfig, Snapshot, TIMEOUT_HEADER};
 
 fn check_body(user: &str, id: &str) -> Value {
     json!({
@@ -283,4 +283,162 @@ async fn a_query_over_the_limits_answers_503_instead_of_a_partial_list() {
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(error_code(&answer), "query_limit_exceeded");
     assert!(answer.get("entries").is_none());
+}
+
+fn list_body(layout: Value) -> Value {
+    json!({
+        "subject": serde_json::to_value(Subject::user("alice")).unwrap(),
+        "permission": "document.view",
+        "kind": "document",
+        "layout": layout,
+    })
+}
+
+#[tokio::test]
+async fn a_layout_that_does_not_start_with_the_kind_is_invalid_request() {
+    // A failing source proves the check runs before the source is asked: a 400, never a 503.
+    let router = server(Arc::new(FailingSource), ServerConfig::default());
+    for layout in [json!(["folder"]), json!(["folder", "document"]), json!([])] {
+        let (status, answer) = send(&router, json_post("/v1/list", &list_body(layout.clone()))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{layout}");
+        assert_eq!(error_code(&answer), "invalid_request", "{layout}");
+    }
+}
+
+#[tokio::test]
+async fn a_layout_that_starts_with_the_kind_is_answered() {
+    let router = memory_server(ServerConfig::default());
+    let (status, answer) = send(&router, json_post("/v1/list", &list_body(json!(["document", "org"])))).await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+}
+
+#[tokio::test]
+async fn a_panic_in_the_source_answers_503_internal() {
+    let router = server(Arc::new(PanickingSource), ServerConfig::default());
+    let (status, answer) = send(&router, json_post("/v1/check", &check_body("alice", "d1"))).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(error_code(&answer), "internal");
+    assert!(answer.get("decision").is_none());
+}
+
+#[tokio::test]
+async fn a_panic_in_the_clock_answers_503_internal() {
+    struct PanickingClock;
+    impl themis_server::Clock for PanickingClock {
+        fn now_ms(&self) -> Option<u64> {
+            panic!("the clock blew up");
+        }
+    }
+    let router = DecisionServer::new(Arc::new(MemorySource::new(snapshot())))
+        .with_clock(Arc::new(PanickingClock))
+        .router();
+    let (status, answer) = send(&router, json_post("/v1/check", &check_body("alice", "d1"))).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(error_code(&answer), "internal");
+}
+
+#[tokio::test]
+async fn a_panic_does_not_take_the_router_down() {
+    let router = server(Arc::new(PanickingSource), ServerConfig::default());
+    for _ in 0..2 {
+        let (status, _) = send(&router, json_post("/v1/check", &check_body("alice", "d1"))).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+    let get = axum::http::Request::get("/health/live")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    assert_eq!(send(&router, get).await.0, StatusCode::OK);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_body_that_never_finishes_is_cut_at_the_deadline() {
+    let router = memory_server(ServerConfig::default().with_default_timeout(Duration::from_millis(100)));
+    let stalled = futures_util::stream::pending::<Result<axum::body::Bytes, std::convert::Infallible>>();
+    let request = axum::http::Request::post("/v1/check")
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .body(axum::body::Body::from_stream(stalled))
+        .unwrap();
+    let (status, answer) = send(&router, request).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(error_code(&answer), "deadline_exceeded");
+}
+
+#[tokio::test]
+async fn the_instant_of_the_decision_is_read_after_the_snapshot_loads() {
+    // The grant ends at NOW + 500. The source takes 1000 ms to load: read before it, the
+    // instant would still be inside the window and the answer would be an allow.
+    let clock = ManualClock::new(NOW);
+    let grant = Grant::allow(
+        "short",
+        SubjectMatcher::user("alice"),
+        "document.view",
+        TargetSelector::kind("document"),
+    )
+    .valid_until(NOW + 500);
+    let source = AdvancingSource {
+        clock: clock.clone(),
+        by_ms: 1_000,
+        inner: MemorySource::new(Snapshot::new(engine(), vec![grant])),
+    };
+    let router = DecisionServer::new(Arc::new(source))
+        .with_clock(Arc::new(clock))
+        .router();
+    let (status, answer) = send(&router, json_post("/v1/check", &check_body("alice", "d1"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(answer["evaluated_at"], NOW + 1_000);
+    assert_eq!(answer["decision"]["effect"], "deny");
+}
+
+#[tokio::test]
+async fn a_batch_over_the_work_budget_answers_503_and_a_batch_at_it_is_answered() {
+    // one grant: 2 checks cost 2.
+    let at_budget = memory_server(ServerConfig::default().with_max_work(2));
+    let two = json!({"checks": [check_body("alice", "1"), check_body("alice", "2")]});
+    assert_eq!(
+        send(&at_budget, json_post("/v1/check/batch", &two)).await.0,
+        StatusCode::OK
+    );
+
+    let over = memory_server(ServerConfig::default().with_max_work(1));
+    let (status, answer) = send(&over, json_post("/v1/check/batch", &two)).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(error_code(&answer), "query_limit_exceeded");
+    assert!(answer.get("results").is_none());
+}
+
+#[tokio::test]
+async fn a_listing_whose_candidates_cost_more_than_the_budget_answers_503() {
+    let router = memory_server(ServerConfig::default().with_max_work(1));
+    let mut body = list_body(json!(["document"]));
+    body["resources"] = json!([
+        serde_json::to_value(document("d1")).unwrap(),
+        serde_json::to_value(document("d2")).unwrap()
+    ]);
+    let (status, answer) = send(&router, json_post("/v1/list", &body)).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(error_code(&answer), "query_limit_exceeded");
+}
+
+#[tokio::test]
+async fn access_over_the_query_limits_answers_503() {
+    let limits = themis::QueryLimits::default().with_max_parties(0);
+    let router = memory_server(ServerConfig::default().with_query_limits(limits));
+    let body = json!({"resource": serde_json::to_value(document("d1")).unwrap()});
+    let (status, answer) = send(&router, json_post("/v1/access", &body)).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(error_code(&answer), "query_limit_exceeded");
+    assert!(answer.get("parties").is_none());
+}
+
+#[test]
+fn the_server_default_limits_are_tighter_than_the_engine() {
+    let config = ServerConfig::default();
+    assert_eq!(config.query_limits.max_parties, ServerConfig::DEFAULT_MAX_PARTIES);
+    assert_eq!(config.query_limits.max_decisions, ServerConfig::DEFAULT_MAX_DECISIONS);
+    assert!(config.query_limits.max_parties < themis::QueryLimits::default().max_parties);
+    assert!(config.max_concurrent_work >= 1);
+    assert_eq!(
+        ServerConfig::default().with_max_concurrent_work(0).max_concurrent_work,
+        1
+    );
 }

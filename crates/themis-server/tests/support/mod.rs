@@ -80,6 +80,31 @@ impl DecisionSource for SlowSource {
     }
 }
 
+/// A source that panics when asked.
+pub struct PanickingSource;
+
+#[async_trait]
+impl DecisionSource for PanickingSource {
+    async fn snapshot(&self) -> Result<Arc<Snapshot>, SourceError> {
+        panic!("the source blew up");
+    }
+}
+
+/// A source that moves the clock while it loads, as a slow store does.
+pub struct AdvancingSource {
+    pub clock: ManualClock,
+    pub by_ms: u64,
+    pub inner: MemorySource,
+}
+
+#[async_trait]
+impl DecisionSource for AdvancingSource {
+    async fn snapshot(&self) -> Result<Arc<Snapshot>, SourceError> {
+        self.clock.advance(self.by_ms);
+        self.inner.snapshot().await
+    }
+}
+
 pub fn json_post(path: &str, body: &Value) -> Request<Body> {
     raw_post(path, "application/json", body.to_string())
 }
