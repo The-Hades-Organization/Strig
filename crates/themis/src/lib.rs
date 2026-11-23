@@ -36,6 +36,7 @@ pub mod explain;
 pub mod governance;
 pub mod grant;
 pub mod overrides;
+pub mod query;
 pub mod rbac;
 pub mod rebac;
 pub mod resource;
@@ -64,7 +65,13 @@ pub use governance::{
     RequirePermission, Violation,
 };
 pub use grant::{Effect, Grant, GrantIndex, GrantSource, SubjectMatcher, TargetSelector};
-pub use overrides::{FnOverride, Override, PermissionHolder, ResourceOwner};
+pub use overrides::{
+    FnOverride, Gate, Override, OverrideReach, PermissionHolder, ReachRequest, ResourceOwner, SubjectsRequest,
+};
+pub use query::{
+    Access, AccessFilter, Answer, Except, Expr, InMemorySubjects, Outcome, PathLayout, QueryContext, QueryError,
+    Residual, Resolution, Shape, SubjectRef, SubjectResolver, Via, WhoCan, WhoCanEntry,
+};
 pub use rbac::{RbacError, RoleGraph};
 pub use rebac::{
     InMemoryTuples, RebacError, RelationSchema, Rewrite, Tuple, TupleIndex, TupleStore, TupleSubject,
