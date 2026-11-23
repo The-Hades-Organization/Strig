@@ -8,8 +8,19 @@ or DSL. It needs the `dsl` feature of `themis-auth`; reading and writing files n
 themis-auth = { version = "0.4", features = ["dsl", "dsl-fs"] }
 ```
 
-The text is only a way to write a policy. Parsing it produces the same `Policy` value, and from there you validate it,
-serialize it to JSON or build an engine from it, exactly as with a policy built in code.
+Parsing the text produces a `Policy`, the same value you would build in code.
+
+The smallest policy declares one kind and one permission:
+
+```themis
+language blocks
+
+target_kinds = [org]
+
+permission org.read {
+  targets = [org]
+}
+```
 
 ## Three syntaxes, one policy
 
@@ -242,7 +253,7 @@ when the source does not parse, or when the policy cannot be written in the targ
 ## Notes and reconstruction
 
 Comments are not thrown away. Every `//` comment becomes a note with its text, the element it is anchored to, and its
-place: on the lines before the element, after it, or on the same line. `parse` returns them next to the policy, and
+place: before the element, after it, on the same line, or inside it. `parse` returns them next to the policy, and
 `print` and `convert` write them back beside the same element in the new syntax, as the `// hi` above shows.
 
 Notes belong to the text, not to the policy. They are not part of the JSON, so a policy loaded from JSON prints
@@ -343,6 +354,9 @@ Common to the three types:
 - Comments start with `//` and run to the end of the line.
 - Identifiers such as permissions (`doc.read`), roles and kinds are bare words. Strings use double quotes.
 - A resource or subject reference is `kind:id`, for example `project:apollo` or `user:ana`.
+- Where a field takes a resource (`resource` and `on` in the invariants), it can be a path of steps joined by `>`, such as
+  `org:acme > doc`. Each step is `kind` or `kind:id`, and the steps keep the order written, which is the order of
+  `Resource::path`: the first is the most specific step.
 - Dates are UTC: `2026-01-01` or `2026-01-01T09:00:00Z`, with optional milliseconds.
 - Subject matchers: `anyone`, `role <name>`, `user <id>`, `principal <id>`, `relation <name>`.
 - Conditions use `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `and` (or `&&`), `or` (or `||`), `not` (or `!`),
