@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/) (pre-1.0: minor versions may break the API).
+All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/) (pre-1.0: minor versions may break the API), with a Breaking section for changes that need action when upgrading.
 
 ## [Unreleased]
 
@@ -19,7 +19,6 @@ All notable changes to this project are documented here. The format follows [Kee
   - `NoLockout::with_reserve`: a refused change that would lock everyone out carries a `Suggestion` naming the role assignment that fixes it. Nothing is applied, and the audit record keeps it.
   - `RoleTemplate` materializes into ordinary grants, with the template id and version in the change metadata and no live link back. `Materialized::apply` sends each grant through `Governance` and simulates the whole batch first.
   - Every new rule has an `InvariantSpec` variant, so it can come from JSON.
-- Governance of role assignments: `Mutation::AssignRole` and `Mutation::RevokeRole` go through the same invariants and are audited as `role_assign` and `role_revoke`, with `Mutation::subject_after` for the subject to persist. Subjects are identified by id alone in `NoSelfManagement`, `NoLockout` and `Proposal::subject_after`.
 - Validity windows (`themis`). `Grant` and `RoleAssignment` take `valid_from` and `valid_until` (milliseconds since the Unix epoch, the end exclusive), with the builders `valid_from`, `valid_until` and `valid_between`; JSON without the fields stays valid, and an empty or reversed window is refused. `Context::at(now)` makes what is outside its window not exist for decisions, `explain` and capabilities. `Governance::at(now)` does the same for changes, so an actor's expired grants and roles do not count. Without an instant the engine fails closed: an allow with a window is ignored and a deny with a window applies. `next_boundary` gives the next start or end, for whoever keeps a cache.
 - `themis-sync`: the capability cache cuts its lifetime at the next validity boundary and never serves a capability past its `valid_until`, even after a clock step or a suspend. `Hub::schedule_expiry` delivers a `Change::expiry` at the boundary, so affected sessions receive the new capabilities with no write. `EngineProvider::with_clock` replaces the system clock.
 - `themis-postgres`: `window_predicate` and `candidate_predicate` build the parameterized SQL filter that mirrors `Context::at`. The grant table gains `effect`, `valid_from` and `valid_until` columns with `CHECK`s; a table created before needs them added.
@@ -32,7 +31,7 @@ All notable changes to this project are documented here. The format follows [Kee
   - Benchmark: `cargo bench -p themis-auth --bench listing`.
 - `themis-server`: new crate that serves decisions over HTTP (axum) and fails closed. Routes: `POST /v1/check`, `/v1/check/batch`, `/v1/list`, `/v1/who` and `/v1/access`, plus `/health/live` and `/health/ready`. `now` is the server clock. A source that is down, a query over its limits, a deadline that passes or any internal error answers 503 with the stable body `{"error":{"code":"...","message":"..."}}`, never an allow. The contract is in `crates/themis-server/API.md`.
 - `themis-server`: Rust client behind the `client` feature (on by default), with a timeout per call, a circuit breaker on an injectable clock and batches in one call. A network failure, timeout, 5xx or open circuit is `ClientDecision::Denied`, never an allow.
-- `themis-node`: the 0.4.0 engine API in the Node and WebAssembly bindings: `list`, `whoCan`, `whoCanOn`, `accessOf` and `checkFor`, `validFrom` and `validUntil`, `Context.setNow` and `setLimits`, the new invariants, `materialize` and `applyTemplate`, and `Exclusive`. Errors have a stable `code`, and responses use camelCase field names. `index.d.ts` types all of it.
+- `themis-node`: the 0.4.0 engine API in the Node and WebAssembly bindings: `list`, `whoCan`, `whoCanOn`, `accessOf` and `checkFor`, `validFrom` and `validUntil`, `Context.setNow` and `setLimits`, the new invariants, `materialize` and `applyTemplate`, and `Exclusive`. Errors have a stable `code`, and responses use camelCase field names. `index.d.ts` types all of it. `Exclusive.renew` takes `(engine, context, subject, resource, ttlMs, now?)` and checks the hold permission, so a holder who lost it gets `EXCLUSIVE_DENIED`. A refused scalar argument (wrong type, `NaN`, infinity, out of range) throws `INVALID_ARGUMENT`; `INVALID_INPUT` stays for the shape of an object.
 - `themis-auth` (npm): web integrations as subpaths, `themis-auth/express`, `themis-auth/fastify` (`preHandler` and a plugin) and `themis-auth/nestjs` (`@Can(permission, resolver?)` and `ThemisGuard`). You give functions that read the subject, the permission and the resource from the request; nothing is inferred. Each runs in local mode or against a decision server. A deny answers 403, a failing or unreachable service 503, an unidentified caller 401 and an extractor error 500 with no detail; the statuses are configurable and the request never passes otherwise. Express, Fastify and `@nestjs/common` are optional peer dependencies.
 - `themis-auth` (npm): `themis-auth/remote`, a client for the decision server with a timeout per call, a circuit breaker, batches and the API's error codes. A network error, timeout, any status other than 200, an unreadable body or an open circuit is a deny.
 - Release: each `v*` tag creates the GitHub release with the notes from this file and attaches the Node modules (Linux x64 and arm64, macOS x64 and arm64, Windows x64), the WebAssembly package and `SHA256SUMS`.
@@ -40,10 +39,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Changed
 
 - `themis`: `Engine::decide_without_overrides` enforces prerequisites; it only changes the result for catalogs that use `depends_on`.
-- `themis`: `Subject::roles_for` returns only role assignments without a window, so code that lists roles for display stops seeing the temporary ones. Use `roles_at` with an instant to include them.
 - `themis`: the new query types (`Expr`, `OverrideReach`, `FilterShape`, `FilterResidual`, `AccessVia`, `SubjectRef`, `QueryError`, `QueryContext`, `PgFilter` and the request types) are `#[non_exhaustive]`.
-- `themis-sync`: `CapabilityCache::insert` and `insert_at` do not store a set that has a grant already out of its window, and `Change::expiry` takes a subject (`Change::expiry_for_everyone` for the notice to all).
-- `themis-node`: `Exclusive.renew` takes `(engine, context, subject, resource, ttlMs, now?)` and checks the hold permission, so a holder who lost it gets `EXCLUSIVE_DENIED`. A refused scalar argument (wrong type, `NaN`, infinity, out of range) throws `INVALID_ARGUMENT`; `INVALID_INPUT` stays for the shape of an object.
 
 ### Breaking
 
@@ -52,6 +48,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - `themis`: `Override::subjects` and `SubjectsRequest::holders` return `Result<_, QueryError>`. An override that implements `subjects` returns `Ok(vec)` and propagates the error from `holders` with `?`; one that does not is unaffected.
 - `themis`: `CatalogExport` gains `dependsOn`, `nonDelegable`, `managementOnly` and `overrideOnly`. A consumer that ignores unknown fields loses these restrictions: read them before enforcing anything client-side.
 - `themis-postgres`: `grants_by_permission`, `grants_by_target_kind` and `grants_by_subject` take `now: Option<u64>`. Pass `None` to keep the fail-closed reading, or the instant of the decision. The crate now depends on `themis`, `serde_json` and `thiserror`.
+- `themis`: `Subject::roles_for` returns only role assignments without a window, so code that lists roles for display stops seeing the temporary ones. Use `roles_at` with an instant to include them.
+- `themis-sync`: `CapabilityCache::insert` and `insert_at` do not store a set that has a grant already out of its window, and `Change::expiry` takes a subject (`Change::expiry_for_everyone` for the notice to all).
 
 ## [0.3.1] - 2026-11-22
 

@@ -190,7 +190,6 @@ project.add_source("catalog.themis", "language rules\n\nkinds doc\npermission do
 project.add_source("people.themis", "language blocks\n\ntarget_kinds = [org]\nrole viewer {\n}\n")?;
 let built = project.build()?;
 let policy = built.policy;
-# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 `add_source` returns the type it detected. `build` merges the sources into one policy, and `origins` on the result
@@ -215,12 +214,12 @@ use themis::dsl::{Language, fs};
 let policy = fs::read_file("policies/main.themis")?.policy;
 let project = fs::read_dir("policies")?;      // every *.themis in the directory
 fs::write_file("policies/out.themis", &policy, Language::Rules)?;
-# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 - `read_file` parses one file.
 - `read_dir` builds a `Project` from the `*.themis` files directly inside a directory. It does not descend into
-  subdirectories and it skips symbolic links. It reads at most 1024 files.
+  subdirectories and it refuses a policy file that is a symbolic link. A directory with more than 1024 policy files, or
+  more than 64 MiB of them together, is an error.
 - `write_file` writes to a file beside the target and renames it over the target, so a reader never sees a half-written
   policy.
 
@@ -235,7 +234,6 @@ use themis::dsl::{Language, convert};
 
 let actors = convert("language rules\n\nkinds doc\n// hi\nrole viewer\n", Language::Actors)?;
 assert_eq!(actors, "language actors\n\n// hi\nrole viewer\n\ncatalog\n  kinds doc\n");
-# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 `print(&policy, language)` does the same from a `Policy` you already hold. A conversion fails with a `ConvertError`
@@ -262,7 +260,6 @@ let parsed = parse("main.themis", source)?;
 let json = parsed.policy.to_json()?;
 let again = themis::dsl::Policy::from_json(&json)?;
 assert!(parsed.policy.equivalent(&again));
-# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 Two files in different types that mean the same thing give the same JSON. Treat the text as the way people edit the
@@ -322,7 +319,7 @@ e.themis:5:3: unknown field `target` in permission
 ```
 
 The parser keeps going after the first error and reports up to 100, then "and N more". An error that involves two
-places names the second one with "also at".
+places names the second one with "also at". Messages and hints are in English.
 
 ## Limits against hostile input
 
@@ -333,7 +330,7 @@ Parsing is bounded, so untrusted text cannot exhaust memory or the stack:
 | Size of one source | 4 MiB (`MAX_SOURCE_BYTES`) |
 | Sources in a project | 10000 (`MAX_SOURCES`) |
 | Total size of a project | 64 MiB (`MAX_PROJECT_BYTES`) |
-| Files read from a directory | 1024 |
+| Policy files in a directory | 1024 |
 | Nesting of conditions and groups | 64 |
 | Diagnostics reported | 100 |
 
