@@ -31,6 +31,8 @@ pub mod audit;
 pub mod catalog;
 pub mod condition;
 pub mod decision;
+#[cfg(feature = "dsl")]
+pub mod dsl;
 pub mod engine;
 #[cfg(feature = "exclusive")]
 pub mod exclusive;
