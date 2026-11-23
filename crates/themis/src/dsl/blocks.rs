@@ -333,7 +333,9 @@ fn strategy(cur: &mut Cursor, b: &mut Builder, head: &Sp<String>) -> PResult<()>
             "permit_overrides" => StrategySpec::PermitOverrides,
             "first_applicable" => StrategySpec::FirstApplicable,
             other => {
-                return Err(Raw::new(word.span, format!("unknown strategy `{other}`")).hint(suggest(other, &STRATEGIES)));
+                return Err(
+                    Raw::new(word.span, format!("unknown strategy `{other}`")).hint(suggest(other, &STRATEGIES))
+                );
             }
         };
         Ok(())
