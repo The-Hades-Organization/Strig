@@ -444,10 +444,7 @@ fn grant_body(
         }
     }
     let Some(name) = name else {
-        return Err(Raw::new(
-            cur.span(),
-            format!("a rule needs an id: end the line with `as <id>`"),
-        ));
+        return Err(Raw::new(cur.span(), "a rule needs an id: end the line with `as <id>`"));
     };
     let id = ids::grant(&name.v);
     if duplicate(b, &id, name.span, &format!("grant `{}`", name.v)) {
