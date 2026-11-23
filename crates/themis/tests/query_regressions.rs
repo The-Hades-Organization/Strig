@@ -5,9 +5,9 @@ mod support;
 
 use support::*;
 use themis::{
-    Anchor, Candidate, DenyOverrides, Engine, Expr, FilterResidual, FirstApplicable, Grant, PathLayout, PermissionHolder,
-    QueryContext, QueryError, QueryLimits, Request, Resource,
-    Strategy, Subject, SubjectMatcher, TargetSelector,
+    Anchor, Candidate, DenyOverrides, Engine, Expr, FilterResidual, FirstApplicable, Grant, PathLayout,
+    PermissionHolder, QueryContext, QueryError, QueryLimits, Request, Resource, Strategy, Subject, SubjectMatcher,
+    TargetSelector,
 };
 
 fn layout() -> PathLayout {
@@ -415,7 +415,11 @@ fn a_query_past_its_limits_fails_instead_of_answering_in_part() {
     ));
     let roomy = QueryContext::new(&grants);
     assert_eq!(
-        engine.who_can_on(&roomy, "document.view", &doc).unwrap().subjects().count(),
+        engine
+            .who_can_on(&roomy, "document.view", &doc)
+            .unwrap()
+            .subjects()
+            .count(),
         5
     );
 }
