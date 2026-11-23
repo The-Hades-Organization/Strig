@@ -134,6 +134,9 @@ pub(crate) fn parse_unvalidated(file: &str, text: &str) -> Result<Parsed, Diagno
     let mut builder = Builder::new(file, language.1);
     builder.open(policy::ids::LANGUAGE, language.0);
     builder.close(cursor.previous_span());
+    if language.1 != Language::Blocks {
+        check_indentation(text, &mut builder);
+    }
     match language.1 {
         Language::Blocks => blocks::parse(&mut cursor, &mut builder),
         Language::Rules => rules::parse(&mut cursor, &mut builder),
@@ -148,6 +151,32 @@ pub(crate) fn parse_unvalidated(file: &str, text: &str) -> Result<Parsed, Diagno
         policy,
         origins,
     })
+}
+
+/// In Rules and Actors the indentation says what continues or belongs to what, so it is made of
+/// spaces: a tab or a no-break space would count as one column and read as something else.
+fn check_indentation(text: &str, builder: &mut Builder) {
+    for (at, line) in text.lines().enumerate() {
+        let lead = line.chars().take_while(|c| c.is_whitespace()).count();
+        if lead == line.chars().count() {
+            continue;
+        }
+        let Some(bad) = line.chars().take(lead).position(|c| c != ' ') else {
+            continue;
+        };
+        let place = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+        builder.report(
+            error::Raw::new(
+                error::Span {
+                    line: place(at.saturating_add(1)),
+                    col: place(bad.saturating_add(1)),
+                    len: 1,
+                },
+                "the indentation has a tab or another space character",
+            )
+            .hint("indent with spaces only"),
+        );
+    }
 }
 
 /// `language <name>`: the first significant token of every source.

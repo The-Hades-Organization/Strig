@@ -53,6 +53,8 @@ struct Actor {
     lazy_user: Option<String>,
     level: Option<u32>,
     scope: Option<Anchor>,
+    /// The `in` line whose scope no rule has used yet.
+    empty_in: Option<Span>,
 }
 
 enum Ctx {
@@ -87,6 +89,7 @@ pub(crate) fn parse(cur: &mut Cursor, b: &mut Builder) {
         let result = if col < base {
             Err(Raw::new(cur.span(), "this line starts left of the first one").hint("headings share one column"))
         } else if col == base {
+            flush_in(&ctx, b);
             heading(cur, b, &below).map(|next| ctx = next)
         } else {
             child(cur, b, &mut ctx, col)
@@ -108,6 +111,16 @@ pub(crate) fn parse(cur: &mut Cursor, b: &mut Builder) {
             }
         }
         cur.reset_depth();
+    }
+    flush_in(&ctx, b);
+}
+
+/// An `in` line that no rule sits under is a mistake: the scope would silently apply to nothing.
+fn flush_in(ctx: &Ctx, b: &mut Builder) {
+    if let Ctx::Actor(actor) = ctx
+        && let Some(at) = actor.empty_in
+    {
+        b.report(Raw::new(at, "an `in` line has no rule under it").hint("indent the rules that take the scope under it"));
     }
 }
 
@@ -170,6 +183,7 @@ fn heading(cur: &mut Cursor, b: &mut Builder, below: &Below) -> PResult<Ctx> {
                 lazy_user: None,
                 level: None,
                 scope: None,
+                empty_in: None,
             }))
         }
         "user" | "principal" | "relation" | "anyone" | "any" => {
@@ -185,6 +199,7 @@ fn heading(cur: &mut Cursor, b: &mut Builder, below: &Below) -> PResult<Ctx> {
                 lazy_user,
                 level: None,
                 scope: None,
+                empty_in: None,
             }))
         }
         other => Err(Raw::new(head.span, format!("unknown heading `{other}`")).hint(suggest(other, &HEADINGS))),
@@ -235,6 +250,7 @@ fn role_heading(cur: &mut Cursor, b: &mut Builder, at: Span) -> PResult<Ctx> {
         lazy_user: None,
         level: None,
         scope: None,
+        empty_in: None,
     }))
 }
 
@@ -253,8 +269,9 @@ fn near_miss(b: &Builder, name: &str, at: Span) -> PResult<()> {
     let Some(close) = close_role(&known, name) else {
         return Ok(());
     };
-    Err(Raw::new(at, format!("role `{name}` is not declared"))
-        .hint(format!("did you mean `{close}`? if `{name}` is a new role, write `role {name} inherits` with nothing after it")))
+    Err(Raw::new(at, format!("role `{name}` is not declared")).hint(format!(
+        "did you mean `{close}`? if `{name}` is a new role, write `role {name} inherits` with nothing after it"
+    )))
 }
 
 /// The text that declares the role at `at`: a name close to an earlier role gets the explicit
@@ -315,9 +332,17 @@ fn child(cur: &mut Cursor, b: &mut Builder, ctx: &mut Ctx, col: u32) -> PResult<
                 };
                 let found = cur.current();
                 return match &found.tok {
-                    Tok::Ident(w) if w == "allow" || w == "deny" => grant(cur, b, actor, Some(&scope)),
+                    Tok::Ident(w) if w == "allow" || w == "deny" => {
+                        actor.empty_in = None;
+                        grant(cur, b, actor, Some(&scope))
+                    }
                     _ => Err(Raw::new(found.span, "only rules go under an `in` line").hint("`in` blocks do not nest")),
                 };
+            }
+            if let Some(at) = actor.empty_in.take() {
+                b.report(
+                    Raw::new(at, "an `in` line has no rule under it").hint("indent the rules that take the scope under it"),
+                );
             }
             actor.scope = None;
             actor_line(cur, b, actor)
@@ -335,8 +360,10 @@ fn actor_line(cur: &mut Cursor, b: &mut Builder, actor: &mut Actor) -> PResult<(
     };
     match word.as_str() {
         "in" => {
+            let at = cur.span();
             cur.advance();
             actor.scope = Some(anchor(cur)?.anchor);
+            actor.empty_in = Some(at);
             Ok(())
         }
         "allow" | "deny" => grant(cur, b, actor, None),
