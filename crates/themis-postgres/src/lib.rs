@@ -26,7 +26,7 @@
 
 mod window;
 
-pub use window::{InstantOutOfRange, WindowColumns, WindowPredicate, window_predicate};
+pub use window::{InstantOutOfRange, WindowColumns, WindowPredicate, candidate_predicate, window_predicate};
 
 use std::future::Future;
 use std::pin::Pin;

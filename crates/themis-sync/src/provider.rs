@@ -49,6 +49,12 @@ pub struct Evaluation {
 pub type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
 /// Fetches the candidate grants of a subject in a scope (database, service, file).
+///
+/// Return the grants that start later too, and drop at most the ones that already expired: the
+/// provider schedules the recompute at each start, and a start the loader filtered out never
+/// triggers one. The engine applies the validity window itself, so a grant that has not started
+/// is not granted. With the `themis-postgres` crate, filter with `candidate_predicate`, not
+/// `window_predicate`.
 #[async_trait]
 pub trait GrantLoader: Send + Sync + 'static {
     async fn load(&self, subject: &Subject, scope: &Resource) -> Result<Vec<Grant>, BoxError>;
