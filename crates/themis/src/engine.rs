@@ -17,6 +17,7 @@ use crate::rebac::{RelationSchema, TupleStore};
 use crate::resource::{Anchor, Resource};
 use crate::strategy::{Candidate, MostSpecific, Strategy};
 use crate::subject::Subject;
+use crate::validity::ValidityError;
 
 static EMPTY_ENV: Attributes = Attributes::new();
 
@@ -36,13 +37,16 @@ struct Judged {
 
 const DEFAULT_MAX_RELATION_DEPTH: usize = 32;
 
-/// Data of a decision: grants, ReBAC tuples and environment attributes. The [`Engine`] only holds
-/// configuration; the data arrives with each call.
+/// Data of a decision: grants, ReBAC tuples, environment attributes and the current instant. The
+/// [`Engine`] only holds configuration; the data arrives with each call.
 #[derive(Clone, Copy)]
 pub struct Context<'a> {
     pub grants: &'a dyn GrantSource,
     pub tuples: Option<&'a dyn TupleStore>,
     pub env: &'a Attributes,
+    /// Instant of the decision, in milliseconds since the Unix epoch. It decides which validity
+    /// windows are open (see [`crate::validity`]). `None` fails closed.
+    pub now: Option<u64>,
 }
 
 impl<'a> Context<'a> {
@@ -51,6 +55,7 @@ impl<'a> Context<'a> {
             grants,
             tuples: None,
             env: &EMPTY_ENV,
+            now: None,
         }
     }
 
@@ -61,6 +66,18 @@ impl<'a> Context<'a> {
 
     pub fn with_env(mut self, env: &'a Attributes) -> Self {
         self.env = env;
+        self
+    }
+
+    /// Sets the instant of the decision (milliseconds since the Unix epoch). A grant or a role
+    /// assignment outside its validity window does not exist for the decision, the explanation
+    /// and the capabilities. Without it, an `allow` with a window is ignored and a `deny` with a
+    /// window still holds.
+    ///
+    /// The ABAC `env.now` is not derived from this value: it is whatever `env` carries. Feed both
+    /// from the same instant.
+    pub fn at(mut self, now: u64) -> Self {
+        self.now = Some(now);
         self
     }
 }
@@ -87,6 +104,8 @@ pub enum GrantError {
     RelationsDisabled,
     #[error("condição chama função não registrada: {0}")]
     UnknownFunction(String),
+    #[error("janela de validade inválida: {0}")]
+    InvalidWindow(#[from] ValidityError),
 }
 
 struct OverrideEntry {
@@ -235,7 +254,7 @@ impl Engine {
             path: request.resource.anchors().map(|(_, a)| a.clone()).collect(),
             roles: self
                 .roles
-                .expand(request.subject.roles_for(request.resource))
+                .expand(request.subject.roles_at(request.resource, ctx.now))
                 .into_iter()
                 .collect(),
             overrides: recorder.overrides,
@@ -366,7 +385,10 @@ impl Engine {
         warnings: &mut Vec<String>,
         mut recorder: Option<&mut Recorder>,
     ) -> Vec<Candidate> {
-        let roles = self.roles.expand(request.subject.roles_for(request.resource));
+        let roles = self.roles.expand(request.subject.roles_at(request.resource, ctx.now));
+        let denial_roles = self
+            .roles
+            .expand(request.subject.roles_for_denial(request.resource, ctx.now));
         let eval_ctx = EvalContext {
             subject: request.subject,
             resource: request.resource,
@@ -375,7 +397,12 @@ impl Engine {
         let tracing = recorder.is_some();
         let mut out = Vec::new();
         ctx.grants.visit(request.subject, request.resource, &mut |grant| {
-            let judged = self.judge(ctx, request, effective, &roles, &eval_ctx, grant, warnings, tracing);
+            let roles = if grant.effect == Effect::Deny {
+                &denial_roles
+            } else {
+                &roles
+            };
+            let judged = self.judge(ctx, request, effective, roles, &eval_ctx, grant, warnings, tracing);
             if let (true, Some(rank)) = (judged.verdict.is_candidate(), judged.rank) {
                 out.push(Candidate {
                     grant: grant.clone(),
@@ -416,6 +443,9 @@ impl Engine {
         };
         if !effective.contains(&grant.permission) {
             return out(Verdict::PermissionUnrelated);
+        }
+        if !grant.in_force(ctx.now) {
+            return out(Verdict::OutsideWindow);
         }
         if self.catalog.is_override_only(request.permission) || self.catalog.is_override_only(&grant.permission) {
             return out(Verdict::OverrideOnly);
@@ -512,6 +542,7 @@ impl Engine {
         if grant.id.trim().is_empty() {
             return Err(GrantError::EmptyId);
         }
+        grant.validity().check()?;
         if !self.catalog.contains(&grant.permission) {
             return Err(GrantError::UnknownPermission(grant.permission.clone()));
         }
@@ -542,11 +573,16 @@ impl Engine {
     /// `scope`. The result is itself a [`GrantSource`] for repeated decisions (a WebSocket
     /// connection, a page with many buttons) and serializes for the frontend.
     pub fn capabilities(&self, ctx: &Context<'_>, subject: &Subject, scope: &Resource) -> CapabilitySet {
-        let roles = self.roles.expand(subject.roles_for(scope));
+        let roles = self.roles.expand(subject.roles_at(scope, ctx.now));
+        let denial_roles = self.roles.expand(subject.roles_for_denial(scope, ctx.now));
         let mut grants = Vec::new();
         ctx.grants.visit(subject, scope, &mut |grant| {
+            if !grant.in_force(ctx.now) {
+                return;
+            }
             let concerns = match &grant.subject {
                 SubjectMatcher::User { id } => subject.id.as_deref() == Some(id.as_str()),
+                SubjectMatcher::Role { id } if grant.effect == Effect::Deny => denial_roles.contains(id),
                 SubjectMatcher::Role { id } => roles.contains(id),
                 SubjectMatcher::Principal { name } => subject.has_principal(name),
                 SubjectMatcher::Relation { .. } | SubjectMatcher::Any => true,
@@ -567,6 +603,14 @@ impl Engine {
 pub struct CapabilitySet {
     pub subject: Subject,
     pub grants: Vec<Grant>,
+}
+
+impl CapabilitySet {
+    /// The next instant after `now` at which a grant or a role assignment of the subject starts or
+    /// stops being in force. The set was computed for `now` and is stale from this instant on.
+    pub fn next_boundary(&self, now: u64) -> Option<u64> {
+        crate::validity::next_boundary(now, &self.grants, &self.subject.roles)
+    }
 }
 
 impl GrantSource for CapabilitySet {

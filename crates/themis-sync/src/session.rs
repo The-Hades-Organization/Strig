@@ -76,10 +76,13 @@ impl Session {
             .heartbeat
             .map(|period| interval_at(Instant::now() + period, period));
         let worker = Worker {
+            id: hub.new_session_id(),
+            hub: hub.clone(),
             out,
             subject,
             scopes,
             provider,
+            deadline: None,
         };
         tokio::spawn(worker.run(hub.origin().to_string(), changes, control, heartbeat));
         (SessionControl { tx }, ReceiverStream::new(stream))
@@ -87,10 +90,29 @@ impl Session {
 }
 
 struct Worker {
+    /// Names this session to the hub's expiry scheduler, which cancels notices nobody wants.
+    id: u64,
+    hub: Hub,
     out: mpsc::Sender<ServerMessage>,
     subject: Subject,
     scopes: Vec<Resource>,
     provider: Option<Arc<dyn CapabilityProvider>>,
+    /// Next validity boundary of a subject without an id: nothing narrower than "everyone" can name
+    /// it on the hub, so the session waits for it itself instead of waking every session.
+    deadline: Option<Instant>,
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        self.hub.release_session(self.id);
+    }
+}
+
+async fn until(deadline: Option<Instant>) {
+    match deadline {
+        Some(at) => tokio::time::sleep_until(at).await,
+        None => pending().await,
+    }
 }
 
 async fn tick(heartbeat: &mut Option<Interval>) {
@@ -118,8 +140,11 @@ impl Worker {
             return;
         }
         let mut control_open = true;
+        let closed = self.out.clone();
         loop {
             let alive = tokio::select! {
+                () = closed.closed() => false,
+                () = until(self.deadline) => self.on_own_boundary().await,
                 received = changes.recv() => match received {
                     Err(RecvError::Closed) => false,
                     first => self.on_changes(first.ok(), &mut changes).await,
@@ -143,15 +168,19 @@ impl Worker {
         self.out.send(message).await.is_ok()
     }
 
-    async fn push(&self, scope: &Resource) -> bool {
+    async fn push(&mut self, scope: &Resource) -> bool {
         let Some(provider) = &self.provider else {
             return true;
         };
-        let message = match provider.capabilities(&self.subject, scope).await {
-            Ok(set) => ServerMessage::Capabilities {
-                scope: scope.clone(),
-                set,
-            },
+        let provider = provider.clone();
+        let message = match provider.evaluate(&self.subject, scope).await {
+            Ok(evaluation) => {
+                self.schedule_expiry(provider.as_ref(), evaluation.next_boundary);
+                ServerMessage::Capabilities {
+                    scope: scope.clone(),
+                    set: evaluation.set,
+                }
+            }
             Err(error) => ServerMessage::Error {
                 message: error.to_string(),
             },
@@ -159,9 +188,44 @@ impl Worker {
         self.send(message).await
     }
 
-    async fn push_all(&self) -> bool {
-        for scope in &self.scopes {
-            if !self.push(scope).await {
+    /// Arranges a recompute at `next_boundary`, the next moment a grant or role in force for this
+    /// subject starts or stops. A subject with an id asks the hub for a notice naming it, which comes
+    /// back through the broadcast like any change and reaches that subject's sessions only. A subject
+    /// without an id keeps the deadline in this session, so one anonymous session never wakes the
+    /// others. The wait counts from the provider's current instant, so a boundary that passed while
+    /// the grants were loading fires at once.
+    fn schedule_expiry(&mut self, provider: &dyn CapabilityProvider, next_boundary: Option<u64>) {
+        let Some(boundary) = next_boundary else {
+            return;
+        };
+        let now = provider.now_ms();
+        match self.subject.id.clone() {
+            Some(id) => {
+                self.hub
+                    .schedule_for_session(self.id, boundary, now, Change::expiry(id));
+            }
+            None => {
+                let wait = Duration::from_millis(boundary.saturating_sub(now).max(1));
+                let at = Instant::now() + wait;
+                self.deadline = Some(self.deadline.map_or(at, |current| current.min(at)));
+            }
+        }
+    }
+
+    /// The boundary a session without an id waited for: tell the client and recompute everything.
+    async fn on_own_boundary(&mut self) -> bool {
+        self.deadline = None;
+        self.send(ServerMessage::Change {
+            change: Change::expiry_for_everyone(),
+        })
+        .await
+            && self.push_all().await
+    }
+
+    async fn push_all(&mut self) -> bool {
+        self.deadline = None;
+        for scope in self.scopes.clone() {
+            if !self.push(&scope).await {
                 return false;
             }
         }
@@ -196,7 +260,7 @@ impl Worker {
                 return false;
             }
         }
-        for (i, scope) in self.scopes.iter().enumerate() {
+        for (i, scope) in self.scopes.clone().iter().enumerate() {
             if affected[i] && !self.push(scope).await {
                 return false;
             }
@@ -234,14 +298,17 @@ mod tests {
     use futures_util::StreamExt;
     use themis::{Anchor, Catalog, Engine, Grant, PermissionDef, SubjectMatcher, TargetSelector};
 
-    fn provider(grants: Vec<Grant>) -> Arc<dyn CapabilityProvider> {
-        let catalog = Catalog::builder()
+    fn view_catalog() -> Catalog {
+        Catalog::builder()
             .target_kinds(["project"])
             .broad_target("org")
             .permission(PermissionDef::new("project.view").targets(["project"]))
             .build()
-            .unwrap();
-        let engine = Arc::new(Engine::builder(catalog).build().unwrap());
+            .unwrap()
+    }
+
+    fn provider(grants: Vec<Grant>) -> Arc<dyn CapabilityProvider> {
+        let engine = Arc::new(Engine::builder(view_catalog()).build().unwrap());
         Arc::new(EngineProvider::new(engine, grants))
     }
 
@@ -312,5 +379,169 @@ mod tests {
         assert_eq!(next(&mut stream).await, ServerMessage::Ping);
         hub.publish(Change::resync()).await.unwrap();
         assert_eq!(next(&mut stream).await, ServerMessage::Resync);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn emits_change_and_recomputes_at_the_validity_boundary() {
+        const START: u64 = 10_000;
+        let started = Instant::now();
+        let clock = move || START + started.elapsed().as_millis() as u64;
+        let grants = vec![
+            Grant::allow(
+                "g",
+                SubjectMatcher::user("alice"),
+                "project.view",
+                TargetSelector::kind("project"),
+            )
+            .valid_until(START + 500),
+        ];
+        let engine = Arc::new(Engine::builder(view_catalog()).build().unwrap());
+        let provider = Arc::new(EngineProvider::new(engine, grants).with_clock(clock));
+
+        let hub = Hub::new();
+        let options = SessionOptions {
+            heartbeat: None,
+            buffer: 8,
+        };
+        let scope = Resource::new("project", "p1");
+        let (_control, mut stream) = Session::open(&hub, Subject::user("alice"), vec![scope], Some(provider), options);
+
+        assert!(matches!(next(&mut stream).await, ServerMessage::Hello { .. }));
+        match next(&mut stream).await {
+            ServerMessage::Capabilities { set, .. } => assert_eq!(set.grants.len(), 1),
+            other => panic!("{other:?}"),
+        }
+        match next(&mut stream).await {
+            ServerMessage::Change { change } => {
+                assert_eq!(change.kind, ChangeKind::Grants);
+                assert_eq!(change.subject.as_deref(), Some("alice"));
+            }
+            other => panic!("{other:?}"),
+        }
+        match next(&mut stream).await {
+            ServerMessage::Capabilities { set, .. } => assert!(set.grants.is_empty()),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_grant_that_starts_later_reaches_the_session_at_its_start() {
+        const START: u64 = 10_000;
+        let started = Instant::now();
+        let clock = move || START + started.elapsed().as_millis() as u64;
+        let grants = vec![
+            Grant::allow(
+                "g",
+                SubjectMatcher::user("alice"),
+                "project.view",
+                TargetSelector::kind("project"),
+            )
+            .valid_from(START + 500),
+        ];
+        let provider = Arc::new(
+            EngineProvider::new(Arc::new(Engine::builder(view_catalog()).build().unwrap()), grants).with_clock(clock),
+        );
+
+        let hub = Hub::new();
+        let options = SessionOptions {
+            heartbeat: None,
+            buffer: 8,
+        };
+        let scope = Resource::new("project", "p1");
+        let (_control, mut stream) = Session::open(&hub, Subject::user("alice"), vec![scope], Some(provider), options);
+
+        assert!(matches!(next(&mut stream).await, ServerMessage::Hello { .. }));
+        match next(&mut stream).await {
+            ServerMessage::Capabilities { set, .. } => assert!(set.grants.is_empty(), "not started yet"),
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(next(&mut stream).await, ServerMessage::Change { .. }));
+        match next(&mut stream).await {
+            ServerMessage::Capabilities { set, .. } => assert_eq!(set.grants.len(), 1),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    fn windowed_provider(until: u64, started: Instant) -> Arc<dyn CapabilityProvider> {
+        const START: u64 = 10_000;
+        let clock = move || START + started.elapsed().as_millis() as u64;
+        let grants = vec![
+            Grant::allow(
+                "g",
+                SubjectMatcher::Any,
+                "project.view",
+                TargetSelector::kind("project"),
+            )
+            .valid_until(START + until),
+        ];
+        let engine = Arc::new(Engine::builder(view_catalog()).build().unwrap());
+        Arc::new(EngineProvider::new(engine, grants).with_clock(clock))
+    }
+
+    fn quiet() -> SessionOptions {
+        SessionOptions {
+            heartbeat: None,
+            buffer: 8,
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_anonymous_boundary_does_not_wake_the_other_sessions() {
+        let started = Instant::now();
+        let hub = Hub::new();
+        let scope = Resource::new("project", "p1");
+        let (_c1, mut anonymous) = Session::open(
+            &hub,
+            Subject::anonymous(),
+            vec![scope.clone()],
+            Some(windowed_provider(500, started)),
+            quiet(),
+        );
+        let (_c2, mut alice) = Session::open(
+            &hub,
+            Subject::user("alice"),
+            vec![scope],
+            Some(windowed_provider(10_000, started)),
+            quiet(),
+        );
+        for stream in [&mut anonymous, &mut alice] {
+            assert!(matches!(next(stream).await, ServerMessage::Hello { .. }));
+            assert!(matches!(next(stream).await, ServerMessage::Capabilities { .. }));
+        }
+
+        // The anonymous session's own boundary: it recomputes, nobody else is told.
+        assert!(matches!(next(&mut anonymous).await, ServerMessage::Change { .. }));
+        match next(&mut anonymous).await {
+            ServerMessage::Capabilities { set, .. } => assert!(set.grants.is_empty()),
+            other => panic!("{other:?}"),
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), alice.next())
+                .await
+                .is_err(),
+            "another session was woken by an anonymous boundary"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn closing_the_session_cancels_its_pending_notice() {
+        let started = Instant::now();
+        let hub = Hub::new();
+        let (control, mut stream) = Session::open(
+            &hub,
+            Subject::user("alice"),
+            vec![Resource::new("project", "p1")],
+            Some(windowed_provider(5_000_000, started)),
+            quiet(),
+        );
+        assert!(matches!(next(&mut stream).await, ServerMessage::Hello { .. }));
+        assert!(matches!(next(&mut stream).await, ServerMessage::Capabilities { .. }));
+        assert_eq!(hub.pending_expiries(), 1);
+
+        drop(stream);
+        drop(control);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(hub.pending_expiries(), 0, "a notice outlived its only session");
     }
 }

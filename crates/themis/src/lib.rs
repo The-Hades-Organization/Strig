@@ -45,6 +45,7 @@ pub mod spec;
 pub mod strategy;
 pub mod subject;
 pub mod template;
+pub mod validity;
 
 pub use attr::{Attributes, Value};
 #[cfg(feature = "audit")]
@@ -69,8 +70,8 @@ pub use explain::{
     trace_condition,
 };
 pub use governance::{
-    Bypass, CatalogConformance, Forbid, Governance, Invariant, ManagementOnly, Mutation, NoEscalation, NoLockout,
-    NoSelfManagement, NonDelegable, Prerequisites, Proposal, RequirePermission, Suggestion, Violation,
+    Bypass, CatalogConformance, Forbid, Governance, GovernanceAt, Invariant, ManagementOnly, Mutation, NoEscalation,
+    NoLockout, NoSelfManagement, NonDelegable, Prerequisites, Proposal, RequirePermission, Suggestion, Violation,
 };
 pub use grant::{Effect, Grant, GrantSource, SubjectMatcher, TargetSelector};
 pub use overrides::{FnOverride, Override, PermissionHolder, ResourceOwner};
@@ -83,3 +84,4 @@ pub use spec::{
 pub use strategy::{Candidate, DenyOverrides, FirstApplicable, MostSpecific, PermitOverrides, Strategy};
 pub use subject::{ANONYMOUS, AUTHENTICATED, RoleAssignment, Subject};
 pub use template::{Materialized, RoleTemplate, TemplateGrant};
+pub use validity::{Validity, ValidityError, next_boundary};
