@@ -31,7 +31,11 @@ fn a_scenario_in_each_syntax_is_the_same_policy() {
             let other = read(scenario, language);
             assert_eq!(other.language, language);
             assert!(blocks.policy.equivalent(&other.policy), "{scenario}: {language} differs from blocks");
-            assert_eq!(canonical(&other.policy), json, "{scenario}: {language} json differs");
+            let theirs = canonical(&other.policy);
+            for key in json.as_object().unwrap().keys() {
+                assert_eq!(theirs.get(key), json.get(key), "{scenario}: {language} differs in {key}");
+            }
+            assert_eq!(theirs, json, "{scenario}: {language} json differs");
         }
     }
 }
