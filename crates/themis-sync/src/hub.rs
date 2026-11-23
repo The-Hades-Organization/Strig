@@ -344,7 +344,9 @@ fn fire_expiry(inner: Weak<Inner>, key: ExpiryKey, mut change: Change) {
         let mut expiries = hub.lock_expiries();
         expiries.pending.remove(&key);
         let now = Instant::now();
-        expiries.fired.retain(|_, (at, _)| now.duration_since(*at) < REPEAT_WINDOW);
+        expiries
+            .fired
+            .retain(|_, (at, _)| now.duration_since(*at) < REPEAT_WINDOW);
         let repeats = expiries.fired.get(&key).map_or(1, |(_, n)| n.saturating_add(1));
         expiries.fired.insert(key, (now, repeats));
     }

@@ -466,8 +466,13 @@ mod tests {
         const START: u64 = 10_000;
         let clock = move || START + started.elapsed().as_millis() as u64;
         let grants = vec![
-            Grant::allow("g", SubjectMatcher::Any, "project.view", TargetSelector::kind("project"))
-                .valid_until(START + until),
+            Grant::allow(
+                "g",
+                SubjectMatcher::Any,
+                "project.view",
+                TargetSelector::kind("project"),
+            )
+            .valid_until(START + until),
         ];
         let engine = Arc::new(Engine::builder(view_catalog()).build().unwrap());
         Arc::new(EngineProvider::new(engine, grants).with_clock(clock))
@@ -512,7 +517,9 @@ mod tests {
         }
         tokio::time::sleep(Duration::from_millis(1)).await;
         assert!(
-            tokio::time::timeout(Duration::from_millis(100), alice.next()).await.is_err(),
+            tokio::time::timeout(Duration::from_millis(100), alice.next())
+                .await
+                .is_err(),
             "another session was woken by an anonymous boundary"
         );
     }
