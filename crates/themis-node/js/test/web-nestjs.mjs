@@ -48,3 +48,31 @@ await test('a guarded handler with no @Can is refused, not opened', async () => 
 await test('@Can rejects an empty permission', () => {
   assert.throws(() => Can(''), TypeError);
 });
+
+await test('@Can at the class level applies to every handler', async () => {
+  class Whole { a() {} }
+  Can('document.view')(Whole);
+  const ctx = (request) => ({ getHandler: () => Whole.prototype.a, getClass: () => Whole, switchToHttp: () => ({ getRequest: () => request }) });
+  const guard = new ThemisGuard({ subject: subjectOf, resource: resourceOf, local: await localMode() });
+  assert.equal(await guard.canActivate(ctx(request('ana', 'd1'))), true);
+});
+
+await test('a non-HTTP context is refused with 500 and reaches onError', async () => {
+  const seen = [];
+  const guard = new ThemisGuard({ subject: subjectOf, resource: resourceOf, local: await localMode(), errorStatus: 502, onError: (e) => seen.push(e.message) });
+  const rpc = { ...contextOf(Controller.prototype.doc, request('ana', 'd1')), getType: () => 'rpc' };
+  await assert.rejects(guard.canActivate(rpc), (e) => e.getStatus() === 502);
+  assert.equal(seen.length, 1);
+  await assert.rejects(guard.canActivate(contextOf(function undeclared() {}, request('ana', 'd1'))), (e) => e.getStatus() === 502);
+  assert.equal(seen.length, 2, 'the missing @Can is reported too');
+});
+
+await test('a guard whose onError throws still refuses', async () => {
+  const guard = new ThemisGuard({ subject: subjectOf, resource: resourceOf, local: await localMode(), onError: (e) => { throw e; } });
+  await assert.rejects(guard.canActivate(contextOf(function undeclared() {}, request('ana', 'd1'))), (e) => e.getStatus() === 500);
+});
+
+await test('an empty @Can permission and an async extractor are refused', async () => {
+  const guard = new ThemisGuard({ subject: async () => ({ kind: 'user', id: 'a' }), resource: resourceOf, local: await localMode() });
+  await assert.rejects(guard.canActivate(contextOf(Controller.prototype.doc, request('ana', 'd1'))), (e) => e.getStatus() === 500);
+});

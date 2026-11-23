@@ -1,7 +1,5 @@
 // Fastify `preHandler` for Themis. The caller supplies how to read the subject, the permission and the resource.
-import { createAuthorizer, requirePeer } from './web-core.js';
-
-await requirePeer('fastify', 'fastify');
+import { createAuthorizer } from './web-core.js';
 
 /**
  * `preHandler` that lets the request continue only on an allow. A deny answers 403 (configurable), an unreachable or
@@ -18,11 +16,14 @@ export function authorize(options) {
 
 /** `can(permission, resource?)` builds one `preHandler` per route from shared options. */
 export function createCan(options) {
-  const decide = createAuthorizer({ ...options, permission: options.permission ?? '-' });
-  return (permission, resource) => async (request, reply) => {
-    const outcome = await decide(request, { permission, resource });
-    if (outcome.kind === 'allow') return;
-    return reply.code(outcome.status).send(outcome.body);
+  const decide = createAuthorizer(options);
+  return (permission, resource) => {
+    if (typeof permission !== 'string' || permission === '') throw new TypeError('permission must be a non-empty text');
+    return async (request, reply) => {
+      const outcome = await decide(request, { permission, resource });
+      if (outcome.kind === 'allow') return;
+      return reply.code(outcome.status).send(outcome.body);
+    };
   };
 }
 

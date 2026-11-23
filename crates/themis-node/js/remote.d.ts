@@ -8,7 +8,7 @@ export type ErrorCode =
   | 'query_limit_exceeded' | 'overloaded' | 'relation_depth_exceeded' | 'deadline_exceeded'
   | 'clock_unavailable' | 'internal';
 
-export type FailureReason = 'circuit_open' | 'timeout' | 'unreachable' | 'server' | 'rejected' | 'invalid_response' | 'unexpected_status';
+export type FailureReason = 'circuit_open' | 'timeout' | 'unreachable' | 'server' | 'rejected' | 'invalid_request' | 'invalid_response' | 'unexpected_status';
 
 export interface Failure {
   reason: FailureReason;
@@ -54,7 +54,7 @@ export declare class CircuitBreaker {
 export interface RemoteOptions {
   url: string;
   /** Per call, also sent as `x-themis-timeout-ms` (default 2000). */
-  timeoutMs?: number;
+  timeoutMs?: number; // at most 2_000_000_000
   fetch?: typeof fetch;
   headers?: Record<string, string>;
   breaker?: BreakerOptions;
