@@ -177,7 +177,10 @@ impl Client {
         };
         match outcome {
             Ok(results) => results.into_iter().map(ClientDecision::Remote).collect(),
-            Err(failure) => requests.iter().map(|_| ClientDecision::Denied(failure.clone())).collect(),
+            Err(failure) => requests
+                .iter()
+                .map(|_| ClientDecision::Denied(failure.clone()))
+                .collect(),
         }
     }
 
@@ -227,7 +230,11 @@ impl Client {
             }
             Ok(Ok(raw)) => raw,
         };
-        let code = || serde_json::from_slice::<ErrorBody>(&raw.body).ok().map(|body| body.error.code);
+        let code = || {
+            serde_json::from_slice::<ErrorBody>(&raw.body)
+                .ok()
+                .map(|body| body.error.code)
+        };
         match raw.status {
             200..=299 => match serde_json::from_slice(&raw.body) {
                 Ok(answer) => {

@@ -180,11 +180,26 @@ pub enum SubjectDto {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViaDto {
-    Override { name: String },
-    Grant { grant_id: String },
-    Role { grant_id: String, role: String },
-    InheritedRole { grant_id: String, role: String, from: String },
-    Relation { grant_id: String, relation: String, object: ObjectRef },
+    Override {
+        name: String,
+    },
+    Grant {
+        grant_id: String,
+    },
+    Role {
+        grant_id: String,
+        role: String,
+    },
+    InheritedRole {
+        grant_id: String,
+        role: String,
+        from: String,
+    },
+    Relation {
+        grant_id: String,
+        relation: String,
+        object: ObjectRef,
+    },
     Nothing,
 }
 
@@ -194,11 +209,19 @@ pub enum ViaDto {
 pub enum ShapeDto {
     Nothing,
     /// Every resource of the kind except `except`.
-    Kind { except: Vec<String> },
-    Ids { ids: Vec<String> },
+    Kind {
+        except: Vec<String>,
+    },
+    Ids {
+        ids: Vec<String>,
+    },
     /// Everything inside any of these steps of the path.
-    Within { anchors: Vec<Anchor> },
-    Compound { expr: ExprDto },
+    Within {
+        anchors: Vec<Anchor>,
+    },
+    Compound {
+        expr: ExprDto,
+    },
 }
 
 /// A structural condition over a resource.
@@ -207,15 +230,33 @@ pub enum ShapeDto {
 pub enum ExprDto {
     True,
     False,
-    Within { anchor: Anchor },
-    OnPath { selector: TargetSelector },
-    AnchorIn { kind: String, ids: Vec<String> },
-    AttrEq { attr: String, value: String },
+    Within {
+        anchor: Anchor,
+    },
+    OnPath {
+        selector: TargetSelector,
+    },
+    AnchorIn {
+        kind: String,
+        ids: Vec<String>,
+    },
+    AttrEq {
+        attr: String,
+        value: String,
+    },
     /// Index into the response's `residual`.
-    Residual { index: usize },
-    Not { expr: Box<ExprDto> },
-    And { items: Vec<ExprDto> },
-    Or { items: Vec<ExprDto> },
+    Residual {
+        index: usize,
+    },
+    Not {
+        expr: Box<ExprDto>,
+    },
+    And {
+        items: Vec<ExprDto>,
+    },
+    Or {
+        items: Vec<ExprDto>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
