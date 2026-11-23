@@ -238,10 +238,10 @@ Instead of asking "may this subject do this?", ask who can, or what a subject ca
 | Call | Answers |
 |---|---|
 | `engine.list(&qctx, &subject, permission, kind)` | An `AccessFilter` for the resources of that kind the subject can reach, to turn into a `WHERE`. |
-| `engine.who_can(&qctx, permission)` | The subjects that hold the permission. |
+| `engine.who_can(&qctx, permission)` | The parties named by an allow grant of the permission, anywhere. A deny, an override or a condition is not evaluated; `who_can_on` settles that for one resource. |
 | `engine.who_can_on(..)` | The same, on one resource. |
-| `engine.access_of(..)` | Every permission a subject has on a resource. |
-| `engine.check_for(..)` | A check on behalf of a subject reference. |
+| `engine.access_of(..)` | Every party with access to a resource, with the permissions of each. |
+| `engine.check_for(..)` | A check for a subject reference: a `SubjectResolver` loads the subject and the answer names the path that decided. |
 
 ```rust
 let qctx = QueryContext::new(&grants).at(1_500);

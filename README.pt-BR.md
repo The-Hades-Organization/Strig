@@ -238,10 +238,10 @@ Em vez de perguntar "este sujeito pode?", pergunte quem pode, ou o que um sujeit
 | Chamada | Responde |
 |---|---|
 | `engine.list(&qctx, &subject, permission, kind)` | Um `AccessFilter` com os recursos daquele tipo que o sujeito alcança, para virar um `WHERE`. |
-| `engine.who_can(&qctx, permission)` | Os sujeitos que têm a permissão. |
+| `engine.who_can(&qctx, permission)` | As partes nomeadas por um grant `allow` da permissão, em qualquer lugar. Deny, override e condição não são avaliados; `who_can_on` resolve isso para um recurso. |
 | `engine.who_can_on(..)` | O mesmo, em um recurso. |
-| `engine.access_of(..)` | Todas as permissões de um sujeito em um recurso. |
-| `engine.check_for(..)` | Uma checagem em nome de uma referência de sujeito. |
+| `engine.access_of(..)` | Cada parte com acesso a um recurso, com as permissões de cada uma. |
+| `engine.check_for(..)` | Uma checagem para uma referência de sujeito: um `SubjectResolver` carrega o sujeito e a resposta diz o caminho que decidiu. |
 
 ```rust
 let qctx = QueryContext::new(&grants).at(1_500);

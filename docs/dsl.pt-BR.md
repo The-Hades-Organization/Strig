@@ -191,7 +191,6 @@ project.add_source("catalog.themis", "language rules\n\nkinds doc\npermission do
 project.add_source("people.themis", "language blocks\n\ntarget_kinds = [org]\nrole viewer {\n}\n")?;
 let built = project.build()?;
 let policy = built.policy;
-# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 `add_source` devolve o tipo que detectou. `build` junta os textos numa política só, e `origins` no resultado diz de
@@ -216,12 +215,12 @@ use themis::dsl::{Language, fs};
 let policy = fs::read_file("policies/main.themis")?.policy;
 let project = fs::read_dir("policies")?;      // every *.themis in the directory
 fs::write_file("policies/out.themis", &policy, Language::Rules)?;
-# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 - `read_file` lê um arquivo.
 - `read_dir` monta um `Project` com os arquivos `*.themis` diretamente dentro de um diretório. Não desce em
-  subdiretórios e ignora links simbólicos. Lê no máximo 1024 arquivos.
+  subdiretórios e recusa um arquivo de política que seja link simbólico. Um diretório com mais de 1024 arquivos de
+  política, ou com mais de 64 MiB no total, é um erro.
 - `write_file` grava num arquivo ao lado do destino e o renomeia por cima dele, então um leitor nunca vê uma política
   pela metade.
 
@@ -236,7 +235,6 @@ use themis::dsl::{Language, convert};
 
 let actors = convert("language rules\n\nkinds doc\n// hi\nrole viewer\n", Language::Actors)?;
 assert_eq!(actors, "language actors\n\n// hi\nrole viewer\n\ncatalog\n  kinds doc\n");
-# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 `print(&policy, language)` faz o mesmo a partir de uma `Policy` que você já tem. A conversão falha com um
@@ -263,7 +261,6 @@ let parsed = parse("main.themis", source)?;
 let json = parsed.policy.to_json()?;
 let again = themis::dsl::Policy::from_json(&json)?;
 assert!(parsed.policy.equivalent(&again));
-# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 Dois arquivos de tipos diferentes que significam o mesmo dão o mesmo JSON. Trate o texto como o jeito de as pessoas
@@ -334,7 +331,7 @@ A leitura é limitada, então texto não confiável não esgota a memória nem a
 | Tamanho de um texto | 4 MiB (`MAX_SOURCE_BYTES`) |
 | Textos num projeto | 10000 (`MAX_SOURCES`) |
 | Tamanho total de um projeto | 64 MiB (`MAX_PROJECT_BYTES`) |
-| Arquivos lidos de um diretório | 1024 |
+| Arquivos de política num diretório | 1024 |
 | Aninhamento de condições e grupos | 64 |
 | Diagnósticos relatados | 100 |
 
