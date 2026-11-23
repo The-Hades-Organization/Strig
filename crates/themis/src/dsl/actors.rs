@@ -48,6 +48,9 @@ struct Actor {
     heading: Span,
     /// Where the subject this heading declares sits in the policy, and its id.
     subject: Option<(String, Option<usize>)>,
+    /// A `user` heading declares its subject on the first `role`, `principal` or `attr` line, wherever
+    /// that line sits under the heading; this is the user id until then.
+    lazy_user: Option<String>,
     level: Option<u32>,
     scope: Option<Anchor>,
 }
@@ -164,24 +167,22 @@ fn heading(cur: &mut Cursor, b: &mut Builder, below: &Below) -> PResult<Ctx> {
                 matcher: None,
                 heading: head.span,
                 subject: Some(subject),
+                lazy_user: None,
                 level: None,
                 scope: None,
             }))
         }
         "user" | "principal" | "relation" | "anyone" | "any" => {
             let found = matcher(cur)?;
-            let declares = below
-                .child
-                .as_deref()
-                .is_some_and(|w| matches!(w, "role" | "principal" | "attr"));
-            let subject = match (&found, declares) {
-                (SubjectMatcher::User { id }, true) => Some(declare_subject(cur, b, "user", id, head.span)),
+            let lazy_user = match &found {
+                SubjectMatcher::User { id } => Some(id.clone()),
                 _ => None,
             };
             Ok(Ctx::Actor(Actor {
                 matcher: Some(found),
                 heading: head.span,
-                subject,
+                subject: None,
+                lazy_user,
                 level: None,
                 scope: None,
             }))
@@ -222,15 +223,55 @@ fn role_heading(cur: &mut Cursor, b: &mut Builder, at: Span) -> PResult<Ctx> {
     if b.declared(&ids::role(&name)).is_some() && !inherits {
         cur.advance();
     } else {
-        rules::role(cur, b)?;
+        if !inherits {
+            near_miss(b, &name, cur.span())?;
+        }
+        rules::role(cur, b, true)?;
     }
     Ok(Ctx::Actor(Actor {
         matcher: Some(SubjectMatcher::Role { id: name }),
         heading: at,
         subject: None,
+        lazy_user: None,
         level: None,
         scope: None,
     }))
+}
+
+/// The name of a declared role that `name` is a slip away from, if there is one.
+fn close_role<'a>(known: &[&'a str], name: &str) -> Option<&'a str> {
+    let hint = suggest(name, known);
+    let hint = hint.strip_prefix("did you mean `")?;
+    let close = hint.strip_suffix("`?")?;
+    known.iter().copied().find(|k| *k == close)
+}
+
+/// A heading that would declare a role whose name is close to a declared one is read as a typo,
+/// not as a new role. Writing `role <name> inherits` with nothing after it declares it anyway.
+fn near_miss(b: &Builder, name: &str, at: Span) -> PResult<()> {
+    let known: Vec<&str> = b.policy.roles.iter().map(|r| r.role.as_str()).collect();
+    let Some(close) = close_role(&known, name) else {
+        return Ok(());
+    };
+    Err(Raw::new(at, format!("role `{name}` is not declared"))
+        .hint(format!("did you mean `{close}`? if `{name}` is a new role, write `role {name} inherits` with nothing after it")))
+}
+
+/// The text that declares the role at `at`: a name close to an earlier role gets the explicit
+/// empty `inherits`, so that it reads back as new.
+fn role_declaration(policy: &Policy, at: usize) -> Printed<(String, String)> {
+    let Some(role) = policy.roles.get(at) else {
+        return Err(PrintError::Unrepresentable {
+            what: "a role".to_string(),
+            reason: "the role is missing".to_string(),
+        });
+    };
+    let (id, mut text) = rules::role_text(role)?;
+    let before: Vec<&str> = policy.roles.iter().take(at).map(|r| r.role.as_str()).collect();
+    if role.inherits.is_empty() && close_role(&before, &role.role).is_some() {
+        text.push_str(" inherits");
+    }
+    Ok((id, text))
 }
 
 fn declare_subject(cur: &Cursor, b: &mut Builder, kind: &str, sid: &str, at: Span) -> (String, Option<usize>) {
@@ -300,12 +341,17 @@ fn actor_line(cur: &mut Cursor, b: &mut Builder, actor: &mut Actor) -> PResult<(
         }
         "allow" | "deny" => grant(cur, b, actor, None),
         "role" | "principal" | "attr" => {
+            if actor.subject.is_none()
+                && let Some(user) = actor.lazy_user.take()
+            {
+                actor.subject = Some(declare_subject(cur, b, "user", &user, actor.heading));
+            }
             let Some((id, at)) = actor.subject.clone() else {
                 return Err(Raw::new(
                     head.span,
                     format!("`{word}` lines belong under a user or subject heading"),
                 )
-                .hint("put them first under the heading, before any rule"));
+                .hint("a user, subject or role heading names who the line is about; use `role <name>` to give a role its rules"));
             };
             cur.advance();
             subject_line(cur, b, &word, &id, at, head.span)
@@ -576,8 +622,8 @@ fn actors(p: &mut Printer, policy: &Policy) -> Printed<()> {
 }
 
 fn lone_role(p: &mut Printer, walk: &mut Walk) -> Printed<()> {
-    if let Some(role) = walk.policy.roles.get(walk.next_role) {
-        let (id, text) = rules::role_text(role)?;
+    if walk.next_role < walk.policy.roles.len() {
+        let (id, text) = role_declaration(walk.policy, walk.next_role)?;
         p.blank();
         p.leaf(0, &id, &text, false);
     }
@@ -625,8 +671,8 @@ fn group_heading<'a>(p: &mut Printer, walk: &mut Walk<'a>, m: &SubjectMatcher) -
                 p.blank();
             }
             walk.next_role = at + 1;
-            if let Some(role) = walk.policy.roles.get(at) {
-                let (rid, text) = rules::role_text(role)?;
+            if at < walk.policy.roles.len() {
+                let (rid, text) = role_declaration(walk.policy, at)?;
                 p.leaf(0, &rid, &text, false);
             }
             Ok(None)
