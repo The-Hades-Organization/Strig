@@ -192,6 +192,15 @@ impl ContextData {
         let Value::Object(map) = limits else {
             return Err(BindingError::invalid_input("limits", "esperado um objeto"));
         };
+        if let Some(unknown) = map
+            .keys()
+            .find(|k| !matches!(k.as_str(), "maxParties" | "maxDecisions"))
+        {
+            return Err(BindingError::invalid_input(
+                "limits",
+                format!("campo desconhecido: {unknown}"),
+            ));
+        }
         let mut out = QueryLimits::default();
         if let Some(parties) = map.get("maxParties") {
             out = out.with_max_parties(count_value("limits.maxParties", parties)?);

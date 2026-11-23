@@ -80,7 +80,8 @@ impl ExclusiveHandle {
         let subject: Subject = parse("subject", subject)?;
         let resource: Resource = parse("resource", resource)?;
         let terms: TermsInput = parse("terms", terms)?;
-        let data: Context<'_> = ctx.context();
+        // A permissão vale no mesmo instante da posse, não no `now` que o contexto guardou antes.
+        let data: Context<'_> = ctx.context().at(now);
         let outcome = self.registry.acquire_checked(
             engine.engine(),
             &data,
