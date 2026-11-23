@@ -39,11 +39,11 @@ pub fn shape_json(shape: &FilterShape) -> Value {
 pub fn residual_json(residual: &FilterResidual) -> Value {
     match residual {
         FilterResidual::Condition { grant_id, condition } => {
-            json!({"type": "condition", "grant_id": grant_id, "condition": condition})
+            json!({"type": "condition", "grantId": grant_id, "condition": condition})
         }
         FilterResidual::Override { name } => json!({"type": "override", "name": name}),
         FilterResidual::Strategy { name } => json!({"type": "strategy", "name": name}),
-        FilterResidual::OutsideLayout { grant_ids } => json!({"type": "outside_layout", "grant_ids": grant_ids}),
+        FilterResidual::OutsideLayout { grant_ids } => json!({"type": "outside_layout", "grantIds": grant_ids}),
         _ => json!({"type": "unknown"}),
     }
 }
@@ -94,16 +94,16 @@ pub fn parse_subject_ref(value: Value) -> BindingResult<SubjectRef> {
 pub fn via_json(via: &AccessVia) -> Value {
     match via {
         AccessVia::Override { name } => json!({"type": "override", "name": name}),
-        AccessVia::Grant { grant_id } => json!({"type": "grant", "grant_id": grant_id}),
-        AccessVia::Role { grant_id, role } => json!({"type": "role", "grant_id": grant_id, "role": role}),
+        AccessVia::Grant { grant_id } => json!({"type": "grant", "grantId": grant_id}),
+        AccessVia::Role { grant_id, role } => json!({"type": "role", "grantId": grant_id, "role": role}),
         AccessVia::InheritedRole { grant_id, role, from } => {
-            json!({"type": "inherited_role", "grant_id": grant_id, "role": role, "from": from})
+            json!({"type": "inherited_role", "grantId": grant_id, "role": role, "from": from})
         }
         AccessVia::Relation {
             grant_id,
             relation,
             object,
-        } => json!({"type": "relation", "grant_id": grant_id, "relation": relation, "object": object}),
+        } => json!({"type": "relation", "grantId": grant_id, "relation": relation, "object": object}),
         AccessVia::Nothing => json!({"type": "nothing"}),
         _ => json!({"type": "unknown"}),
     }

@@ -1,5 +1,6 @@
+use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use wasm_bindgen::prelude::*;
 
 use crate::{BindingError, ContextData, EngineHandle, ExclusiveHandle};
@@ -15,8 +16,94 @@ fn err(error: BindingError) -> JsFailure {
     failure.into()
 }
 
+/// Um valor JavaScript em `serde_json::Value` que recusa o que não é JSON: `NaN` e `±Infinity`
+/// viram erro, em vez de `null` (que é o que o `Value` faz com um float não finito e que, num
+/// `now`, apagaria o instante).
+struct Strict(Value);
+
+impl<'de> Deserialize<'de> for Strict {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Walk;
+
+        impl<'de> Visitor<'de> for Walk {
+            type Value = Strict;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("um valor JSON")
+            }
+
+            fn visit_bool<E>(self, v: bool) -> Result<Strict, E> {
+                Ok(Strict(Value::Bool(v)))
+            }
+
+            fn visit_i64<E>(self, v: i64) -> Result<Strict, E> {
+                Ok(Strict(Value::from(v)))
+            }
+
+            fn visit_u64<E>(self, v: u64) -> Result<Strict, E> {
+                Ok(Strict(Value::from(v)))
+            }
+
+            fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<Strict, E> {
+                if v.is_finite() {
+                    Ok(Strict(Value::from(v)))
+                } else {
+                    Err(E::custom("número não finito (NaN ou Infinity)"))
+                }
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Strict, E> {
+                Ok(Strict(Value::String(v.to_string())))
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Strict, E> {
+                Ok(Strict(Value::String(v)))
+            }
+
+            fn visit_unit<E>(self) -> Result<Strict, E> {
+                Ok(Strict(Value::Null))
+            }
+
+            fn visit_none<E>(self) -> Result<Strict, E> {
+                Ok(Strict(Value::Null))
+            }
+
+            fn visit_some<D: Deserializer<'de>>(self, deserializer: D) -> Result<Strict, D::Error> {
+                Strict::deserialize(deserializer)
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Strict, A::Error> {
+                let mut items = Vec::new();
+                while let Some(Strict(item)) = seq.next_element()? {
+                    items.push(item);
+                }
+                Ok(Strict(Value::Array(items)))
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Strict, A::Error> {
+                let mut fields = Map::new();
+                while let Some((key, Strict(value))) = map.next_entry::<String, Strict>()? {
+                    fields.insert(key, value);
+                }
+                Ok(Strict(Value::Object(fields)))
+            }
+        }
+
+        deserializer.deserialize_any(Walk)
+    }
+}
+
 fn from_js(value: JsValue) -> Result<Value, JsFailure> {
-    serde_wasm_bindgen::from_value(value).map_err(|e| err(BindingError::invalid_input("argumento", e)))
+    Strict::deserialize(serde_wasm_bindgen::Deserializer::from(value))
+        .map(|strict| strict.0)
+        .map_err(|e| err(BindingError::invalid_argument("argumento", e)))
+}
+
+/// Um argumento de texto: qualquer outro tipo é `INVALID_ARGUMENT`, nunca coagido.
+fn text(what: &str, value: &JsValue) -> Result<String, JsFailure> {
+    value
+        .as_string()
+        .ok_or_else(|| err(BindingError::invalid_argument(what, "esperado um texto")))
 }
 
 fn to_js(value: &Value) -> Result<JsValue, JsFailure> {
@@ -33,9 +120,18 @@ fn optional(value: JsValue) -> Result<Option<Value>, JsFailure> {
     }
 }
 
+/// O `now` opcional de uma chamada: `undefined` e `null` são "sem instante"; qualquer outra coisa
+/// que não seja um inteiro em milissegundos é `INVALID_ARGUMENT`.
+fn now_of(now: JsValue) -> Result<Option<u64>, JsFailure> {
+    crate::now_arg(optional(now)?).map_err(err)
+}
+
 /// O instante da chamada: o do argumento, ou o relógio do navegador.
-fn instant(now: Option<f64>) -> Result<u64, JsFailure> {
-    crate::millis("now", now.unwrap_or_else(js_sys::Date::now)).map_err(err)
+fn instant(now: JsValue) -> Result<u64, JsFailure> {
+    match now_of(now)? {
+        Some(ms) => Ok(ms),
+        None => crate::millis("now", js_sys::Date::now()).map_err(err),
+    }
 }
 
 #[wasm_bindgen(js_name = Context)]
@@ -63,8 +159,8 @@ impl WasmContext {
     }
 
     #[wasm_bindgen(js_name = removeGrant)]
-    pub fn remove_grant(&mut self, id: &str) -> bool {
-        self.inner.remove_grant(id)
+    pub fn remove_grant(&mut self, id: JsValue) -> Result<bool, JsFailure> {
+        Ok(self.inner.remove_grant(&text("id", &id)?))
     }
 
     pub fn grants(&self) -> Result<JsValue, JsFailure> {
@@ -98,8 +194,10 @@ impl WasmContext {
 
     /// Instante das decisões e das consultas, em milissegundos UTC; `null` o remove.
     #[wasm_bindgen(js_name = setNow)]
-    pub fn set_now(&mut self, now: Option<f64>) -> Result<(), JsFailure> {
-        self.inner.set_now(now.map_or(Value::Null, Value::from)).map_err(err)
+    pub fn set_now(&mut self, now: JsValue) -> Result<(), JsFailure> {
+        self.inner
+            .set_now(optional(now)?.unwrap_or(Value::Null))
+            .map_err(err)
     }
 
     #[wasm_bindgen(js_name = setLimits)]
@@ -122,22 +220,28 @@ impl WasmEngine {
         })
     }
 
-    pub fn decide(&self, ctx: &WasmContext, request: JsValue) -> Result<JsValue, JsFailure> {
-        to_js(&self.inner.decide(&ctx.inner, from_js(request)?).map_err(err)?)
+    pub fn decide(&self, ctx: &WasmContext, request: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(&self.inner.decide(&ctx.inner, from_js(request)?, now_of(now)?).map_err(err)?)
     }
 
-    pub fn check(&self, ctx: &WasmContext, request: JsValue) -> Result<bool, JsFailure> {
-        self.inner.check(&ctx.inner, from_js(request)?).map_err(err)
+    pub fn check(&self, ctx: &WasmContext, request: JsValue, now: JsValue) -> Result<bool, JsFailure> {
+        self.inner.check(&ctx.inner, from_js(request)?, now_of(now)?).map_err(err)
     }
 
-    pub fn explain(&self, ctx: &WasmContext, request: JsValue) -> Result<JsValue, JsFailure> {
-        to_js(&self.inner.explain(&ctx.inner, from_js(request)?).map_err(err)?)
+    pub fn explain(&self, ctx: &WasmContext, request: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(&self.inner.explain(&ctx.inner, from_js(request)?, now_of(now)?).map_err(err)?)
     }
 
-    pub fn capabilities(&self, ctx: &WasmContext, subject: JsValue, scope: JsValue) -> Result<JsValue, JsFailure> {
+    pub fn capabilities(
+        &self,
+        ctx: &WasmContext,
+        subject: JsValue,
+        scope: JsValue,
+        now: JsValue,
+    ) -> Result<JsValue, JsFailure> {
         let set = self
             .inner
-            .capabilities(&ctx.inner, from_js(subject)?, from_js(scope)?)
+            .capabilities(&ctx.inner, from_js(subject)?, from_js(scope)?, now_of(now)?)
             .map_err(err)?;
         to_js(&set)
     }
@@ -152,7 +256,7 @@ impl WasmEngine {
     }
 
     pub fn apply(&self, input: JsValue) -> Result<JsValue, JsFailure> {
-        to_js(&self.inner.apply(from_js(input)?, instant(None)?).map_err(err)?)
+        to_js(&self.inner.apply(from_js(input)?, crate::millis("now", js_sys::Date::now())).map_err(err)?)
     }
 
     pub fn materialize(&self, input: JsValue) -> Result<JsValue, JsFailure> {
@@ -164,7 +268,7 @@ impl WasmEngine {
         to_js(
             &self
                 .inner
-                .apply_template(from_js(input)?, instant(None)?)
+                .apply_template(from_js(input)?, crate::millis("now", js_sys::Date::now()))
                 .map_err(err)?,
         )
     }
@@ -173,35 +277,54 @@ impl WasmEngine {
         &self,
         ctx: &WasmContext,
         subject: JsValue,
-        permission: &str,
-        kind: &str,
+        permission: JsValue,
+        kind: JsValue,
         options: JsValue,
+        now: JsValue,
     ) -> Result<JsValue, JsFailure> {
         let out = self
             .inner
-            .list(&ctx.inner, from_js(subject)?, permission, kind, optional(options)?)
+            .list(
+                &ctx.inner,
+                from_js(subject)?,
+                &text("permission", &permission)?,
+                &text("kind", &kind)?,
+                optional(options)?,
+                now_of(now)?,
+            )
             .map_err(err)?;
         to_js(&out)
     }
 
     #[wasm_bindgen(js_name = whoCan)]
-    pub fn who_can(&self, ctx: &WasmContext, permission: &str) -> Result<JsValue, JsFailure> {
-        to_js(&self.inner.who_can(&ctx.inner, permission))
+    pub fn who_can(&self, ctx: &WasmContext, permission: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(&self.inner.who_can(&ctx.inner, &text("permission", &permission)?, now_of(now)?))
     }
 
     #[wasm_bindgen(js_name = whoCanOn)]
-    pub fn who_can_on(&self, ctx: &WasmContext, permission: &str, resource: JsValue) -> Result<JsValue, JsFailure> {
+    pub fn who_can_on(
+        &self,
+        ctx: &WasmContext,
+        permission: JsValue,
+        resource: JsValue,
+        now: JsValue,
+    ) -> Result<JsValue, JsFailure> {
         to_js(
             &self
                 .inner
-                .who_can_on(&ctx.inner, permission, from_js(resource)?)
+                .who_can_on(&ctx.inner, &text("permission", &permission)?, from_js(resource)?, now_of(now)?)
                 .map_err(err)?,
         )
     }
 
     #[wasm_bindgen(js_name = accessOf)]
-    pub fn access_of(&self, ctx: &WasmContext, resource: JsValue) -> Result<JsValue, JsFailure> {
-        to_js(&self.inner.access_of(&ctx.inner, from_js(resource)?).map_err(err)?)
+    pub fn access_of(&self, ctx: &WasmContext, resource: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .access_of(&ctx.inner, from_js(resource)?, now_of(now)?)
+                .map_err(err)?,
+        )
     }
 
     #[wasm_bindgen(js_name = checkFor)]
@@ -209,18 +332,20 @@ impl WasmEngine {
         &self,
         ctx: &WasmContext,
         subject_ref: JsValue,
-        permission: &str,
+        permission: JsValue,
         resource: JsValue,
         subjects: JsValue,
+        now: JsValue,
     ) -> Result<JsValue, JsFailure> {
         let out = self
             .inner
             .check_for(
                 &ctx.inner,
                 from_js(subject_ref)?,
-                permission,
+                &text("permission", &permission)?,
                 from_js(resource)?,
                 from_js(subjects)?,
+                now_of(now)?,
             )
             .map_err(err)?;
         to_js(&out)
@@ -252,7 +377,7 @@ impl WasmExclusive {
         subject: JsValue,
         resource: JsValue,
         terms: JsValue,
-        now: Option<f64>,
+        now: JsValue,
     ) -> Result<JsValue, JsFailure> {
         let now = instant(now)?;
         let out = self
@@ -269,11 +394,11 @@ impl WasmExclusive {
         to_js(&out)
     }
 
-    pub fn holder(&self, resource: JsValue, now: Option<f64>) -> Result<JsValue, JsFailure> {
+    pub fn holder(&self, resource: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
         to_js(&self.inner.holder(from_js(resource)?, instant(now)?).map_err(err)?)
     }
 
-    pub fn release(&mut self, resource: JsValue, holder: JsValue, now: Option<f64>) -> Result<JsValue, JsFailure> {
+    pub fn release(&mut self, resource: JsValue, holder: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
         let out = self
             .inner
             .release(from_js(resource)?, from_js(holder)?, instant(now)?)
@@ -283,27 +408,37 @@ impl WasmExclusive {
 
     pub fn renew(
         &mut self,
+        engine: &WasmEngine,
+        ctx: &WasmContext,
+        subject: JsValue,
         resource: JsValue,
-        holder: JsValue,
-        #[wasm_bindgen(js_name = ttlMs)] ttl_ms: f64,
-        now: Option<f64>,
+        #[wasm_bindgen(js_name = ttlMs)] ttl_ms: JsValue,
+        now: JsValue,
     ) -> Result<JsValue, JsFailure> {
-        let ttl = crate::exclusive::ttl(ttl_ms).map_err(err)?;
+        let ttl = crate::exclusive::ttl(&from_js(ttl_ms)?).map_err(err)?;
+        let now = instant(now)?;
         let out = self
             .inner
-            .renew(from_js(resource)?, from_js(holder)?, ttl, instant(now)?)
+            .renew(
+                &engine.inner,
+                &ctx.inner,
+                from_js(subject)?,
+                from_js(resource)?,
+                ttl,
+                now,
+            )
             .map_err(err)?;
         to_js(&out)
     }
 
-    pub fn expire(&mut self, now: Option<f64>) -> Result<JsValue, JsFailure> {
+    pub fn expire(&mut self, now: JsValue) -> Result<JsValue, JsFailure> {
         to_js(&self.inner.expire(instant(now)?).map_err(err)?)
     }
 }
 
 #[wasm_bindgen(js_name = auditEstimate)]
-pub fn audit_estimate(level: JsValue, records: f64) -> Result<f64, JsFailure> {
-    crate::audit_estimate(from_js(level)?, records).map_err(err)
+pub fn audit_estimate(level: JsValue, records: JsValue) -> Result<f64, JsFailure> {
+    crate::audit_estimate(from_js(level)?, from_js(records)?).map_err(err)
 }
 
 #[wasm_bindgen]

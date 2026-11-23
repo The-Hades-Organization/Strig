@@ -4,6 +4,13 @@
 //! mesmo nos dois alvos. `napi` gera o módulo nativo para Node e Bun; `wasm` gera o
 //! WebAssembly para o navegador. O pacote npm em `js/` escolhe o alvo em tempo de execução.
 
+/// `json!` com os nomes dos campos em camelCase: toda resposta ao JavaScript passa por aqui.
+macro_rules! out {
+    ($($json:tt)+) => {
+        $crate::camel_keys(::serde_json::json!($($json)+))
+    };
+}
+
 mod error;
 mod exclusive;
 mod query_json;
@@ -11,7 +18,7 @@ mod query_json;
 use std::sync::Arc;
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 use themis::audit::{AuditLevel, Auditor, MemoryAuditLog};
 use themis::{
     Attributes, CapabilitySet, Context, Engine, EngineSpec, Governance, Grant, InMemorySubjects, InMemoryTuples,
@@ -51,9 +58,49 @@ fn parse<T: for<'de> Deserialize<'de>>(what: &str, value: Value) -> BindingResul
     serde_json::from_value(integral(value)).map_err(|e| BindingError::invalid_input(what, e))
 }
 
+/// Chaves que guardam dados de quem chama: o que está abaixo delas sai como entrou.
+const OPAQUE_KEYS: [&str; 5] = ["attrs", "meta", "env", "condition", "value"];
+
+fn camel_case(key: &str) -> String {
+    let mut out = String::with_capacity(key.len());
+    let mut upper = false;
+    for c in key.chars() {
+        if c == '_' && !out.is_empty() {
+            upper = true;
+        } else if upper {
+            out.extend(c.to_uppercase());
+            upper = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// A API JavaScript é toda em camelCase; o JSON do núcleo usa snake_case em alguns campos
+/// (`grant_id`, `expires_at`). A conversão é só dos nomes dos campos: valores, rótulos (`kind`,
+/// `type`) e o conteúdo de `OPAQUE_KEYS` ficam como estão.
+fn camel_keys(value: Value) -> Value {
+    match value {
+        Value::Array(items) => Value::Array(items.into_iter().map(camel_keys).collect()),
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .map(|(key, value)| {
+                    if OPAQUE_KEYS.contains(&key.as_str()) {
+                        (key, value)
+                    } else {
+                        (camel_case(&key), camel_keys(value))
+                    }
+                })
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
 fn to_value<T: serde::Serialize>(value: &T) -> Value {
     // Os tipos da Themis só têm chaves de texto e números finitos: a serialização não falha.
-    serde_json::to_value(value).expect("tipos da Themis sempre serializam")
+    camel_keys(serde_json::to_value(value).expect("tipos da Themis sempre serializam"))
 }
 
 /// Largest integer a JavaScript number holds exactly.
@@ -62,7 +109,7 @@ const MAX_SAFE_INT: f64 = 9_007_199_254_740_991.0;
 /// Milissegundos desde a época Unix, vindos de um número JavaScript: inteiro, finito e não negativo.
 pub fn millis(what: &str, value: f64) -> BindingResult<u64> {
     if !value.is_finite() || value < 0.0 || value.fract() != 0.0 || value > MAX_SAFE_INT {
-        return Err(BindingError::invalid_input(
+        return Err(BindingError::invalid_argument(
             what,
             "esperado um inteiro não negativo em milissegundos",
         ));
@@ -74,8 +121,29 @@ pub fn millis(what: &str, value: f64) -> BindingResult<u64> {
 fn millis_value(what: &str, value: &Value) -> BindingResult<u64> {
     let number = value
         .as_f64()
-        .ok_or_else(|| BindingError::invalid_input(what, "esperado um número"))?;
+        .ok_or_else(|| BindingError::invalid_argument(what, "esperado um número"))?;
     millis(what, number)
+}
+
+/// O instante de um argumento `now`: `None` quando falta (`undefined` ou `null`), e um erro
+/// `INVALID_ARGUMENT` para qualquer valor que não seja um inteiro não negativo em milissegundos.
+/// Nunca coage: texto, booleano, lista e vazio não viram 0.
+pub fn now_arg(value: Option<Value>) -> BindingResult<Option<u64>> {
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => millis_value("now", &value).map(Some),
+    }
+}
+
+/// O relógio do sistema em milissegundos. Um relógio anterior a 1970 (ou fora do intervalo) é um
+/// erro: nunca vira `0`, que reabriria as janelas vencidas.
+pub fn clock_ms(time: std::time::SystemTime) -> BindingResult<u64> {
+    let elapsed = time
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| BindingError::invalid_argument("now", "o relógio do sistema está antes de 1970"))?;
+    let ms = u64::try_from(elapsed.as_millis())
+        .map_err(|_| BindingError::invalid_argument("now", "o relógio do sistema está fora do intervalo"))?;
+    millis("now", ms as f64)
 }
 
 fn count_value(what: &str, value: &Value) -> BindingResult<usize> {
@@ -178,6 +246,10 @@ impl ContextData {
         Ok(())
     }
 
+    pub(crate) fn context(&self) -> Context<'_> {
+        self.context_at(None)
+    }
+
     pub fn now(&self) -> Option<u64> {
         self.now
     }
@@ -219,9 +291,10 @@ impl ContextData {
         Ok(to_value(&set.subject))
     }
 
-    pub(crate) fn context(&self) -> Context<'_> {
+    /// O contexto de uma decisão no instante `now` da chamada; sem ele vale o do `Context`.
+    pub(crate) fn context_at(&self, now: Option<u64>) -> Context<'_> {
         let mut ctx = Context::new(&self.grants).with_env(&self.env);
-        if let Some(now) = self.now {
+        if let Some(now) = now.or(self.now) {
             ctx = ctx.at(now);
         }
         if self.with_tuples {
@@ -230,9 +303,9 @@ impl ContextData {
         ctx
     }
 
-    fn query_context(&self) -> QueryContext<'_> {
+    fn query_context(&self, now: Option<u64>) -> QueryContext<'_> {
         let mut ctx = QueryContext::new(&self.grants).with_env(&self.env);
-        if let Some(now) = self.now {
+        if let Some(now) = now.or(self.now) {
             ctx = ctx.at(now);
         }
         if let Some(limits) = self.limits {
@@ -363,29 +436,35 @@ impl EngineHandle {
         &self.engine
     }
 
-    pub fn decide(&self, ctx: &ContextData, request: Value) -> BindingResult<Value> {
+    pub fn decide(&self, ctx: &ContextData, request: Value, now: Option<u64>) -> BindingResult<Value> {
         let input: RequestInput = parse("request", request)?;
         let request = Request::new(&input.subject, &input.permission, &input.resource);
-        Ok(to_value(&self.engine.decide(&ctx.context(), &request)))
+        Ok(to_value(&self.engine.decide(&ctx.context_at(now), &request)))
     }
 
-    pub fn check(&self, ctx: &ContextData, request: Value) -> BindingResult<bool> {
+    pub fn check(&self, ctx: &ContextData, request: Value, now: Option<u64>) -> BindingResult<bool> {
         let input: RequestInput = parse("request", request)?;
         let request = Request::new(&input.subject, &input.permission, &input.resource);
-        Ok(self.engine.check(&ctx.context(), &request))
+        Ok(self.engine.check(&ctx.context_at(now), &request))
     }
 
     /// A decisão com o rastro completo (`themis::Explanation`).
-    pub fn explain(&self, ctx: &ContextData, request: Value) -> BindingResult<Value> {
+    pub fn explain(&self, ctx: &ContextData, request: Value, now: Option<u64>) -> BindingResult<Value> {
         let input: RequestInput = parse("request", request)?;
         let request = Request::new(&input.subject, &input.permission, &input.resource);
-        Ok(to_value(&self.engine.explain(&ctx.context(), &request)))
+        Ok(to_value(&self.engine.explain(&ctx.context_at(now), &request)))
     }
 
-    pub fn capabilities(&self, ctx: &ContextData, subject: Value, scope: Value) -> BindingResult<Value> {
+    pub fn capabilities(
+        &self,
+        ctx: &ContextData,
+        subject: Value,
+        scope: Value,
+        now: Option<u64>,
+    ) -> BindingResult<Value> {
         let subject: Subject = parse("subject", subject)?;
         let scope: Resource = parse("scope", scope)?;
-        Ok(to_value(&self.engine.capabilities(&ctx.context(), &subject, &scope)))
+        Ok(to_value(&self.engine.capabilities(&ctx.context_at(now), &subject, &scope)))
     }
 
     pub fn validate_grant(&self, grant: Value) -> BindingResult<()> {
@@ -411,6 +490,7 @@ impl EngineHandle {
         permission: &str,
         kind: &str,
         options: Option<Value>,
+        now: Option<u64>,
     ) -> BindingResult<Value> {
         let subject: Subject = parse("subject", subject)?;
         let options: ListOptions = match options {
@@ -421,13 +501,13 @@ impl EngineHandle {
         for step in options.layout.iter().filter(|step| step.as_str() != kind) {
             layout = layout.within(step.as_str());
         }
-        let query = ctx.query_context();
+        let query = ctx.query_context(now);
         let filter = self.engine.list(&query, &subject, permission, kind);
         let ids = options
             .resources
             .as_ref()
             .map(|resources| filter.resolve_with(&self.engine, &query.context(), resources));
-        Ok(json!({
+        Ok(out!({
             "kind": filter.kind(),
             "permission": filter.permission(),
             "exact": filter.is_exact(&layout),
@@ -440,8 +520,8 @@ impl EngineHandle {
     }
 
     /// Partes nomeadas por um grant allow da permissão, em qualquer lugar.
-    pub fn who_can(&self, ctx: &ContextData, permission: &str) -> Value {
-        let parties = self.engine.who_can(&ctx.query_context(), permission);
+    pub fn who_can(&self, ctx: &ContextData, permission: &str, now: Option<u64>) -> Value {
+        let parties = self.engine.who_can(&ctx.query_context(now), permission);
         Value::Array(parties.iter().map(subject_ref_json).collect())
     }
 
@@ -449,33 +529,39 @@ impl EngineHandle {
     ///
     /// # Errors
     /// `QUERY_LIMIT_EXCEEDED` e `RELATION_DEPTH_EXCEEDED`.
-    pub fn who_can_on(&self, ctx: &ContextData, permission: &str, resource: Value) -> BindingResult<Value> {
+    pub fn who_can_on(
+        &self,
+        ctx: &ContextData,
+        permission: &str,
+        resource: Value,
+        now: Option<u64>,
+    ) -> BindingResult<Value> {
         let resource: Resource = parse("resource", resource)?;
-        let who = self.engine.who_can_on(&ctx.query_context(), permission, &resource)?;
+        let who = self.engine.who_can_on(&ctx.query_context(now), permission, &resource)?;
         let entries: Vec<Value> = who
             .entries
             .iter()
-            .map(|e| json!({"subject": subject_ref_json(&e.subject), "via": via_json(&e.via)}))
+            .map(|e| out!({"subject": subject_ref_json(&e.subject), "via": via_json(&e.via)}))
             .collect();
         let except: Vec<Value> = who
             .except
             .iter()
-            .map(|e| json!({"allowed": subject_ref_json(&e.allowed), "with": subject_ref_json(&e.with)}))
+            .map(|e| out!({"allowed": subject_ref_json(&e.allowed), "with": subject_ref_json(&e.with)}))
             .collect();
-        Ok(json!({"permission": who.permission, "resource": who.resource, "entries": entries, "except": except}))
+        Ok(out!({"permission": who.permission, "resource": who.resource, "entries": entries, "except": except}))
     }
 
     /// O que cada parte pode fazer no recurso.
     ///
     /// # Errors
     /// `QUERY_LIMIT_EXCEEDED` e `RELATION_DEPTH_EXCEEDED`.
-    pub fn access_of(&self, ctx: &ContextData, resource: Value) -> BindingResult<Value> {
+    pub fn access_of(&self, ctx: &ContextData, resource: Value, now: Option<u64>) -> BindingResult<Value> {
         let resource: Resource = parse("resource", resource)?;
-        let parties = self.engine.access_of(&ctx.query_context(), &resource)?;
+        let parties = self.engine.access_of(&ctx.query_context(now), &resource)?;
         Ok(Value::Array(
             parties
                 .iter()
-                .map(|p| json!({"subject": subject_ref_json(&p.subject), "permissions": p.permissions}))
+                .map(|p| out!({"subject": subject_ref_json(&p.subject), "permissions": p.permissions}))
                 .collect(),
         ))
     }
@@ -490,6 +576,7 @@ impl EngineHandle {
         permission: &str,
         resource: Value,
         subjects: Value,
+        now: Option<u64>,
     ) -> BindingResult<Value> {
         let reference = parse_subject_ref(subject_ref)?;
         let resource: Resource = parse("resource", resource)?;
@@ -499,8 +586,8 @@ impl EngineHandle {
             .fold(InMemorySubjects::new(), |known, subject| known.with(subject));
         let answer = self
             .engine
-            .check_for(&ctx.query_context(), &resolver, &reference, permission, &resource)?;
-        Ok(json!({
+            .check_for(&ctx.query_context(now), &resolver, &reference, permission, &resource)?;
+        Ok(out!({
             "subject": subject_ref_json(&answer.subject),
             "allowed": answer.is_allowed(),
             "decision": answer.decision,
@@ -510,15 +597,15 @@ impl EngineHandle {
     }
 
     /// Aplica uma mudança de grant ou de papel pelos invariantes, no instante `input.now` (ou em
-    /// `clock_ms`, o relógio do alvo). Devolve `{ ok, grants?, subject?, violations?, audit? }`;
+    /// `clock`, o relógio do alvo, que só falha se a entrada não traz `now`). Devolve `{ ok, grants?, subject?, violations?, audit? }`;
     /// `subject` é o sujeito com o papel aplicado, numa mudança de papel aceita, e `audit` é o
     /// registro a gravar quando a entrada pede auditoria. As janelas de validade do ator contam
     /// nesse instante.
-    pub fn apply(&self, input: Value, clock_ms: u64) -> BindingResult<Value> {
+    pub fn apply(&self, input: Value, clock: BindingResult<u64>) -> BindingResult<Value> {
         let input: ApplyInput = parse("apply", input)?;
         let now = match &input.now {
             Some(v) if !v.is_null() => millis_value("now", v)?,
-            _ => clock_ms,
+            _ => clock?,
         };
         let governed = Governed {
             invariants: &input.invariants,
@@ -540,13 +627,13 @@ impl EngineHandle {
         let audit = log.drain().pop().map(|r| to_value(&r));
         Ok(match result {
             Ok(grants) => {
-                let mut out = json!({ "ok": true, "grants": grants, "audit": audit });
+                let mut out = out!({ "ok": true, "grants": grants, "audit": audit });
                 if let Some(subject) = input.mutation.subject_after() {
                     out["subject"] = to_value(&subject);
                 }
                 out
             }
-            Err(violations) => json!({ "ok": false, "violations": violations, "audit": audit }),
+            Err(violations) => out!({ "ok": false, "violations": violations, "audit": audit }),
         })
     }
 
@@ -563,11 +650,11 @@ impl EngineHandle {
     /// (`depends_on`). O lote inteiro é simulado antes de gravar qualquer registro de auditoria:
     /// numa recusa, `ok` é `false`, só a recusa vai à trilha e nada deve ser gravado. Devolve
     /// `{ ok, grants?, violations?, audits }`.
-    pub fn apply_template(&self, input: Value, clock_ms: u64) -> BindingResult<Value> {
+    pub fn apply_template(&self, input: Value, clock: BindingResult<u64>) -> BindingResult<Value> {
         let input: ApplyTemplateInput = parse("template", input)?;
         let now = match &input.now {
             Some(v) if !v.is_null() => millis_value("now", v)?,
-            _ => clock_ms,
+            _ => clock?,
         };
         let materialized = input.template.template.materialize(
             input.template.subject,
@@ -612,7 +699,7 @@ impl EngineHandle {
                     );
                     let violations = refused.err().unwrap_or(violations);
                     let audits: Vec<Value> = log.drain().iter().map(to_value).collect();
-                    return Ok(json!({"ok": false, "violations": violations, "audits": audits}));
+                    return Ok(out!({"ok": false, "violations": violations, "audits": audits}));
                 }
             }
         }
@@ -629,18 +716,22 @@ impl EngineHandle {
                 Ok(next) => grants = next,
                 Err(violations) => {
                     let audits: Vec<Value> = log.drain().iter().map(to_value).collect();
-                    return Ok(json!({"ok": false, "violations": violations, "audits": audits}));
+                    return Ok(out!({"ok": false, "violations": violations, "audits": audits}));
                 }
             }
         }
         let audits: Vec<Value> = log.drain().iter().map(to_value).collect();
-        Ok(json!({"ok": true, "grants": grants, "audits": audits}))
+        Ok(out!({"ok": true, "grants": grants, "audits": audits}))
     }
 }
 
-/// Bytes estimados para `records` registros de auditoria no nível dado.
-pub fn audit_estimate(level: Value, records: f64) -> BindingResult<f64> {
+/// Bytes estimados para `records` registros de auditoria no nível dado. `records` é um número
+/// finito (um fracionário arredonda para baixo e um negativo conta 0); outro tipo é `INVALID_ARGUMENT`.
+pub fn audit_estimate(level: Value, records: Value) -> BindingResult<f64> {
     let level: AuditLevel = parse("level", level)?;
+    let records = records
+        .as_f64()
+        .ok_or_else(|| BindingError::invalid_argument("records", "esperado um número"))?;
     let records = millis("records", records.max(0.0).floor())?;
     // O estimado passa de 2^53 só com registros absurdos: a perda de precisão é só de arredondamento.
     Ok(level.estimate_bytes(records) as f64)
@@ -648,6 +739,8 @@ pub fn audit_estimate(level: Value, records: f64) -> BindingResult<f64> {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     fn spec() -> Value {

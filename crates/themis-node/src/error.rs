@@ -23,6 +23,12 @@ impl BindingError {
         }
     }
 
+    /// Argumento escalar que não é aceito: tipo errado, fora do intervalo, não finito. Igual nos
+    /// dois alvos, e nunca coagido a um valor.
+    pub fn invalid_argument(what: &str, cause: impl fmt::Display) -> Self {
+        Self::new("INVALID_ARGUMENT", format!("{what} inválido: {cause}"))
+    }
+
     /// Entrada que não tem a forma esperada.
     pub fn invalid_input(what: &str, cause: impl fmt::Display) -> Self {
         Self::new("INVALID_INPUT", format!("{what} inválido: {cause}"))
@@ -61,6 +67,8 @@ impl From<ExclusiveError> for BindingError {
             ExclusiveError::Denied(_) => "EXCLUSIVE_DENIED",
             ExclusiveError::UnknownPermission(_) => "EXCLUSIVE_UNKNOWN_PERMISSION",
             ExclusiveError::Store(_) => "EXCLUSIVE_STORE",
+            // O binding não liga a auditoria da posse: `Audit` não chega aqui. Uma variante nova do
+            // núcleo cai neste código, que o `ErrorCode` documenta como o resto.
             _ => "EXCLUSIVE_ERROR",
         };
         Self::new(code, error.to_string())
