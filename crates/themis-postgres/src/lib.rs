@@ -25,6 +25,9 @@
 //! (`postgres-native-tls`, `tokio-postgres-rustls`).
 
 pub mod query;
+mod window;
+
+pub use window::{InstantOutOfRange, WindowColumns, WindowPredicate, candidate_predicate, window_predicate};
 
 use std::future::Future;
 use std::pin::Pin;
@@ -121,7 +124,7 @@ pub async fn notify<C: GenericClient + Sync>(client: &C, channel: &str, change: 
         .map_err(connection)
 }
 
-fn quote_ident(name: &str) -> String {
+pub(crate) fn quote_ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
 

@@ -36,6 +36,10 @@ pub fn reason(reason: &Reason) -> String {
         } => format!("grant {grant_id} ({permission}, degrau {rank}) escolhido pela estratégia {strategy}"),
         Reason::NoApplicableGrant => "nenhum grant se aplicou: negado por padrão".into(),
         Reason::UnknownPermission => "a permissão não existe no catálogo".into(),
+        Reason::MissingPrerequisite {
+            permission,
+            prerequisite,
+        } => format!("{permission} exige {prerequisite}, que não é permitida neste recurso"),
     }
 }
 
@@ -54,12 +58,14 @@ pub fn verdict(verdict: &Verdict) -> String {
         Verdict::Candidate => "candidato".into(),
         Verdict::CandidateFailSafe { problem } => format!("candidato por segurança (deny com erro: {problem})"),
         Verdict::PermissionUnrelated => "permissão não relacionada".into(),
+        Verdict::OutsideWindow => "fora da janela de validade".into(),
         Verdict::OutOfScope => "escopo fora do caminho do recurso".into(),
         Verdict::TargetNotOnPath => "alvo não casa nenhum degrau".into(),
         Verdict::SubjectMismatch => "sujeito não casa".into(),
         Verdict::SubjectUnresolved { problem } => format!("allow descartado: sujeito não avaliável ({problem})"),
         Verdict::ConditionFalse => "condição falsa".into(),
         Verdict::ConditionUnresolved { problem } => format!("allow descartado: condição não avaliável ({problem})"),
+        Verdict::OverrideOnly => "permissão só vale por override: grant ignorado".into(),
         Verdict::NotReached => "não avaliado (override decidiu antes)".into(),
     }
 }
