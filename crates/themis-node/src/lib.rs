@@ -11,6 +11,7 @@ macro_rules! out {
     };
 }
 
+#[cfg(any(feature = "napi", feature = "wasm", test))]
 mod dsl;
 mod error;
 mod exclusive;
