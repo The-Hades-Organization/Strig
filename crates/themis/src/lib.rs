@@ -63,10 +63,12 @@ pub use governance::{
     CatalogConformance, Forbid, Governance, Invariant, Mutation, NoLockout, NoSelfManagement, Proposal,
     RequirePermission, Violation,
 };
-pub use grant::{Effect, Grant, GrantSource, SubjectMatcher, TargetSelector};
+pub use grant::{Effect, Grant, GrantIndex, GrantSource, SubjectMatcher, TargetSelector};
 pub use overrides::{FnOverride, Override, PermissionHolder, ResourceOwner};
 pub use rbac::{RbacError, RoleGraph};
-pub use rebac::{InMemoryTuples, RebacError, RelationSchema, Rewrite, Tuple, TupleStore, TupleSubject};
+pub use rebac::{
+    InMemoryTuples, RebacError, RelationSchema, Rewrite, Tuple, TupleIndex, TupleStore, TupleSubject,
+};
 pub use resource::{Anchor, GLOBAL, ObjectRef, Resource};
 pub use spec::{
     EngineSpec, InvariantSpec, OverrideRule, OverrideSpec, RelationSpec, RoleSpec, SpecError, StrategySpec,

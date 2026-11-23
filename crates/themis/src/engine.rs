@@ -10,7 +10,7 @@ use crate::decision::{Decision, Reason, Request};
 use crate::explain::{
     ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, Verdict, trace_condition,
 };
-use crate::grant::{Effect, Grant, GrantSource, SubjectMatcher};
+use crate::grant::{Effect, Grant, GrantIndex, GrantSource, SubjectMatcher};
 use crate::overrides::Override;
 use crate::rbac::RoleGraph;
 use crate::rebac::{RelationSchema, TupleStore};
@@ -515,5 +515,19 @@ impl GrantSource for CapabilitySet {
         for grant in &self.grants {
             visitor(grant);
         }
+    }
+}
+
+impl GrantIndex for CapabilitySet {
+    fn visit_by_permission(&self, permissions: &[&str], visitor: &mut dyn FnMut(&Grant)) {
+        self.grants.visit_by_permission(permissions, visitor);
+    }
+
+    fn visit_by_target_kind(&self, kind: &str, visitor: &mut dyn FnMut(&Grant)) {
+        self.grants.visit_by_target_kind(kind, visitor);
+    }
+
+    fn visit_by_subject(&self, subject: &SubjectMatcher, visitor: &mut dyn FnMut(&Grant)) {
+        self.grants.visit_by_subject(subject, visitor);
     }
 }
