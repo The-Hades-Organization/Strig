@@ -1,8 +1,9 @@
 //! Attribute invariants (non-delegable, management-only), escalation and the lockout suggestion.
 
 use themis::{
-    Anchor, Bypass, Catalog, Engine, Governance, Grant, ManagementOnly, Mutation, NoEscalation, NoLockout,
-    NonDelegable, PermissionDef, Resource, RoleAssignment, Subject, SubjectMatcher, TargetSelector,
+    Anchor, Bypass, Catalog, Engine, Forbid, Governance, Grant, ManagementOnly, Mutation, NoEscalation, NoLockout,
+    NoSelfManagement, NonDelegable, PermissionDef, Resource, RoleAssignment, Subject, SubjectMatcher, Suggestion,
+    TargetSelector,
 };
 
 fn engine() -> Engine {
@@ -259,16 +260,17 @@ fn no_lockout_proposes_the_reserve_and_the_proposal_passes_once_applied() {
         .apply(&engine, &actor, &grants, &revoke, None)
         .expect_err("refused");
     assert_eq!(violations[0].invariant, "no_lockout");
-    let fix = *violations[0].suggestion.clone().expect("suggestion");
+    let suggestion = violations[0].suggestion.clone().expect("suggestion");
     assert_eq!(
-        fix,
-        Mutation::AssignRole {
-            subject: spare.clone(),
+        suggestion,
+        Suggestion::AssignRole {
+            subject_id: "spare".into(),
             role: role("admin")
         }
     );
 
     // Nothing was applied: the caller sends the fix, reloads the members, and resends the refusal.
+    let fix = suggestion.into_mutation(spare.clone());
     let promoted = fix.subject_after().expect("role change");
     lockout_governance(boss.clone(), spare.clone())
         .apply(&engine, &actor, &grants, &fix, None)
@@ -316,4 +318,118 @@ fn audit_records_the_refusal_with_the_suggestion() {
     let records = log.records();
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].suggestions.len(), 1);
+}
+
+fn suggestion_of(governance: &Governance, actor: &Subject, boss: &Subject) -> Option<Suggestion> {
+    let grants = vec![role_grant("a", "admin", "project.manage")];
+    let revoke = Mutation::RevokeRole {
+        subject: boss.clone(),
+        role: role("admin"),
+    };
+    let violations = governance
+        .apply(&engine(), actor, &grants, &revoke, None)
+        .expect_err("refused");
+    assert_eq!(violations[0].invariant, "no_lockout");
+    violations[0].suggestion.clone()
+}
+
+#[test]
+fn no_lockout_does_not_suggest_a_reserve_outside_the_members() {
+    let boss = Subject::user("boss").with_role("admin");
+    let outsider = Subject::user("outsider");
+    let governance = Governance::new().with(
+        NoLockout::new(["project.manage"], vec![boss.clone()], project()).with_reserve(role("admin"), [outsider]),
+    );
+    // The invariant only counts its members, so promoting an outsider would not lift the refusal.
+    assert_eq!(suggestion_of(&governance, &Subject::user("actor"), &boss), None);
+}
+
+#[test]
+fn no_lockout_never_suggests_the_actor_and_picks_another_reserve() {
+    let boss = Subject::user("boss").with_role("admin");
+    let spare = Subject::user("spare");
+    let other = Subject::user("other");
+    let build = |reserve: Vec<Subject>| {
+        Governance::new().with(NoSelfManagement).with(
+            NoLockout::new(
+                ["project.manage"],
+                vec![boss.clone(), spare.clone(), other.clone()],
+                project(),
+            )
+            .with_reserve(role("admin"), reserve),
+        )
+    };
+    // The only reserve is the actor: assigning the role to themselves would be refused.
+    assert_eq!(suggestion_of(&build(vec![spare.clone()]), &spare, &boss), None);
+    // With a second reserve, the suggestion goes to the one who is not the actor.
+    assert_eq!(
+        suggestion_of(&build(vec![spare.clone(), other.clone()]), &spare, &boss),
+        Some(Suggestion::AssignRole {
+            subject_id: "other".into(),
+            role: role("admin")
+        })
+    );
+}
+
+#[test]
+fn no_lockout_drops_a_suggestion_that_another_invariant_would_refuse() {
+    let boss = Subject::user("boss").with_role("admin");
+    let spare = Subject::user("spare");
+    let governance = Governance::new()
+        .with(Forbid::new(SubjectMatcher::user("spare"), ["project.manage"]))
+        .with(
+            NoLockout::new(["project.manage"], vec![boss.clone(), spare.clone()], project())
+                .with_reserve(role("admin"), [spare]),
+        );
+    // The role carries `project.manage`, which `Forbid` keeps from `spare`: the fix would be refused.
+    assert_eq!(suggestion_of(&governance, &Subject::user("actor"), &boss), None);
+}
+
+#[test]
+fn no_lockout_accounts_for_the_change_when_it_touches_the_reserve() {
+    // The refused change revokes the admin role of the very reserve subject; promoting them again
+    // is not a fix, and the suggestion has to see that.
+    let boss = Subject::user("boss").with_role("admin");
+    let spare = Subject::user("spare").with_role("admin");
+    let governance = Governance::new().with(
+        NoLockout::new(["project.manage"], vec![spare.clone()], project())
+            .with_reserve(role("admin"), [spare.clone(), boss]),
+    );
+    let grants = vec![role_grant("a", "admin", "project.manage")];
+    let revoke = Mutation::RevokeRole {
+        subject: spare,
+        role: role("admin"),
+    };
+    let violations = governance
+        .apply(&engine(), &Subject::user("actor"), &grants, &revoke, None)
+        .expect_err("refused");
+    assert_eq!(violations[0].suggestion, None);
+}
+
+#[test]
+fn the_suggestion_exposes_only_the_id_and_the_role() {
+    use std::sync::Arc;
+    use themis::{AuditLevel, Auditor, MemoryAuditLog};
+
+    let boss = Subject::user("boss").with_role("admin");
+    let spare = Subject::user("spare")
+        .with_principal("emergency")
+        .with_attr("phone", "555-0100");
+    let log = Arc::new(MemoryAuditLog::new());
+    let governance =
+        lockout_governance(boss.clone(), spare).audited(Arc::new(Auditor::new(AuditLevel::Standard, log.clone())));
+    let grants = vec![role_grant("a", "admin", "project.manage")];
+    let revoke = Mutation::RevokeRole {
+        subject: boss,
+        role: role("admin"),
+    };
+    let violations = governance
+        .apply(&engine(), &Subject::user("actor"), &grants, &revoke, None)
+        .expect_err("refused");
+    let shown = serde_json::to_string(&violations).expect("json");
+    let recorded = serde_json::to_string(&log.records()).expect("json");
+    for text in [shown, recorded] {
+        assert!(text.contains("spare"), "{text}");
+        assert!(!text.contains("emergency") && !text.contains("555-0100"), "{text}");
+    }
 }

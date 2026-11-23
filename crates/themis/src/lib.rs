@@ -63,7 +63,7 @@ pub use explain::{
 };
 pub use governance::{
     Bypass, CatalogConformance, Forbid, Governance, Invariant, ManagementOnly, Mutation, NoEscalation, NoLockout,
-    NoSelfManagement, NonDelegable, Prerequisites, Proposal, RequirePermission, Violation,
+    NoSelfManagement, NonDelegable, Prerequisites, Proposal, RequirePermission, Suggestion, Violation,
 };
 pub use grant::{Effect, Grant, GrantSource, SubjectMatcher, TargetSelector};
 pub use overrides::{FnOverride, Override, PermissionHolder, ResourceOwner};
