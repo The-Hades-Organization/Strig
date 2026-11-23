@@ -95,6 +95,9 @@ impl Strategy for PermitOverrides {
 }
 
 /// The first applicable grant, in source order, decides.
+///
+/// "Source order" is the order of [`crate::GrantSource::visit`]. A listing reads the grants through
+/// [`crate::GrantIndex`], which must keep that relative order.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FirstApplicable;
 

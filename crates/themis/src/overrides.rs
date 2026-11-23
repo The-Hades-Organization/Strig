@@ -2,7 +2,7 @@ use crate::attr::Value;
 use crate::decision::Request;
 use crate::engine::{Context, Engine};
 use crate::grant::Effect;
-use crate::query::{AccessFilter, Expr, QueryContext, SubjectRef};
+use crate::query::{AccessFilter, Expr, QueryContext, QueryError, SubjectRef};
 use crate::resource::Resource;
 use crate::subject::Subject;
 
@@ -37,12 +37,17 @@ pub struct SubjectsRequest<'a> {
 
 impl SubjectsRequest<'_> {
     /// Subjects with `permission` on the resource by the grants only, without overrides.
-    pub fn holders(&self, permission: &str) -> Vec<SubjectRef> {
-        self.engine
-            .who_can_on_by_grants(self.ctx, permission, self.resource)
+    ///
+    /// # Errors
+    ///
+    /// The [`QueryError`] of the nested query (a limit, an unreadable deny).
+    pub fn holders(&self, permission: &str) -> Result<Vec<SubjectRef>, QueryError> {
+        Ok(self
+            .engine
+            .who_can_on_by_grants(self.ctx, permission, self.resource)?
             .subjects()
             .cloned()
-            .collect()
+            .collect())
     }
 }
 
@@ -88,8 +93,12 @@ pub trait Override: Send + Sync {
 
     /// Subjects this override lets through on the resource, for reverse queries
     /// ([`Engine::who_can_on`]). The default names none.
-    fn subjects(&self, _request: &SubjectsRequest<'_>) -> Vec<SubjectRef> {
-        Vec::new()
+    ///
+    /// # Errors
+    ///
+    /// Pass on the [`QueryError`] of a nested query ([`SubjectsRequest::holders`]).
+    fn subjects(&self, _request: &SubjectsRequest<'_>) -> Result<Vec<SubjectRef>, QueryError> {
+        Ok(Vec::new())
     }
 }
 
@@ -128,11 +137,11 @@ impl Override for ResourceOwner {
         }
     }
 
-    fn subjects(&self, request: &SubjectsRequest<'_>) -> Vec<SubjectRef> {
-        match request.resource.attrs.get(&self.attr) {
+    fn subjects(&self, request: &SubjectsRequest<'_>) -> Result<Vec<SubjectRef>, QueryError> {
+        Ok(match request.resource.attrs.get(&self.attr) {
             Some(Value::Str(owner)) => vec![SubjectRef::User { id: owner.clone() }],
             _ => Vec::new(),
-        }
+        })
     }
 }
 
@@ -176,7 +185,7 @@ impl Override for PermissionHolder {
         OverrideReach::Allows(OverrideGate::Holds(Box::new(request.holds(&self.key))))
     }
 
-    fn subjects(&self, request: &SubjectsRequest<'_>) -> Vec<SubjectRef> {
+    fn subjects(&self, request: &SubjectsRequest<'_>) -> Result<Vec<SubjectRef>, QueryError> {
         request.holders(&self.key)
     }
 }

@@ -70,7 +70,7 @@ pub use overrides::{
 };
 pub use query::{
     AccessFilter, AccessVia, CheckAnswer, Expr, FilterOutcome, FilterResidual, FilterResolution, FilterShape,
-    InMemorySubjects, PartyAccess, PathLayout, QueryContext, QueryError, SubjectRef, SubjectResolver, WhoCan,
+    InMemorySubjects, PartyAccess, PathLayout, QueryContext, QueryError, QueryLimits, SubjectRef, SubjectResolver, WhoCan,
     WhoCanEntry, WhoCanExcept,
 };
 pub use rbac::{RbacError, RoleGraph};

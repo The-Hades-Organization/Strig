@@ -194,8 +194,13 @@ impl<A: GrantSource, B: GrantSource> GrantSource for (A, B) {
 /// database implementation answers each method with one indexed query.
 ///
 /// Like [`GrantSource`], an implementation may deliver extra grants and must not deliver fewer.
+///
+/// Order is part of the contract: every `visit_by_*` method hands out grants in the same relative
+/// order as [`GrantSource::visit`]. [`crate::FirstApplicable`] decides by the first grant that
+/// applies, so a listing that read the grants in another order would disagree with
+/// [`crate::Engine::check`].
 pub trait GrantIndex: GrantSource {
-    /// Grants of any of the given permission keys.
+    /// Grants of any of the given permission keys, in the order of [`GrantSource::visit`].
     fn visit_by_permission(&self, permissions: &[&str], visitor: &mut dyn FnMut(&Grant));
 
     /// Grants whose target is of the given kind (`global` for the implicit step).

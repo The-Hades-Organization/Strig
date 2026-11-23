@@ -126,7 +126,7 @@ fn who_can_on_agrees_with_check_subject_by_subject() {
             "document.edit",
             "project.view",
         ] {
-            let who = engine.who_can_on(&qctx, key, resource);
+            let who = engine.who_can_on(&qctx, key, resource).unwrap();
             for subject in people() {
                 let expected = engine.check(&ctx, &Request::new(&subject, key, resource));
                 assert_eq!(
@@ -169,7 +169,9 @@ fn who_can_follows_implication_and_ignores_denies() {
 fn who_can_on_leaves_out_a_party_that_a_deny_removes() {
     let (engine, grants, store) = (engine_with_roles(), grants(), tuples());
     let qctx = QueryContext::new(&grants).with_tuples(&store);
-    let who = engine.who_can_on(&qctx, "document.report.view", &document("d9", "report"));
+    let who = engine
+        .who_can_on(&qctx, "document.report.view", &document("d9", "report"))
+        .unwrap();
     assert!(
         !who.subjects()
             .any(|s| matches!(s, SubjectRef::Role { id } if id == "member"))
@@ -180,7 +182,7 @@ fn who_can_on_leaves_out_a_party_that_a_deny_removes() {
 fn who_can_on_reports_the_override_holder_and_the_owner() {
     let (engine, grants, store) = (engine_with_roles(), grants(), tuples());
     let qctx = QueryContext::new(&grants).with_tuples(&store);
-    let who = engine.who_can_on(&qctx, "document.export", &doc());
+    let who = engine.who_can_on(&qctx, "document.export", &doc()).unwrap();
     assert!(
         who.subjects()
             .any(|s| matches!(s, SubjectRef::User { id } if id == "carol"))
@@ -199,7 +201,7 @@ fn who_can_on_reports_the_override_holder_and_the_owner() {
 fn access_of_lists_each_party_with_its_permissions() {
     let (engine, grants, store) = (engine_with_roles(), grants(), tuples());
     let qctx = QueryContext::new(&grants).with_tuples(&store);
-    let access = engine.access_of(&qctx, &document("d2", "invoice"));
+    let access = engine.access_of(&qctx, &document("d2", "invoice")).unwrap();
     let of = |party: &SubjectRef| access.iter().find(|a| &a.subject == party).map(|a| &a.permissions);
     let member = of(&SubjectRef::Role { id: "member".into() }).expect("member listed");
     assert!(member.contains("document.view"));
