@@ -17,15 +17,34 @@
     },
     "./client": { "types": "./client.d.ts", "default": "./client.js" },
     "./server": { "types": "./server.d.ts", "default": "./server.js" },
-    "./protocol": { "types": "./protocol.d.ts", "default": "./protocol.js" }
+    "./protocol": { "types": "./protocol.d.ts", "default": "./protocol.js" },
+    "./remote": { "types": "./remote.d.ts", "default": "./remote.js" },
+    "./express": { "types": "./express.d.ts", "default": "./express.js" },
+    "./fastify": { "types": "./fastify.d.ts", "default": "./fastify.js" },
+    "./nestjs": { "types": "./nestjs.d.ts", "default": "./nestjs.js" }
   },
   "scripts": {
     "build": "sh ../scripts/build.sh",
     "test": "node test/run.mjs",
     "test:bun": "bun test/run.mjs"
   },
+  "peerDependencies": {
+    "@nestjs/common": ">=10",
+    "express": ">=4",
+    "fastify": ">=4"
+  },
+  "peerDependenciesMeta": {
+    "@nestjs/common": { "optional": true },
+    "express": { "optional": true },
+    "fastify": { "optional": true }
+  },
   "devDependencies": {
-    "pg": "^8.13.0"
+    "@nestjs/common": "11.0.1",
+    "express": "5.1.0",
+    "fastify": "5.2.1",
+    "pg": "^8.13.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.1"
   },
   "engines": {
     "node": ">=18.17",
