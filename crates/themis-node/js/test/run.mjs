@@ -58,7 +58,7 @@ for (const backend of ['native', 'wasm']) {
     assert.equal(engine.check(ctx, request), true);
     const decision = engine.decide(ctx, request);
     assert.equal(decision.effect, 'allow');
-    assert.equal(decision.reason.grant_id, 'g1');
+    assert.equal(decision.reason.grantId, 'g1');
     assert.equal(engine.check(ctx, { ...request, permission: 'project.edit' }), false);
     assert.equal(engine.capabilities(ctx, admin, p1).grants.length, 1);
     const explained = engine.explain(ctx, request);

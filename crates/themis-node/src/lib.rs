@@ -769,8 +769,8 @@ mod tests {
             "permission": "project.view",
             "resource": {"path": [{"kind": "project", "id": "p1"}]}
         });
-        assert!(engine.check(&ctx, request.clone()).unwrap());
-        assert_eq!(engine.decide(&ctx, request).unwrap()["effect"], "allow");
+        assert!(engine.check(&ctx, request.clone(), None).unwrap());
+        assert_eq!(engine.decide(&ctx, request, None).unwrap()["effect"], "allow");
 
         let out = engine
             .apply(
@@ -782,7 +782,7 @@ mod tests {
                     "invariants": [{"kind": "catalog_conformance"}],
                     "audit": {"level": "forensic"}
                 }),
-                1_700_000_000_000,
+                Ok(1_700_000_000_000),
             )
             .unwrap();
         assert_eq!(out["ok"], true);
@@ -808,7 +808,7 @@ mod tests {
         let out = engine
             .apply(
                 input(json!({"assign_role": {"subject": {"kind": "user", "id": "bob"}, "role": {"role": "member"}}})),
-                1,
+                Ok(1),
             )
             .unwrap();
         assert_eq!(out["ok"], true);
@@ -820,7 +820,7 @@ mod tests {
         let out = engine
             .apply(
                 input(json!({"revoke_role": {"subject": {"kind": "user", "id": "admin"}, "role": {"role": "member"}}})),
-                1,
+                Ok(1),
             )
             .unwrap();
         assert_eq!(out["ok"], false);
@@ -837,7 +837,7 @@ mod tests {
                 .unwrap();
         assert_eq!(err.code, "INVALID_SPEC");
         assert!(err.message.contains("chave inválida"));
-        assert!(audit_estimate(json!("minimal"), 1e6).unwrap() > 1e8);
+        assert!(audit_estimate(json!("minimal"), json!(1e6)).unwrap() > 1e8);
     }
     const T0: u64 = 1_700_000_000_000;
 
@@ -874,22 +874,22 @@ mod tests {
         let mut ctx = ContextData::new(Some(json!({"grants": grants}))).unwrap();
         ctx.set_now(json!(T0)).unwrap();
         assert!(
-            !engine.check(&ctx, view(&ana(), "p1")).unwrap(),
+            !engine.check(&ctx, view(&ana(), "p1"), None).unwrap(),
             "grant futuro não vale"
         );
         ctx.set_now(json!(T0 + 10)).unwrap();
         assert!(
-            engine.check(&ctx, view(&ana(), "p1")).unwrap(),
+            engine.check(&ctx, view(&ana(), "p1"), None).unwrap(),
             "vale no início da janela"
         );
 
         let expiring = json!([allow("old", ana_matcher(), "project.view", json!({"validUntil": T0}))]);
         let mut ctx = ContextData::new(Some(json!({"grants": expiring}))).unwrap();
         ctx.set_now(json!(T0 - 1)).unwrap();
-        assert!(engine.check(&ctx, view(&ana(), "p1")).unwrap());
+        assert!(engine.check(&ctx, view(&ana(), "p1"), None).unwrap());
         ctx.set_now(json!(T0)).unwrap();
         assert!(
-            !engine.check(&ctx, view(&ana(), "p1")).unwrap(),
+            !engine.check(&ctx, view(&ana(), "p1"), None).unwrap(),
             "validUntil é exclusivo"
         );
     }
@@ -901,8 +901,8 @@ mod tests {
     #[test]
     fn invalid_now_is_refused_with_a_code() {
         let mut ctx = ContextData::new(None).unwrap();
-        for bad in [json!(-1), json!(1.5), json!("x")] {
-            assert_eq!(ctx.set_now(bad).unwrap_err().code, "INVALID_INPUT");
+        for bad in [json!(-1), json!(1.5), json!("x"), json!(true), json!([]), json!("")] {
+            assert_eq!(ctx.set_now(bad).unwrap_err().code, "INVALID_ARGUMENT");
         }
     }
 
@@ -920,21 +920,21 @@ mod tests {
                 "now": now
             })
         };
-        let before = engine.apply(input(json!(T0 - 1)), T0 + 5_000).unwrap();
+        let before = engine.apply(input(json!(T0 - 1)), Ok(T0 + 5_000)).unwrap();
         assert_eq!(before["ok"], true, "o grant do ator ainda vale");
         assert_eq!(before["audit"]["at"], T0 - 1, "a auditoria usa o instante da entrada");
-        let after = engine.apply(input(json!(T0)), T0 + 5_000).unwrap();
+        let after = engine.apply(input(json!(T0)), Ok(T0 + 5_000)).unwrap();
         assert_eq!(after["ok"], false, "o grant do ator venceu: não pode repassar");
         assert_eq!(after["violations"][0]["invariant"], "no_escalation");
 
-        let fallback = engine.apply(input(Value::Null), T0 - 1).unwrap();
+        let fallback = engine.apply(input(Value::Null), Ok(T0 - 1)).unwrap();
         assert_eq!(fallback["ok"], true, "sem now vale o relógio do alvo");
         assert_eq!(fallback["audit"]["at"], T0 - 1);
 
-        for bad in [json!(-1), json!("x"), json!(1.5)] {
-            assert_eq!(engine.apply(input(bad), T0).unwrap_err().code, "INVALID_INPUT");
+        for bad in [json!(-1), json!("x"), json!(1.5), json!(true), json!([])] {
+            assert_eq!(engine.apply(input(bad), Ok(T0)).unwrap_err().code, "INVALID_ARGUMENT");
         }
-        assert_eq!(engine.apply(json!({"actor": 5}), T0).unwrap_err().code, "INVALID_INPUT");
+        assert_eq!(engine.apply(json!({"actor": 5}), Ok(T0)).unwrap_err().code, "INVALID_INPUT");
     }
 
     #[test]
@@ -945,9 +945,9 @@ mod tests {
         let grants = json!([allow("a", ana_matcher(), "project.view", json!({})), deny]);
         let mut ctx = ContextData::new(Some(json!({"grants": grants}))).unwrap();
         ctx.set_now(json!(T0 - 1)).unwrap();
-        assert!(!engine.check(&ctx, view(&ana(), "p1")).unwrap(), "o deny vale");
+        assert!(!engine.check(&ctx, view(&ana(), "p1"), None).unwrap(), "o deny vale");
         ctx.set_now(json!(T0)).unwrap();
-        assert!(engine.check(&ctx, view(&ana(), "p1")).unwrap(), "o deny venceu");
+        assert!(engine.check(&ctx, view(&ana(), "p1"), None).unwrap(), "o deny venceu");
     }
 
     #[test]
@@ -971,13 +971,13 @@ mod tests {
         apply["current"] = json!([]);
         apply["invariants"] = json!([{"kind": "catalog_conformance"}]);
         apply["audit"] = json!({"level": "standard"});
-        let out = engine.apply_template(apply.clone(), T0).unwrap();
+        let out = engine.apply_template(apply.clone(), Ok(T0)).unwrap();
         assert_eq!(out["ok"], true);
         assert_eq!(out["grants"].as_array().unwrap().len(), 2);
         assert_eq!(out["audits"].as_array().unwrap().len(), 2);
 
         apply["template"]["grants"][0]["permission"] = json!("nope");
-        let refused = engine.apply_template(apply.clone(), T0).unwrap();
+        let refused = engine.apply_template(apply.clone(), Ok(T0)).unwrap();
         assert_eq!(refused["ok"], false);
         assert_eq!(
             refused["audits"].as_array().unwrap().len(),
@@ -986,7 +986,7 @@ mod tests {
         );
 
         apply["now"] = json!("x");
-        assert_eq!(engine.apply_template(apply, T0).unwrap_err().code, "INVALID_INPUT");
+        assert_eq!(engine.apply_template(apply, Ok(T0)).unwrap_err().code, "INVALID_ARGUMENT");
         assert_eq!(
             engine.materialize(json!({"template": 5})).unwrap_err().code,
             "INVALID_INPUT"
@@ -1012,12 +1012,12 @@ mod tests {
             })
         };
         let reserve = json!({"adminRole": {"role": "owner"}, "subjects": [zed]});
-        let out = engine.apply(input(reserve), T0).unwrap();
+        let out = engine.apply(input(reserve), Ok(T0)).unwrap();
         assert_eq!(out["ok"], false);
         assert_eq!(out["violations"][0]["invariant"], "no_lockout");
-        assert_eq!(out["violations"][0]["suggestion"]["subject_id"], "zed");
+        assert_eq!(out["violations"][0]["suggestion"]["subjectId"], "zed");
 
-        let out = engine.apply(input(Value::Null), T0).unwrap();
+        let out = engine.apply(input(Value::Null), Ok(T0)).unwrap();
         assert_eq!(out["ok"], false);
         assert!(
             out["violations"][0].get("suggestion").is_none(),
@@ -1057,13 +1057,14 @@ mod tests {
                 "project.edit",
                 "project",
                 Some(json!({"resources": [project("p1"), project("p2")]})),
+                None,
             )
             .unwrap();
         assert_eq!(out["ids"], json!(["p1"]));
         assert_eq!(out["kind"], "project");
 
         let err = engine
-            .list(&ctx, json!(5), "project.edit", "project", None)
+            .list(&ctx, json!(5), "project.edit", "project", None, None)
             .unwrap_err();
         assert_eq!(err.code, "INVALID_INPUT");
     }
@@ -1075,12 +1076,12 @@ mod tests {
         let mut ctx = ContextData::new(Some(json!({"grants": grants}))).unwrap();
         ctx.set_now(json!(T0)).unwrap();
         assert_eq!(
-            engine.who_can(&ctx, "project.view"),
+            engine.who_can(&ctx, "project.view", None),
             json!([{"type": "user", "id": "ana"}])
         );
-        let on = engine.who_can_on(&ctx, "project.view", project("p1")).unwrap();
+        let on = engine.who_can_on(&ctx, "project.view", project("p1"), None).unwrap();
         assert_eq!(on["entries"][0]["via"]["type"], "grant");
-        let access = engine.access_of(&ctx, project("p1")).unwrap();
+        let access = engine.access_of(&ctx, project("p1"), None).unwrap();
         assert_eq!(access[0]["permissions"], json!(["project.view"]));
         let checked = engine
             .check_for(
@@ -1089,6 +1090,7 @@ mod tests {
                 "project.view",
                 project("p1"),
                 json!([{"kind": "user", "id": "ana"}]),
+                None,
             )
             .unwrap();
         assert_eq!(checked["allowed"], true);
@@ -1099,16 +1101,21 @@ mod tests {
                 "project.view",
                 project("p1"),
                 json!([]),
+                None,
             )
             .unwrap_err();
         assert_eq!(unknown.code, "UNKNOWN_SUBJECT");
 
         ctx.set_limits(json!({"maxParties": 0})).unwrap();
         assert_eq!(
-            engine.who_can_on(&ctx, "project.view", project("p1")).unwrap_err().code,
+            engine.who_can_on(&ctx, "project.view", project("p1"), None).unwrap_err().code,
             "QUERY_LIMIT_EXCEEDED"
         );
         assert_eq!(ctx.set_limits(json!(5)).unwrap_err().code, "INVALID_INPUT");
+        assert_eq!(
+            ctx.set_limits(json!({"maxParties": "x"})).unwrap_err().code,
+            "INVALID_ARGUMENT"
+        );
     }
 
     #[test]
@@ -1189,5 +1196,77 @@ mod tests {
             missing.validate(&engine).unwrap_err().code,
             "EXCLUSIVE_UNKNOWN_PERMISSION"
         );
+    }
+
+    #[test]
+    fn clock_before_1970_is_an_error_never_zero() {
+        let before = std::time::UNIX_EPOCH - std::time::Duration::from_secs(1);
+        assert_eq!(clock_ms(before).unwrap_err().code, "INVALID_ARGUMENT");
+        let after = std::time::UNIX_EPOCH + std::time::Duration::from_millis(T0);
+        assert_eq!(clock_ms(after).unwrap(), T0);
+    }
+
+    #[test]
+    fn now_arg_refuses_what_is_not_an_instant() {
+        assert_eq!(now_arg(None).unwrap(), None);
+        assert_eq!(now_arg(Some(Value::Null)).unwrap(), None);
+        assert_eq!(now_arg(Some(json!(0))).unwrap(), Some(0));
+        assert_eq!(now_arg(Some(json!(T0))).unwrap(), Some(T0));
+        for bad in [json!("0"), json!(""), json!(true), json!(false), json!([]), json!({}), json!(-1), json!(1.5)] {
+            assert_eq!(now_arg(Some(bad)).unwrap_err().code, "INVALID_ARGUMENT");
+        }
+    }
+
+    #[test]
+    fn per_call_now_wins_over_the_context_now() {
+        let engine = EngineHandle::new(spec()).unwrap();
+        let grants = json!([allow("g", ana_matcher(), "project.view", json!({"validUntil": T0}))]);
+        let mut ctx = ContextData::new(Some(json!({"grants": grants}))).unwrap();
+        ctx.set_now(json!(T0 - 1)).unwrap();
+        assert!(engine.check(&ctx, view(&ana(), "p1"), None).unwrap());
+        assert!(!engine.check(&ctx, view(&ana(), "p1"), Some(T0)).unwrap());
+        assert_eq!(
+            engine.decide(&ctx, view(&ana(), "p1"), Some(T0)).unwrap()["effect"],
+            "deny"
+        );
+    }
+
+    #[test]
+    fn camel_keys_leaves_user_content_alone() {
+        let out = camel_keys(json!({
+            "grant_id": "g",
+            "attrs": {"snake_key": 1},
+            "nested": [{"subject_id": "s", "meta": {"keep_me": true}}]
+        }));
+        assert_eq!(out["grantId"], "g");
+        assert_eq!(out["attrs"]["snake_key"], 1);
+        assert_eq!(out["nested"][0]["subjectId"], "s");
+        assert_eq!(out["nested"][0]["meta"]["keep_me"], true);
+    }
+
+    #[test]
+    fn renew_confirms_the_permission_at_the_renewal_instant() {
+        let spec = json!({"catalog": {"targetKinds": ["slot"], "broadTargets": ["org"],
+                          "permissions": [{"key": "slot.hold", "targets": ["slot"]},
+                                          {"key": "slot.preempt", "targets": ["slot"]}]}});
+        let engine = EngineHandle::new(spec).unwrap();
+        let hold = json!({"id": "h", "subject": {"kind": "any"}, "permission": "slot.hold",
+                          "target": {"kind": "slot"}, "effect": "allow", "validUntil": T0 + 500});
+        let ctx = ContextData::new(Some(json!({"grants": [hold]}))).unwrap();
+        let mut exclusive = ExclusiveHandle::new(Some(
+            json!({"permissions": {"hold": "slot.hold", "preempt": "slot.preempt"}}),
+        ))
+        .unwrap();
+        let slot = json!({"path": [{"kind": "slot", "id": "s1"}]});
+        let who = json!({"kind": "user", "id": "u"});
+        exclusive
+            .acquire(&engine, &ctx, who.clone(), slot.clone(), json!({"priority": 1, "ttlMs": 10_000}), T0)
+            .unwrap();
+        let renewed = exclusive.renew(&engine, &ctx, who.clone(), slot.clone(), 10_000, T0 + 100);
+        assert!(renewed.is_ok(), "ainda vale dentro da janela");
+        let err = exclusive
+            .renew(&engine, &ctx, who, slot, 10_000, T0 + 500)
+            .unwrap_err();
+        assert_eq!(err.code, "EXCLUSIVE_DENIED", "o grant venceu: não renova");
     }
 }
