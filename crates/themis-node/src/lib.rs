@@ -464,7 +464,11 @@ impl EngineHandle {
     ) -> BindingResult<Value> {
         let subject: Subject = parse("subject", subject)?;
         let scope: Resource = parse("scope", scope)?;
-        Ok(to_value(&self.engine.capabilities(&ctx.context_at(now), &subject, &scope)))
+        Ok(to_value(&self.engine.capabilities(
+            &ctx.context_at(now),
+            &subject,
+            &scope,
+        )))
     }
 
     pub fn validate_grant(&self, grant: Value) -> BindingResult<()> {
@@ -934,7 +938,10 @@ mod tests {
         for bad in [json!(-1), json!("x"), json!(1.5), json!(true), json!([])] {
             assert_eq!(engine.apply(input(bad), Ok(T0)).unwrap_err().code, "INVALID_ARGUMENT");
         }
-        assert_eq!(engine.apply(json!({"actor": 5}), Ok(T0)).unwrap_err().code, "INVALID_INPUT");
+        assert_eq!(
+            engine.apply(json!({"actor": 5}), Ok(T0)).unwrap_err().code,
+            "INVALID_INPUT"
+        );
     }
 
     #[test]
@@ -986,7 +993,10 @@ mod tests {
         );
 
         apply["now"] = json!("x");
-        assert_eq!(engine.apply_template(apply, Ok(T0)).unwrap_err().code, "INVALID_ARGUMENT");
+        assert_eq!(
+            engine.apply_template(apply, Ok(T0)).unwrap_err().code,
+            "INVALID_ARGUMENT"
+        );
         assert_eq!(
             engine.materialize(json!({"template": 5})).unwrap_err().code,
             "INVALID_INPUT"
@@ -1108,7 +1118,10 @@ mod tests {
 
         ctx.set_limits(json!({"maxParties": 0})).unwrap();
         assert_eq!(
-            engine.who_can_on(&ctx, "project.view", project("p1"), None).unwrap_err().code,
+            engine
+                .who_can_on(&ctx, "project.view", project("p1"), None)
+                .unwrap_err()
+                .code,
             "QUERY_LIMIT_EXCEEDED"
         );
         assert_eq!(ctx.set_limits(json!(5)).unwrap_err().code, "INVALID_INPUT");
@@ -1212,7 +1225,16 @@ mod tests {
         assert_eq!(now_arg(Some(Value::Null)).unwrap(), None);
         assert_eq!(now_arg(Some(json!(0))).unwrap(), Some(0));
         assert_eq!(now_arg(Some(json!(T0))).unwrap(), Some(T0));
-        for bad in [json!("0"), json!(""), json!(true), json!(false), json!([]), json!({}), json!(-1), json!(1.5)] {
+        for bad in [
+            json!("0"),
+            json!(""),
+            json!(true),
+            json!(false),
+            json!([]),
+            json!({}),
+            json!(-1),
+            json!(1.5),
+        ] {
             assert_eq!(now_arg(Some(bad)).unwrap_err().code, "INVALID_ARGUMENT");
         }
     }
@@ -1260,13 +1282,18 @@ mod tests {
         let slot = json!({"path": [{"kind": "slot", "id": "s1"}]});
         let who = json!({"kind": "user", "id": "u"});
         exclusive
-            .acquire(&engine, &ctx, who.clone(), slot.clone(), json!({"priority": 1, "ttlMs": 10_000}), T0)
+            .acquire(
+                &engine,
+                &ctx,
+                who.clone(),
+                slot.clone(),
+                json!({"priority": 1, "ttlMs": 10_000}),
+                T0,
+            )
             .unwrap();
         let renewed = exclusive.renew(&engine, &ctx, who.clone(), slot.clone(), 10_000, T0 + 100);
         assert!(renewed.is_ok(), "ainda vale dentro da janela");
-        let err = exclusive
-            .renew(&engine, &ctx, who, slot, 10_000, T0 + 500)
-            .unwrap_err();
+        let err = exclusive.renew(&engine, &ctx, who, slot, 10_000, T0 + 500).unwrap_err();
         assert_eq!(err.code, "EXCLUSIVE_DENIED", "o grant venceu: não renova");
     }
 }

@@ -393,7 +393,7 @@ for (const backend of ['native', 'wasm']) {
     const ctx = new Context();
     assert.throws(() => ctx.removeGrant(5), code('INVALID_ARGUMENT'));
     assert.throws(() => engine.whoCan(ctx, 5), code('INVALID_ARGUMENT'));
-    assert.throws(() => new Exclusive().acquire(engine, ctx, user('a'), doc, { priority: 1, ttlMs: '5' }, NOW), code('INVALID_ARGUMENT'));
+    assert.throws(() => new Exclusive().acquire(engine, ctx, user('a'), doc, { priority: 1, ttlMs: '5' }, NOW), code('INVALID_INPUT'), 'forma do objeto terms');
     assert.throws(() => new Exclusive().renew(engine, ctx, user('a'), doc, '5', NOW), code('INVALID_ARGUMENT'));
   });
 

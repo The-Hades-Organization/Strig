@@ -282,10 +282,11 @@ fn checked_renew_judges_the_grant_window_at_now_not_at_the_context_instant() {
         .unwrap();
 
     // The context still says 100, but the renewal happens at 1_300: the window is over.
-    assert!(matches!(
-        registry.renew_checked(&engine, &ctx, &editor("alice"), &document(), 1_000, 500),
-        Ok(_)
-    ));
+    assert!(
+        registry
+            .renew_checked(&engine, &ctx, &editor("alice"), &document(), 1_000, 500)
+            .is_ok()
+    );
     assert!(matches!(
         registry.renew_checked(&engine, &ctx, &editor("alice"), &document(), 1_300, 500),
         Err(ExclusiveError::Denied(_))

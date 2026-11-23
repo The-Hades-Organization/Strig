@@ -148,39 +148,21 @@ impl JsEngine {
     }
 
     #[napi]
-    pub fn decide(
-        &self,
-        env: &Env,
-        ctx: &JsContext,
-        request: Unknown<'_>,
-        now: Option<Unknown<'_>>,
-    ) -> Result<Value> {
+    pub fn decide(&self, env: &Env, ctx: &JsContext, request: Unknown<'_>, now: Option<Unknown<'_>>) -> Result<Value> {
         self.inner
             .decide(&ctx.inner, json(env, request)?, now_of(env, now)?)
             .map_err(err)
     }
 
     #[napi]
-    pub fn check(
-        &self,
-        env: &Env,
-        ctx: &JsContext,
-        request: Unknown<'_>,
-        now: Option<Unknown<'_>>,
-    ) -> Result<bool> {
+    pub fn check(&self, env: &Env, ctx: &JsContext, request: Unknown<'_>, now: Option<Unknown<'_>>) -> Result<bool> {
         self.inner
             .check(&ctx.inner, json(env, request)?, now_of(env, now)?)
             .map_err(err)
     }
 
     #[napi]
-    pub fn explain(
-        &self,
-        env: &Env,
-        ctx: &JsContext,
-        request: Unknown<'_>,
-        now: Option<Unknown<'_>>,
-    ) -> Result<Value> {
+    pub fn explain(&self, env: &Env, ctx: &JsContext, request: Unknown<'_>, now: Option<Unknown<'_>>) -> Result<Value> {
         self.inner
             .explain(&ctx.inner, json(env, request)?, now_of(env, now)?)
             .map_err(err)
@@ -212,7 +194,9 @@ impl JsEngine {
 
     #[napi]
     pub fn apply(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
-        self.inner.apply(json(env, input)?, crate::clock_ms(std::time::SystemTime::now())).map_err(err)
+        self.inner
+            .apply(json(env, input)?, crate::clock_ms(std::time::SystemTime::now()))
+            .map_err(err)
     }
 
     #[napi]
@@ -227,6 +211,10 @@ impl JsEngine {
             .map_err(err)
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "mirrors the JavaScript signature, one argument per parameter"
+    )]
     #[napi]
     pub fn list(
         &self,
@@ -251,7 +239,13 @@ impl JsEngine {
     }
 
     #[napi]
-    pub fn who_can(&self, env: &Env, ctx: &JsContext, permission: Unknown<'_>, now: Option<Unknown<'_>>) -> Result<Value> {
+    pub fn who_can(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        permission: Unknown<'_>,
+        now: Option<Unknown<'_>>,
+    ) -> Result<Value> {
         Ok(self
             .inner
             .who_can(&ctx.inner, &text(env, "permission", permission)?, now_of(env, now)?))
@@ -289,6 +283,10 @@ impl JsEngine {
             .map_err(err)
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "mirrors the JavaScript signature, one argument per parameter"
+    )]
     #[napi]
     pub fn check_for(
         &self,
@@ -332,6 +330,10 @@ impl JsExclusive {
         self.inner.validate(&engine.inner).map_err(err)
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "mirrors the JavaScript signature, one argument per parameter"
+    )]
     #[napi]
     pub fn acquire(
         &mut self,
@@ -374,6 +376,10 @@ impl JsExclusive {
             .map_err(err)
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "mirrors the JavaScript signature, one argument per parameter"
+    )]
     #[napi]
     pub fn renew(
         &mut self,
