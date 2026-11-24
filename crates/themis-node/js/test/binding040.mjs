@@ -419,6 +419,50 @@ for (const backend of ['native', 'wasm']) {
     assert.throws(() => lock.renew(engine, ctx, low, doc, HOUR, NOW + 100), code('EXCLUSIVE_DENIED'));
     assert.equal(lock.holder({ kind: 'document', id: 'd1' }, NOW + 60).expiresAt, NOW + 50 + HOUR, 'a posse não mudou');
   });
+  await test(tag('condições de texto, conjunto, rede e tempo decidem'), () => {
+    const engine = new Engine(SPEC);
+    const view = (attrs) => ask({ ...user('ana'), attrs }, 'project.view', p1);
+    const attr = (name) => ({ attr: `subject.${name}` });
+    // NOW é terça, 22:13:20 UTC.
+    const decide = (condition, attrs = {}, now = NOW) => {
+      const ctx = new Context({ grants: [allow('c', { kind: 'any' }, 'project.view', undefined, { condition })] });
+      ctx.setNow(now);
+      return engine.check(ctx, view(attrs));
+    };
+    const cases = [
+      [{ op: 'starts_with', left: attr('email'), right: 'ana@' }, { email: 'ana@x.org' }, true],
+      [{ op: 'starts_with', left: attr('email'), right: 'bob' }, { email: 'ana@x.org' }, false],
+      [{ op: 'ends_with', left: attr('email'), right: '@x.org' }, { email: 'ana@x.org' }, true],
+      [{ op: 'ends_with', left: attr('email'), right: '' }, { email: 'ana@x.org' }, true],
+      [{ op: 'contains', left: attr('email'), right: 'a@x' }, { email: 'ana@x.org' }, true],
+      [{ op: 'contains', left: attr('tags'), right: 'ops' }, { tags: ['dev', 'ops'] }, true],
+      [{ op: 'contains', left: attr('tags'), right: 'ops' }, { tags: [] }, false],
+      [{ op: 'any_in', left: attr('tags'), right: ['ops', 'sre'] }, { tags: ['dev', 'sre'] }, true],
+      [{ op: 'any_in', left: attr('tags'), right: ['ops'] }, { tags: [] }, false],
+      [{ op: 'all_in', left: attr('tags'), right: ['dev', 'ops'] }, { tags: ['dev'] }, true],
+      [{ op: 'all_in', left: attr('tags'), right: ['dev'] }, { tags: ['dev', 'ops'] }, false],
+      [{ op: 'all_in', left: attr('tags'), right: ['dev'] }, { tags: [] }, true],
+      [{ op: 'ip_in', item: attr('ip'), set: '10.0.0.0/8' }, { ip: '10.1.2.3' }, true],
+      [{ op: 'ip_in', item: attr('ip'), set: '10.0.0.0/8' }, { ip: '11.1.2.3' }, false],
+      [{ op: 'ip_in', item: attr('ip'), set: ['192.168.0.0/16', '2001:db8::/32'] }, { ip: '2001:db8::1' }, true],
+      [{ op: 'ip_in', item: attr('ip'), set: '10.0.0.0/8' }, { ip: '::ffff:10.1.2.3' }, true],
+      [{ op: 'time_between', from: '22:00', until: '23:00' }, {}, true],
+      [{ op: 'time_between', from: '09:00', until: '17:30' }, {}, false],
+      [{ op: 'time_between', from: '22:00', until: '06:00' }, {}, true],
+      [{ op: 'time_between', from: '22:13', until: '22:14' }, {}, true],
+      [{ op: 'weekday_in', days: ['tue'] }, {}, true],
+      [{ op: 'weekday_in', days: ['mon', 'wed'] }, {}, false],
+    ];
+    for (const [condition, attrs, expected] of cases) {
+      assert.equal(decide(condition, attrs), expected, JSON.stringify([condition, attrs]));
+    }
+    // Operando com tipo errado ou CIDR inválido nunca permite.
+    assert.equal(decide({ op: 'starts_with', left: attr('n'), right: 'a' }, { n: 5 }), false);
+    assert.equal(decide({ op: 'ip_in', item: attr('ip'), set: 'not-a-cidr' }, { ip: '10.1.2.3' }), false);
+    // Sem now, as condições de tempo não resolvem e o allow não vale.
+    const noNow = new Context({ grants: [allow('t', { kind: 'any' }, 'project.view', undefined, { condition: { op: 'weekday_in', days: ['tue'] } })] });
+    assert.equal(engine.check(noNow, view({})), false, 'sem now o allow não vale');
+  });
 }
 
 if (failures) console.log(`# binding040: ${failures} falha(s)`);
