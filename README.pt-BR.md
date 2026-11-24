@@ -363,9 +363,9 @@ const options = {
 app.get('/doc/:id', authorize({ ...options, permission: 'document.view' }), handler);
 ```
 
-- **Fastify** (`strig/fastify`): o mesmo `authorize`, e o `plugin`, que acrescenta `fastify.strigCan`.
-- **NestJS** (`strig/nestjs`): `@Can('document.view')` em um handler ou controller, e `new StrigGuard(options)` como guarda. Express, Fastify e NestJS são dependências peer opcionais; a integração que você não importa não custa nada, e um peer ausente lança `MissingPeerError`.
-- **Remoto** (`strig/remote`): o `RemoteClient` fala com um servidor de decisão, com timeout e breaker, e nega quando não há resposta. Passe-o como `remote` no lugar de `local`.
+- **Fastify** (`@the-hades-organization/strig/fastify`): o mesmo `authorize`, e o `plugin`, que acrescenta `fastify.strigCan`.
+- **NestJS** (`@the-hades-organization/strig/nestjs`): `@Can('document.view')` em um handler ou controller, e `new StrigGuard(options)` como guarda. Express, Fastify e NestJS são dependências peer opcionais; a integração que você não importa não custa nada, e um peer ausente lança `MissingPeerError`.
+- **Remoto** (`@the-hades-organization/strig/remote`): o `RemoteClient` fala com um servidor de decisão, com timeout e breaker, e nega quando não há resposta. Passe-o como `remote` no lugar de `local`.
 
 ```js
 import { RemoteClient } from '@the-hades-organization/strig/remote';
