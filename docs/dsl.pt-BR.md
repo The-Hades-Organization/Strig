@@ -251,6 +251,26 @@ assert_eq!(actors, "language actors\n\n// hi\nrole viewer\n\ncatalog\n  kinds do
 `print(&policy, language)` faz o mesmo a partir de uma `Policy` que você já tem. A conversão falha com um
 `ConvertError` quando o texto não é lido, ou quando a política não cabe no tipo de destino.
 
+## Formatação
+
+`format` reescreve o texto no layout canônico do tipo que a linha `language` declara: o espaçamento, as linhas em
+branco e a ordem que o `print` escreve, com os comentários preservados. Formatar o resultado de novo não muda nada.
+`is_formatted` diz se o texto já está canônico sem guardar o texto novo. `file` só dá nome à fonte nas posições dos
+erros.
+
+```rust
+use themis::dsl::{format, is_formatted};
+
+let messy = "language rules\n\n\n\nkinds doc   // kinds\n";
+assert!(!is_formatted("a.themis", messy)?);
+assert_eq!(format("a.themis", messy)?, "language rules\n\nkinds doc  // kinds\n");
+```
+
+Um texto que não compila vira um `FormatError::Parse` com `arquivo:linha:coluna`. No terminal,
+`themis-inspect fmt <arquivo|dir>` reescreve os arquivos `.themis` no lugar, e `themis-inspect fmt --check
+<arquivo|dir>` não escreve nada, lista os arquivos que mudariam e sai com 1 (para CI). No Node,
+`themis.format(text)` e `themis.isFormatted(text)` fazem o mesmo sobre texto.
+
 ## Notas e reconstrução
 
 Os comentários não se perdem. Cada comentário `//` vira uma nota com o texto, o elemento a que está ligado e o lugar:

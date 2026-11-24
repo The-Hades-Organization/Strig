@@ -3,6 +3,7 @@
 
 mod corpus;
 mod errors;
+mod format;
 mod handwritten;
 mod hostile;
 mod notes;
