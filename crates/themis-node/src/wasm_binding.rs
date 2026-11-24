@@ -498,6 +498,30 @@ pub fn dsl_convert(text: JsValue, language: JsValue) -> Result<JsValue, JsFailur
     dsl_out((|| crate::dsl::convert(&dsl_arg(text)?, &dsl_arg(language)?))())
 }
 
+#[wasm_bindgen(js_name = dslFormat)]
+pub fn dsl_format(text: JsValue, options: JsValue) -> Result<JsValue, JsFailure> {
+    dsl_out((|| {
+        let options = if options.is_undefined() || options.is_null() {
+            None
+        } else {
+            Some(dsl_arg(options)?)
+        };
+        crate::dsl::format(&dsl_arg(text)?, options.as_ref())
+    })())
+}
+
+#[wasm_bindgen(js_name = dslIsFormatted)]
+pub fn dsl_is_formatted(text: JsValue, options: JsValue) -> Result<JsValue, JsFailure> {
+    dsl_out((|| {
+        let options = if options.is_undefined() || options.is_null() {
+            None
+        } else {
+            Some(dsl_arg(options)?)
+        };
+        crate::dsl::is_formatted(&dsl_arg(text)?, options.as_ref())
+    })())
+}
+
 #[wasm_bindgen(js_name = dslLoadProject)]
 pub fn dsl_load_project(sources: JsValue) -> Result<JsValue, JsFailure> {
     dsl_out((|| crate::dsl::load_project(&dsl_arg(sources)?))())

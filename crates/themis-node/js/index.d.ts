@@ -597,6 +597,10 @@ export interface PolicyLanguageApi {
   print(policy: PolicyDocument, language: PolicyLanguage): string;
   /** Reads `text` in whatever syntax it declares and writes it in `language`. */
   convert(text: string, language: PolicyLanguage): string;
+  /** Rewrites a source in the canonical layout of the syntax it declares, comments kept. Formatting the result again changes nothing. Throws `DSL_PARSE` or `DSL_VALIDATE` with positions when the source does not compile. */
+  format(text: string, options?: { file?: string }): string;
+  /** Whether a source is already in the canonical layout. Throws what `format` throws. */
+  isFormatted(text: string, options?: { file?: string }): boolean;
   /** Merges sources, each in its own syntax, into one policy. Throws `DSL_CONFLICT` with both positions when two declare the same thing, `DSL_DUPLICATE_SOURCE` for a repeated `path` and `DSL_LIMIT` past the size and count limits. */
   loadProject(sources: PolicySource[]): PolicyDocument;
 }

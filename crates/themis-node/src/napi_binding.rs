@@ -443,6 +443,28 @@ pub fn dsl_convert(env: &Env, text: Unknown<'_>, language: Unknown<'_>) -> Value
 }
 
 #[napi]
+pub fn dsl_format(env: &Env, text: Unknown<'_>, options: Option<Unknown<'_>>) -> Value {
+    crate::dsl::envelope((|| {
+        let options = match options {
+            Some(o) => Some(dsl_arg(env, o)?),
+            None => None,
+        };
+        crate::dsl::format(&dsl_arg(env, text)?, options.as_ref())
+    })())
+}
+
+#[napi]
+pub fn dsl_is_formatted(env: &Env, text: Unknown<'_>, options: Option<Unknown<'_>>) -> Value {
+    crate::dsl::envelope((|| {
+        let options = match options {
+            Some(o) => Some(dsl_arg(env, o)?),
+            None => None,
+        };
+        crate::dsl::is_formatted(&dsl_arg(env, text)?, options.as_ref())
+    })())
+}
+
+#[napi]
 pub fn dsl_load_project(env: &Env, sources: Unknown<'_>) -> Value {
     crate::dsl::envelope((|| crate::dsl::load_project(&dsl_arg(env, sources)?))())
 }
