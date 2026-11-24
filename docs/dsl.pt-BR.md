@@ -6,7 +6,7 @@ chamada de linguagem de políticas ou DSL. Ela exige a feature `dsl` do `strig`;
 também `dsl-fs`.
 
 ```toml
-strig = { version = "0.5", features = ["dsl", "dsl-fs"] }
+strig = { version = "0.6", features = ["dsl", "dsl-fs"] }
 ```
 
 Ler o texto produz uma `Policy`, o mesmo valor que você montaria em código.
@@ -305,8 +305,8 @@ não compila.
 
 ```toml
 [dependencies]
-strig = { version = "0.5", features = ["dsl"] }
-strig-macros = "0.5"
+strig = { version = "0.6", features = ["dsl"] }
+strig-macros = "0.6"
 ```
 
 ```rust

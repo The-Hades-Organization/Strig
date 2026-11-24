@@ -5,7 +5,7 @@ or load it from JSON, and you can also write it as text. This guide covers the t
 or DSL. It needs the `dsl` feature of `strig`; reading and writing files needs `dsl-fs` as well.
 
 ```toml
-strig = { version = "0.5", features = ["dsl", "dsl-fs"] }
+strig = { version = "0.6", features = ["dsl", "dsl-fs"] }
 ```
 
 Parsing the text produces a `Policy`, the same value you would build in code.
@@ -304,8 +304,8 @@ build.
 
 ```toml
 [dependencies]
-strig = { version = "0.5", features = ["dsl"] }
-strig-macros = "0.5"
+strig = { version = "0.6", features = ["dsl"] }
+strig-macros = "0.6"
 ```
 
 ```rust
