@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Playground (`playground/`): a page that runs the engine in the browser through the WebAssembly binding. It edits a policy in the three syntaxes, shows the problems with position and hint, answers who can do what, and shows the canonical JSON. `sh playground/build.sh` builds it, and CI checks that the build works.
+
 ### Changed
 
 - Release: the crates job also publishes `themis-macros` and `themis-server`, in dependency order.
