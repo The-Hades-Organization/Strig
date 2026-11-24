@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- Release: the crates job also publishes `themis-macros` and `themis-server`, in dependency order.
+
 ## [0.4.0] - 2026-11-23
 
 ### Added
