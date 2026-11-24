@@ -12,7 +12,7 @@ const body = (code) => ({ error: { code, message: Object.hasOwn(OWN_MESSAGES, co
 /** Thrown by `requirePeer` when an optional framework is not installed. */
 export class MissingPeerError extends Error {
   constructor(peer, subpath, cause) {
-    super(`strig/${subpath} needs the optional peer dependency "${peer}". Install it with: npm install ${peer}`, { cause });
+    super(`@the-hades-organization/strig/${subpath} needs the optional peer dependency "${peer}". Install it with: npm install ${peer}`, { cause });
     this.name = 'MissingPeerError';
     this.peer = peer;
   }
