@@ -4,3 +4,4 @@
 /crates/themis-node/js/wasm/
 /crates/themis-node/js/node_modules/
 crates/themis-node/js/README.md
+/playground/dist/
