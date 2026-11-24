@@ -37,8 +37,8 @@ Dependência a partir de outro crate:
 
 ```toml
 [dependencies]
-themis = { package = "themis-auth", version = "0.4" }
-themis-sync = "0.4"
+themis = { package = "themis-auth", version = "0.5" }
+themis-sync = "0.5"
 ```
 
 ## Conceitos
@@ -112,7 +112,7 @@ Condição ou relação que não pode ser avaliada (atributo ausente, motor sem 
 
 **RBAC.** `RoleGraph::builder().inherit("maintainer", "member")` dá ao `maintainer` os grants do `member`. `Subject::with_role_in(role, anchor)` limita o papel aos recursos sob aquele degrau.
 
-**ABAC.** `Grant::when(condition)` com `Condition` serializável: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `is_in`, `exists`, `all`, `any`, `not` e `call`. Operandos leem `subject.*`, `resource.*` e `env.*`. Funções próprias entram por `ConditionRegistry::register` e são conferidas por `Engine::validate_grant`.
+**ABAC.** `Grant::when(condition)` com `Condition` serializável: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `is_in`, `exists`, `all`, `any`, `not` e `call`, mais `starts_with`, `ends_with` e `contains` sobre texto (`contains` também testa pertencimento em lista), `any_in` e `all_in` sobre listas, `ip_in` para um endereço dentro de um CIDR ou de uma lista de CIDRs, e `time_between` e `weekday_in` sobre o instante da decisão, sempre em UTC. As condições de tempo leem o instante de `Context::at`; sem ele não se resolvem, e o `allow` não se aplica. Não há condição por expressão regular. Operandos leem `subject.*`, `resource.*` e `env.*`. Funções próprias entram por `ConditionRegistry::register` e são conferidas por `Engine::validate_grant`.
 
 **ReBAC.** Tuplas `objeto#relação@sujeito` num `TupleStore` e regras por tipo em `RelationSchema` (`This`, `Computed`, `TupleToUserset`, `Union`, `Intersection`, `Exclusion`), inspirado no controle de acesso baseado em relações. `user:*` vale para todo usuário. Um grant com `SubjectMatcher::relation("editor")` se aplica a quem tem `editor` sobre o degrau casado pelo alvo. A busca tem profundidade máxima (`max_relation_depth`, padrão 32) e corta ciclos.
 
@@ -396,7 +396,18 @@ let json = parsed.policy.to_json()?;
 let as_rules = dsl::convert(SOURCE, Language::Rules)?;
 ```
 
-Para experimentar a linguagem sem instalar nada, gere o [playground](playground/README.md): ele roda o motor no navegador.
+As condições do `when` se escrevem nas três sintaxes como `a starts_with b`, `env.ip ip_in "10.0.0.0/8"`, `time_between "09:00" "17:30"` e `weekday_in ["mon", "tue"]`; o validador recusa um CIDR, um horário ou um dia da semana que não consiga ler. Quando um nome está a um deslize de um declarado (permissão, papel, pai), a dica acrescenta ``did you mean `x`?``.
+
+**Quebra na 0.5.0:** nas sintaxes Rules e Actors, a linha `permission` escreve `depends_on <ids>` onde escrevia `needs <ids>`, a mesma palavra do campo do JSON. `needs` agora é erro, com a dica `write: depends_on <ids>`; troque nos `.themis` existentes, na mesma posição da linha. O JSON não muda.
+
+`themis::dsl::format` e `is_formatted` reescrevem um texto no layout canônico da sua sintaxe, mantendo os comentários, e `themis-inspect fmt [--check] <arquivo|dir>` faz isso nos arquivos `.themis` (`--check` lista os que mudariam e sai com 1).
+
+Para experimentar a linguagem sem instalar nada, rode o [playground](playground/README.md): ele roda o motor no navegador. Não há cópia hospedada; gere e sirva localmente:
+
+```sh
+sh playground/build.sh        # gera o motor WebAssembly e monta playground/dist/
+node playground/serve.mjs     # serve em http://127.0.0.1:8080
+```
 
 Com `dsl-fs`, `themis::dsl::fs::read_dir` lê todos os arquivos `*.themis` de um diretório para um `Project`, e `write_file` grava uma política de volta.
 
@@ -427,6 +438,7 @@ const merged = themis.loadProject([
 const fromDisk = themis.loadProjectDir?.('./policy'); // só o módulo nativo
 ```
 
+- `format(source)` devolve o texto no layout canônico da sua sintaxe e `isFormatted(source)` diz se ele já está assim.
 - `loadProjectDir(dir)` existe só no módulo nativo, porque o build WebAssembly não acessa arquivos. Ele lê os arquivos `*.themis` do diretório e recusa um arquivo de política que seja link simbólico. O próprio `dir` deve vir de fonte confiável.
 - Toda falha é um `Error` com um `code` igual nos dois alvos: `DSL_PARSE`, `DSL_VALIDATE`, `DSL_CONFLICT` (duas fontes declaram a mesma coisa; as duas posições são informadas), `DSL_UNREPRESENTABLE` (a sintaxe não consegue dizer isso), `DSL_UNSUPPORTED`, `DSL_LIMIT` (limite de tamanho ou de quantidade), `DSL_DUPLICATE_SOURCE` (o mesmo `path` duas vezes no `loadProject`) e `DSL_IO` (um arquivo ou um link no `loadProjectDir`; a mensagem traz o caminho, então não a repasse a um cliente remoto).
 - `error.diagnostics` é uma lista de `{ file, line, column, message, hint, related? }`, no máximo 100, com uma última entrada dizendo "and N more" quando sobrou algo. `file`, `line` e `column` são `null` numa política que não veio de texto, e `related` (um `{ file, line, column }`) aparece num `DSL_CONFLICT`.
@@ -484,7 +496,7 @@ cargo run -p themis-inspect --no-default-features --example trail -- \
 - **Matriz**: cada permissão do catálogo para cada sujeito sobre um recurso, com as células que a simulação mudou marcadas. Clicar numa célula abre o rastro.
 - **Auditoria**: lê a trilha em JSON Lines, confere a cadeia de hashes dos registros `forensic`, mostra o rastro gravado e reavalia decisões `detailed` ou `forensic` contra a política atual, apontando as que mudariam.
 
-Os arquivos são relidos sozinhos quando mudam no disco. A janela embute as fontes Noto Sans e JetBrains Mono (licença OFL, em `crates/themis-inspect/assets/fonts`) e os próprios ícones, então tem a mesma aparência em qualquer máquina.
+`themis-inspect fmt [--check] <arquivo|dir>` formata arquivos `.themis` sem abrir a janela. Os arquivos são relidos sozinhos quando mudam no disco. A janela acompanha a aparência clara ou escura do sistema, com a paleta do playground: jade para estrutura e permissão, argila para negação, ouro para quem, onde e números. A janela embute as fontes Noto Sans e JetBrains Mono (licença OFL, em `crates/themis-inspect/assets/fonts`) e os próprios ícones, então tem a mesma aparência em qualquer máquina.
 
 ## Pontos de extensão
 

@@ -4,24 +4,26 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-24
+
 ### Added
 
 - Conditions (`themis`): `starts_with`, `ends_with` and `contains` on text (`contains` also tests list membership), `any_in` and `all_in` on lists, `ip_in` for an IPv4 or IPv6 address in a CIDR or a list of CIDRs, and `time_between` and `weekday_in` on the decision instant, always in UTC. They are new `op` values, so existing conditions do not change, and there is no regular-expression condition. The time conditions read the instant of `Context::at` (and `QueryContext::at`) through the new `Condition::evaluate_at`; `Condition::evaluate` is unchanged and, without an instant, they cannot be resolved, so an `allow` that uses them does not apply. A listing keeps a condition on a `resource.` attribute as a residue, and `themis-postgres` never turns it into an allow.
 - Policy language: the three syntaxes write the new conditions as `a starts_with b`, `env.ip ip_in "10.0.0.0/8"`, `time_between "09:00" "17:30"` and `weekday_in ["mon", "tue"]`. The validator refuses a CIDR, a time of day or a weekday it cannot read, with position and hint. See `docs/dsl.md`.
-- `themis-node`: the `Condition` type in `index.d.ts`, in place of `unknown`.
+- Policy language: the validator suggests the closest name when one is a slip away. `unknown permission`, `role X is not declared`, `inherits ... which is not declared` and the catalog's unknown parent, prerequisite and target kind carry `did you mean `x`?` in the hint, joined to the existing hint where there was one. Candidates are compared in alphabetical order, so a tie gives the same answer every time, and a name with no close candidate gets no suggestion. The message, the order of the errors and the JSON do not change.
 - Formatter for the policy language. `themis::dsl::format` and `is_formatted` (`dsl` feature) rewrite a source in the canonical layout of its syntax, comments kept and idempotent; `themis-inspect fmt [--check] <file|dir>` formats `.themis` files, and `--check` lists the ones that would change and exits with 1; `themis-node` has `format` and `isFormatted`.
 - Playground (`playground/`): a page that runs the engine in the browser through the WebAssembly binding. It edits a policy in the three syntaxes, shows the problems with position and hint, answers who can do what, and shows the canonical JSON. `sh playground/build.sh` builds it, and CI checks that the build works.
-- Policy language: the validator suggests the closest name when one is a slip away. `unknown permission`, `role X is not declared`, `inherits ... which is not declared` and the catalog's unknown parent, prerequisite and target kind now carry `did you mean `x`?` in the hint, joined to the existing hint where there was one. Candidates are compared in alphabetical order, so a tie gives the same answer every time, and a name with no close candidate gets no suggestion. The message, the order of the errors and the JSON do not change.
-
-### Breaking
-
-- Policy language: the Rules and Actors syntaxes write `depends_on <ids>` on a `permission` line where they wrote `needs <ids>`, so the three syntaxes use the same word as the JSON field. `needs` is now an error with the hint `write: depends_on <ids>`; replace it in existing `.themis` files, in the same position on the line. `DSL_SCHEMA` stays at 2, since the JSON does not change. Blocks was already `depends_on`.
+- `themis-node`: the `Condition` type in `index.d.ts`, in place of `unknown`.
 
 ### Changed
 
 - `DSL_SCHEMA` goes from 1 to 2: a reader of schema 1 does not know the new `op` values and fails on a policy that uses one. A policy without them is the same JSON as before. `themis-macros` reads the constant from `themis`, so there is no second number to keep in step.
-- Release: the crates job also publishes `themis-macros` and `themis-server`, in dependency order.
 - `themis-inspect`: the window takes the visual identity of the playground. It uses the same palette in a light and a dark theme and follows the system appearance, switching when it changes; jade marks structure and allow, clay marks deny, and gold appears only for who, where and numbers. The ruling shows the seal of the playground (open band for allow, closed band with a cross for deny) next to the word, labels are in spaced capitals, and the JSON of an audit record is highlighted with the playground's colours. Read errors use their own tone, so they no longer look like a deny. The ruling header carries the tilted band of the playground, and the capitals use an embedded Roman serif (Cinzel, SIL Open Font License, licence file beside it). No behaviour, layout or command changes.
+- Release: the crates job also publishes `themis-macros` and `themis-server`, in dependency order.
+
+### Breaking
+
+- Policy language: the Rules and Actors syntaxes write `depends_on <ids>` on a `permission` line where they wrote `needs <ids>`, so the three syntaxes use the same word as the JSON field. `needs` is now an error with the hint `write: depends_on <ids>`; replace it in existing `.themis` files, in the same position on the line. `DSL_SCHEMA` stays at 2, since the JSON does not change. Blocks was already `depends_on`.
 
 ## [0.4.0] - 2026-11-23
 
@@ -106,7 +108,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - `themis-node`: JavaScript bindings (N-API for Node and Bun, WebAssembly for the browser), real-time client and server in JS.
 - `themis-inspect`: inspector with evaluation trace, grant simulation, access matrix and audit trail reading, as terminal commands and an optional gpui window.
 
-[Unreleased]: https://github.com/The-Hades-Organization/Themis/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/The-Hades-Organization/Themis/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/The-Hades-Organization/Themis/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/The-Hades-Organization/Themis/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/The-Hades-Organization/Themis/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/The-Hades-Organization/Themis/compare/v0.2.0...v0.3.0
