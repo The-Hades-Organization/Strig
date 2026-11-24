@@ -4,9 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-24
+
 ### Changed
 
-- The project is renamed from Themis to Strig. Code and behaviour are the same; names change: the `themis-auth` crate (library `themis`) becomes `strig` (library `strig`), `themis-sync`, `themis-redis`, `themis-postgres`, `themis-axum`, `themis-macros`, `themis-server` and `themis-inspect` become `strig-sync`, `strig-redis`, `strig-postgres`, `strig-axum`, `strig-macros`, `strig-server` and `strig-inspect`, and the npm package `themis-auth` becomes `strig`. Themis Inspect is now Strig Inspect, and the repository is at `The-Hades-Organization/Strig`. Nothing was published under the new names yet. See "Migrating from Themis" in the README.
+- The project is renamed from Themis to Strig. Code and behaviour are the same; names change: the `themis-auth` crate (library `themis`) becomes `strig` (library `strig`), `themis-sync`, `themis-redis`, `themis-postgres`, `themis-axum`, `themis-macros`, `themis-server` and `themis-inspect` become `strig-sync`, `strig-redis`, `strig-postgres`, `strig-axum`, `strig-macros`, `strig-server` and `strig-inspect`, and the npm package `themis-auth` becomes `strig`. Themis Inspect is now Strig Inspect, and the repository is at `The-Hades-Organization/Strig`. See "Migrating from Themis" in the README.
 
 ### Breaking
 
@@ -116,9 +118,10 @@ All notable changes to this project are documented here. The format follows [Kee
 - `themis-node`: JavaScript bindings (N-API for Node and Bun, WebAssembly for the browser), real-time client and server in JS.
 - `themis-inspect`: inspector with evaluation trace, grant simulation, access matrix and audit trail reading, as terminal commands and an optional gpui window.
 
-[Unreleased]: https://github.com/The-Hades-Organization/Themis/compare/v0.5.0...HEAD
-[0.5.0]: https://github.com/The-Hades-Organization/Themis/compare/v0.4.0...v0.5.0
-[0.4.0]: https://github.com/The-Hades-Organization/Themis/compare/v0.3.1...v0.4.0
-[0.3.1]: https://github.com/The-Hades-Organization/Themis/compare/v0.3.0...v0.3.1
-[0.3.0]: https://github.com/The-Hades-Organization/Themis/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/The-Hades-Organization/Themis/releases/tag/v0.2.0
+[Unreleased]: https://github.com/The-Hades-Organization/Strig/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.3.1...v0.4.0
+[0.3.1]: https://github.com/The-Hades-Organization/Strig/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/The-Hades-Organization/Strig/releases/tag/v0.2.0
