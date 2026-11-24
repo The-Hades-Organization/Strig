@@ -7,9 +7,6 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Changed
 
 - The playground editor tells the roles of a word apart by hue, not only by shade: keywords stay wine (rose in dark), relations are blue, who and where are gold, numbers teal, strings green and comments neutral grey. Every code colour reaches at least 7:1 against the editor background in both themes (it was one brown for four roles).
-
-### Changed
-
 - The `strig-inspect` interface is in English: window, terminal output, error messages and the example scenario (`examples/scenario.json` now uses `ben`, `cara`, `visitor` and `invoice-7`). There is no locale selection yet.
 
 ### Breaking
