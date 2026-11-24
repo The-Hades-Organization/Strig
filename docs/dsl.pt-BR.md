@@ -6,7 +6,7 @@ chamada de linguagem de políticas ou DSL. Ela exige a feature `dsl` do `themis-
 também `dsl-fs`.
 
 ```toml
-themis-auth = { version = "0.4", features = ["dsl", "dsl-fs"] }
+themis-auth = { version = "0.5", features = ["dsl", "dsl-fs"] }
 ```
 
 Ler o texto produz uma `Policy`, o mesmo valor que você montaria em código.
@@ -305,8 +305,8 @@ não compila.
 
 ```toml
 [dependencies]
-themis-auth = { version = "0.4", features = ["dsl"] }
-themis-macros = "0.4"
+themis-auth = { version = "0.5", features = ["dsl"] }
+themis-macros = "0.5"
 ```
 
 ```rust

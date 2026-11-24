@@ -4,8 +4,8 @@ Compile-time macros for the Themis policy language: a policy that does not valid
 
 ```toml
 [dependencies]
-themis-auth = { version = "0.4", features = ["dsl"] }
-themis-macros = "0.4"
+themis-auth = { version = "0.5", features = ["dsl"] }
+themis-macros = "0.5"
 ```
 
 ```rust

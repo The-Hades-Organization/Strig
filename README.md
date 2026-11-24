@@ -37,8 +37,8 @@ Depend on it from another crate:
 
 ```toml
 [dependencies]
-themis = { package = "themis-auth", version = "0.4" }
-themis-sync = "0.4"
+themis = { package = "themis-auth", version = "0.5" }
+themis-sync = "0.5"
 ```
 
 ## Concepts
@@ -112,7 +112,7 @@ A condition or relation that cannot be evaluated (missing attribute, engine with
 
 **RBAC.** `RoleGraph::builder().inherit("maintainer", "member")` gives `maintainer` the grants of `member`. `Subject::with_role_in(role, anchor)` limits the role to the resources under that step.
 
-**ABAC.** `Grant::when(condition)` with a serializable `Condition`: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `is_in`, `exists`, `all`, `any`, `not` and `call`. Operands read `subject.*`, `resource.*` and `env.*`. Your own functions are added with `ConditionRegistry::register` and checked by `Engine::validate_grant`.
+**ABAC.** `Grant::when(condition)` with a serializable `Condition`: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `is_in`, `exists`, `all`, `any`, `not` and `call`, plus `starts_with`, `ends_with` and `contains` on text (`contains` also tests list membership), `any_in` and `all_in` on lists, `ip_in` for an address in a CIDR or a list of CIDRs, and `time_between` and `weekday_in` on the decision instant, always in UTC. The time conditions read the instant of `Context::at`; without one they cannot be resolved, so the `allow` does not apply. There is no regular-expression condition. Operands read `subject.*`, `resource.*` and `env.*`. Your own functions are added with `ConditionRegistry::register` and checked by `Engine::validate_grant`.
 
 **ReBAC.** `object#relation@subject` tuples in a `TupleStore` and per-type rules in a `RelationSchema` (`This`, `Computed`, `TupleToUserset`, `Union`, `Intersection`, `Exclusion`), inspired by relationship-based access control. `user:*` stands for every user. A grant with `SubjectMatcher::relation("editor")` applies to whoever holds `editor` on the step matched by the target. The search has a maximum depth (`max_relation_depth`, 32 by default) and cuts cycles.
 
@@ -396,7 +396,18 @@ let json = parsed.policy.to_json()?;
 let as_rules = dsl::convert(SOURCE, Language::Rules)?;
 ```
 
-To try the language without installing anything, build the [playground](playground/README.md): it runs the engine in the browser.
+The conditions of `when` are written in the three syntaxes as `a starts_with b`, `env.ip ip_in "10.0.0.0/8"`, `time_between "09:00" "17:30"` and `weekday_in ["mon", "tue"]`; the validator refuses a CIDR, a time of day or a weekday it cannot read. When a name is a slip away from a declared one (a permission, a role, a parent), the hint adds ``did you mean `x`?``.
+
+**Breaking in 0.5.0:** in the Rules and Actors syntaxes a `permission` line writes `depends_on <ids>` where it wrote `needs <ids>`, the same word as the JSON field. `needs` is now an error with the hint `write: depends_on <ids>`; replace it in existing `.themis` files, in the same position on the line. The JSON does not change.
+
+`themis::dsl::format` and `is_formatted` rewrite a source in the canonical layout of its syntax, keeping the comments, and `themis-inspect fmt [--check] <file|dir>` does it for `.themis` files (`--check` lists the ones that would change and exits with 1).
+
+To try the language without installing anything, run the [playground](playground/README.md): it runs the engine in the browser. There is no hosted copy; build and serve it locally:
+
+```sh
+sh playground/build.sh        # builds the WebAssembly engine and assembles playground/dist/
+node playground/serve.mjs     # serves it on http://127.0.0.1:8080
+```
 
 With `dsl-fs`, `themis::dsl::fs::read_dir` reads every `*.themis` file of a directory into a `Project`, and `write_file` writes a policy back.
 
@@ -427,6 +438,7 @@ const merged = themis.loadProject([
 const fromDisk = themis.loadProjectDir?.('./policy'); // native module only
 ```
 
+- `format(source)` returns the source in the canonical layout of its syntax and `isFormatted(source)` says whether it already is.
 - `loadProjectDir(dir)` exists only on the native module, because the WebAssembly build has no file access. It reads the `*.themis` files of the directory and refuses a policy file that is a symbolic link. `dir` itself must come from a trusted source.
 - Every failure is an `Error` with a `code` that is the same on both targets: `DSL_PARSE`, `DSL_VALIDATE`, `DSL_CONFLICT` (two sources declare the same thing; both positions are reported), `DSL_UNREPRESENTABLE` (the syntax cannot say it), `DSL_UNSUPPORTED`, `DSL_LIMIT` (a size or count limit), `DSL_DUPLICATE_SOURCE` (the same `path` twice in `loadProject`) and `DSL_IO` (a file or a link in `loadProjectDir`; the message carries the path, so do not pass it to a remote client).
 - `error.diagnostics` is a list of `{ file, line, column, message, hint, related? }`, at most 100, with a last entry saying "and N more" when some were left out. `file`, `line` and `column` are `null` for a policy that did not come from text, and `related` (a `{ file, line, column }`) appears on a `DSL_CONFLICT`.
@@ -484,7 +496,7 @@ cargo run -p themis-inspect --no-default-features --example trail -- \
 - **Matrix** (`matriz`): every catalog permission for every subject on a resource, with the cells the simulation changed marked. Clicking a cell opens its trace.
 - **Audit** (`auditoria`): reads the JSON Lines trail, checks the hash chain of the `forensic` records, shows the recorded trace and re-evaluates `detailed` or `forensic` decisions against the current policy, pointing out the ones that would change.
 
-Files are reloaded on their own when they change on disk. The window embeds the Noto Sans and JetBrains Mono fonts (OFL license, in `crates/themis-inspect/assets/fonts`) and its own icons, so it looks the same on any machine. The interface text is in Brazilian Portuguese.
+`themis-inspect fmt [--check] <file|dir>` formats `.themis` files without opening the window. Files are reloaded on their own when they change on disk. The window follows the system light or dark appearance, with the palette of the playground: jade for structure and allow, clay for deny, gold for who, where and numbers. The window embeds the Noto Sans and JetBrains Mono fonts (OFL license, in `crates/themis-inspect/assets/fonts`) and its own icons, so it looks the same on any machine. The interface text is in Brazilian Portuguese.
 
 ## Extension points
 
