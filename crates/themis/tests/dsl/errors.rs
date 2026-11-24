@@ -86,10 +86,22 @@ fn matching_with(language: Language, good: &str, bad: &str) -> String {
 #[test]
 fn a_bad_cidr_time_or_day_is_pointed_at_with_a_hint_in_every_syntax() {
     let cases = [
-        (r#""10.0.0.0/8", "2001:db8::/32""#, r#""10.0.0.0/33", "2001:db8::/32""#, "CIDR"),
+        (
+            r#""10.0.0.0/8", "2001:db8::/32""#,
+            r#""10.0.0.0/33", "2001:db8::/32""#,
+            "CIDR",
+        ),
         (r#"ip_in "192.168.0.0/16""#, r#"ip_in "192.168.0.0/16/8""#, "CIDR"),
-        (r#"time_between "09:00" "17:30""#, r#"time_between "9:00" "17:30""#, "time of day"),
-        (r#"time_between "22:00" "06:00""#, r#"time_between "22:00" "24:00""#, "time of day"),
+        (
+            r#"time_between "09:00" "17:30""#,
+            r#"time_between "9:00" "17:30""#,
+            "time of day",
+        ),
+        (
+            r#"time_between "22:00" "06:00""#,
+            r#"time_between "22:00" "24:00""#,
+            "time of day",
+        ),
         (r#""thu", "fri""#, r#""thu", "friday""#, "day of the week"),
     ];
     for language in LANGUAGES {

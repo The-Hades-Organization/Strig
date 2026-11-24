@@ -7,7 +7,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use crate::dsl::error::{Diagnostic, Location, MAX_DIAGNOSTICS, capped};
 use crate::dsl::policy::{Origins, Policy, ids};
 use crate::{
-    Catalog, CatalogError, Condition, InvariantSpec, Operand, OverrideRule, Rewrite, RoleAssignment, SubjectMatcher, Value,
+    Catalog, CatalogError, Condition, InvariantSpec, Operand, OverrideRule, Rewrite, RoleAssignment, SubjectMatcher,
+    Value,
 };
 
 /// More than this many problems are only counted: the report sorts and cuts them afterwards.
