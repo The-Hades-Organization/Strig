@@ -12,16 +12,16 @@ App nativo em gpui (`gpui-pre =0.3.11` + `gpui-component =0.9.0`), Linux (Waylan
 
 Dois públicos com o mesmo peso:
 
-- **Quem integra a Themis**: escreve o catálogo, os papéis e os grants, e precisa entender por que uma decisão saiu permitida ou negada.
+- **Quem integra a Strig**: escreve o catálogo, os papéis e os grants, e precisa entender por que uma decisão saiu permitida ou negada.
 - **Quem audita**: revisa trilhas de auditoria em JSON Lines, confere a cadeia de hash e reavalia decisões passadas contra a política atual.
 
 ## Product Purpose
 
-Tornar visível como a Themis decide. A partir de um cenário (spec + grants + tuplas + sujeitos + recursos) ou de uma trilha de auditoria, mostra a decisão e o rastro dela: overrides, o destino de cada grant (veredito, degrau, âncora) e a árvore das condições. Sucesso é a pessoa responder "por que isto foi permitido/negado?" e "este conjunto de grants daria acesso a X?" sem ler código.
+Tornar visível como a Strig decide. A partir de um cenário (spec + grants + tuplas + sujeitos + recursos) ou de uma trilha de auditoria, mostra a decisão e o rastro dela: overrides, o destino de cada grant (veredito, degrau, âncora) e a árvore das condições. Sucesso é a pessoa responder "por que isto foi permitido/negado?" e "este conjunto de grants daria acesso a X?" sem ler código.
 
 ## Positioning
 
-É o visualizador do `Engine::explain` da Themis: o rastro vem do próprio motor, não de uma reimplementação, então o que a tela mostra é exatamente o que o motor decide. A simulação liga e desliga grants e compara com os originais; a auditoria reavalia registros antigos contra a política atual.
+É o visualizador do `Engine::explain` da Strig: o rastro vem do próprio motor, não de uma reimplementação, então o que a tela mostra é exatamente o que o motor decide. A simulação liga e desliga grants e compara com os originais; a auditoria reavalia registros antigos contra a política atual.
 
 ## Operating Context
 
@@ -33,15 +33,15 @@ Consulta pontual: a pessoa abre o app para responder uma dúvida e fecha. Os arq
 - Simulação: ligar/desligar grants do cenário, adicionar grants, desfazer.
 - Vocabulário do domínio: sujeito, permissão, recurso, grant, papel, relação, âncora, degrau, override, estratégia, veredito, cadeia de hash.
 - Textos em português.
-- Crate opcional (`themis-inspect`), fora do `default-members` do workspace.
+- Crate opcional (`strig-inspect`), fora do `default-members` do workspace.
 
 ## Brand Commitments
 
-Identidade visual própria e única: não herda da família Hades (Hades-UI, Cardinal). Nome do produto: Themis Inspect.
+Identidade visual própria e única: não herda da família Hades (Hades-UI, Cardinal). Nome do produto: Strig Inspect.
 
 ## Evidence on Hand
 
-- Cenário de exemplo: `crates/themis-inspect/examples/scenario.json`.
+- Cenário de exemplo: `crates/strig-inspect/examples/scenario.json`.
 - Não há trilha de auditoria de exemplo versionada.
 
 ## Product Principles

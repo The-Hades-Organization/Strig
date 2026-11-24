@@ -1,9 +1,0 @@
-error: policy:3:12: permission `org.read` needs `targets`
-         hint: add a line: targets = ...
-       policy:4:3: unknown field `bogus` in permission
-         hint: expected one of: label, description, targets, implied_by, depends_on, non_delegable, management_only, override_only, meta
-         note: positions count inside the text after escapes (`\n`, line continuations); write the policy as a raw string r#"..."# to count source lines
- --> tests/ui/bad_field.rs:2:36
-  |
-2 |     let _ = themis_macros::policy!("language blocks\n\npermission org.read {\n  bogus = 1\n}\n");
-  |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

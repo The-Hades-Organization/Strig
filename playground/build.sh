@@ -6,13 +6,13 @@
 set -eu
 cd "$(dirname "$0")"
 ROOT="$(cd .. && pwd)"
-JS="$ROOT/crates/themis-node/js"
+JS="$ROOT/crates/strig-node/js"
 
-sh "$ROOT/crates/themis-node/scripts/build.sh" wasm
+sh "$ROOT/crates/strig-node/scripts/build.sh" wasm
 
 rm -rf dist
 mkdir -p dist/engine/wasm
 cp index.html style.css app.js cases.js engine.js highlight.js dist/
 cp "$JS/browser.js" "$JS/dsl.js" "$JS/protocol.js" dist/engine/
-cp "$JS/wasm/themis.js" "$JS/wasm/themis_bg.wasm" dist/engine/wasm/
+cp "$JS/wasm/strig.js" "$JS/wasm/strig_bg.wasm" dist/engine/wasm/
 echo "playground built in playground/dist/"

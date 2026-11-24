@@ -19,9 +19,9 @@ function toProblem(diagnostic, lines) {
  * Compiles a source with the engine's own parser and validator.
  * @returns {{ ok: true, policy: object, permissions: number, grants: number } | { ok: false, problems: Problem[] }}
  */
-export function compileSource(themis, text) {
+export function compileSource(strig, text) {
   try {
-    const policy = themis.compile(text, { file: 'policy.themis' });
+    const policy = strig.compile(text, { file: 'policy.strig' });
     return { ok: true, policy, permissions: policy.catalog.permissions.length, grants: (policy.grants ?? []).length };
   } catch (error) {
     if (!Array.isArray(error.diagnostics)) throw error;
@@ -31,9 +31,9 @@ export function compileSource(themis, text) {
 }
 
 /** The text of `text` in another syntax, or `null` when it does not compile. */
-export function convertSource(themis, text, language) {
+export function convertSource(strig, text, language) {
   try {
-    return themis.convert(text, language);
+    return strig.convert(text, language);
   } catch (error) {
     if (!Array.isArray(error.diagnostics)) throw error;
     return null;
@@ -169,15 +169,15 @@ function prerequisiteSteps(explanation) {
  * The engine's explanation of a question, as a ruling the page can show.
  * @returns {{ verdict: 'allow' | 'deny' | 'hold', headline: string, cite: string | null, steps: Array<[string, string, string?]> }}
  */
-export function rule(themis, compiled, ask, now) {
+export function rule(strig, compiled, ask, now) {
   const subject = subjectOf(compiled.policy, ask);
   if (subject === null) {
     return hold(`The source has no subject \`${ask.subject}\`.`, 'Declare it, or pick another question.');
   }
   try {
     const { policy } = compiled;
-    compiled.engine ??= new themis.Engine(Object.fromEntries(SPEC_FIELDS.filter((k) => policy[k] != null).map((k) => [k, policy[k]])));
-    const context = new themis.Context({ grants: policy.grants ?? [], tuples: policy.tuples ?? [], now });
+    compiled.engine ??= new strig.Engine(Object.fromEntries(SPEC_FIELDS.filter((k) => policy[k] != null).map((k) => [k, policy[k]])));
+    const context = new strig.Context({ grants: policy.grants ?? [], tuples: policy.tuples ?? [], now });
     const explanation = compiled.engine.explain(context, { subject, permission: ask.permission, resource: resourceOf(ask) });
     const { text, cite } = headline(explanation);
     const decided = explanation.decision.effect;

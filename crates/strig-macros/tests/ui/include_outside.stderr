@@ -1,0 +1,5 @@
+error: policy path `../Cargo.toml` must be relative and stay inside the crate directory
+ --> tests/ui/include_outside.rs:2:43
+  |
+2 |     let _ = strig_macros::include_policy!("../Cargo.toml");
+  |                                           ^^^^^^^^^^^^^^^
