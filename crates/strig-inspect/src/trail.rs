@@ -116,7 +116,7 @@ mod tests {
         let auditor = Auditor::new(level, sink.clone()).with_clock(|| 1);
         let grants = inspector.active_grants();
         let ctx = Context::new(&grants);
-        for (subject, permission, resource) in [("beto", "document.view", "secret"), ("ana", "project.edit", "roadmap")]
+        for (subject, permission, resource) in [("ben", "document.view", "secret"), ("ana", "project.edit", "roadmap")]
         {
             let request = Request::new(
                 inspector.subject(subject).unwrap(),
@@ -153,7 +153,7 @@ mod tests {
 
         inspector.toggle("no-secret");
         let replay = Trail::replay(&trail.records[0], &inspector).unwrap();
-        assert!(replay.changed(), "sem o deny, beto passa a ver o documento");
+        assert!(replay.changed(), "without the deny, ben gets to see the document");
     }
 
     #[test]

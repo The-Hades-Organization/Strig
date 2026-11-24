@@ -477,9 +477,9 @@ Crate opcional, fora dos `default-members`: `cargo build -p strig-inspect`. A ja
 
 ```sh
 strig-inspect --scenario scenario.json --audit trail.jsonl     # janela
-strig-inspect --scenario scenario.json --subject beto --permission document.export --resource fatura-7 \
-               --disable pro-export --tab matriz                 # janela já numa seleção e aba
-strig-inspect explain --scenario scenario.json --subject beto --permission document.view --resource secret
+strig-inspect --scenario scenario.json --subject ben --permission document.export --resource invoice-7 \
+               --disable pro-export --tab matrix                  # janela já numa seleção e aba
+strig-inspect explain --scenario scenario.json --subject ben --permission document.view --resource secret
 strig-inspect matrix  --scenario scenario.json --resource secret --disable no-secret --add grant.json
 strig-inspect audit   --audit trail.jsonl --scenario scenario.json
 ```

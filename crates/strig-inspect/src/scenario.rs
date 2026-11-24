@@ -30,7 +30,7 @@ pub enum LoadError {
         #[source]
         source: std::io::Error,
     },
-    #[error("{path}: JSON inválido: {source}")]
+    #[error("{path}: invalid JSON: {source}")]
     Json {
         path: String,
         #[source]
@@ -43,7 +43,7 @@ pub enum LoadError {
         #[source]
         source: serde_json::Error,
     },
-    #[error("política inválida: {0}")]
+    #[error("invalid policy: {0}")]
     Spec(#[from] strig::SpecError),
 }
 

@@ -105,7 +105,7 @@ fn load_fonts(cx: &mut App) {
         Cow::Borrowed(include_bytes!("../assets/fonts/JetBrainsMono-SemiBold.ttf").as_slice()),
     ];
     if let Err(error) = cx.text_system().add_fonts(fonts) {
-        eprintln!("strig-inspect: fontes embutidas indisponíveis: {error}");
+        eprintln!("strig-inspect: embedded fonts unavailable: {error}");
     }
 }
 
@@ -356,9 +356,9 @@ impl Field {
 
     fn title(self) -> &'static str {
         match self {
-            Field::Subject => "Sujeito",
-            Field::Permission => "Permissão",
-            Field::Resource => "Recurso",
+            Field::Subject => "Subject",
+            Field::Permission => "Permission",
+            Field::Resource => "Resource",
             Field::Grants => "Grants",
         }
     }
@@ -466,8 +466,8 @@ fn mtime(path: &Option<PathBuf>) -> Option<SystemTime> {
 
 fn effect_text(effect: Effect) -> &'static str {
     match effect {
-        Effect::Allow => "permitido",
-        Effect::Deny => "negado",
+        Effect::Allow => "allowed",
+        Effect::Deny => "denied",
     }
 }
 
@@ -618,7 +618,7 @@ fn insight(e: &Explanation) -> Option<Insight> {
     {
         return Some(Insight {
             lead: format!(
-                "os grants permitiriam {permission}, mas ela exige {prerequisite}, que não é permitida aqui."
+                "the grants would allow {permission}, but it requires {prerequisite}, which is not allowed here."
             ),
             expression: None,
             rank: None,
@@ -629,25 +629,25 @@ fn insight(e: &Explanation) -> Option<Insight> {
             return None;
         }
         let rank = trace.rank;
-        let at = rank.map(|r| format!(" no degrau {r}")).unwrap_or_default();
+        let at = rank.map(|r| format!(" at step {r}")).unwrap_or_default();
         let id = &trace.grant.id;
         let (lead, expression) = match &trace.verdict {
             Verdict::ConditionFalse => {
                 let leaf = trace.condition.as_ref().and_then(first_false_leaf);
                 match leaf {
                     Some(leaf) => (
-                        format!("{id} teria permitido{at}, mas a condição falhou:"),
+                        format!("{id} would have allowed{at}, but the condition failed:"),
                         Some(leaf.label.clone()),
                     ),
-                    None => (format!("{id} teria permitido{at}, mas a condição falhou."), None),
+                    None => (format!("{id} would have allowed{at}, but the condition failed."), None),
                 }
             }
             Verdict::ConditionUnresolved { problem } => (
-                format!("{id} teria permitido{at}, mas a condição não pôde ser avaliada ({problem})."),
+                format!("{id} would have allowed{at}, but the condition could not be evaluated ({problem})."),
                 None,
             ),
             Verdict::SubjectUnresolved { problem } => (
-                format!("{id} teria permitido{at}, mas o sujeito não pôde ser avaliado ({problem})."),
+                format!("{id} would have allowed{at}, but the subject could not be evaluated ({problem})."),
                 None,
             ),
             _ => return None,
@@ -704,8 +704,8 @@ fn chain_text(chain: &ChainStatus) -> Div {
             .items_baseline()
             .gap_x(px(4.0))
             .child(text(format!(
-                "Cadeia de hashes íntegra: {records} {} no nível",
-                if *records == 1 { "registro" } else { "registros" }
+                "Hash chain intact: {records} {} at the level",
+                if *records == 1 { "record" } else { "records" }
             )))
             .child(level()),
         ChainStatus::Absent => div()
@@ -713,35 +713,35 @@ fn chain_text(chain: &ChainStatus) -> Div {
             .flex_wrap()
             .items_baseline()
             .gap_x(px(4.0))
-            .child("Nenhum registro no nível")
+            .child("No record at the level")
             .child(level())
-            .child(": não há cadeia de hashes para conferir."),
-        ChainStatus::Broken(error) => div().child(text(format!("Cadeia de hashes quebrada: {error}"))),
+            .child(": there is no hash chain to check."),
+        ChainStatus::Broken(error) => div().child(text(format!("Hash chain broken: {error}"))),
     }
 }
 
 fn action_text(action: &AuditAction) -> &'static str {
     match action {
-        AuditAction::GrantAdd => "grant adicionado",
-        AuditAction::GrantRemove => "grant removido",
-        AuditAction::TupleAdd => "relação adicionada",
-        AuditAction::TupleRemove => "relação removida",
-        AuditAction::RoleAssign => "papel atribuído",
-        AuditAction::RoleRevoke => "papel revogado",
-        AuditAction::Decision => "decisão",
-        AuditAction::ExclusiveAcquire => "posse exclusiva adquirida",
-        AuditAction::ExclusivePreempt => "posse exclusiva tomada",
-        AuditAction::ExclusiveRelease => "posse exclusiva liberada",
-        AuditAction::ExclusiveExpire => "posse exclusiva expirada",
+        AuditAction::GrantAdd => "grant added",
+        AuditAction::GrantRemove => "grant removed",
+        AuditAction::TupleAdd => "relation added",
+        AuditAction::TupleRemove => "relation removed",
+        AuditAction::RoleAssign => "role assigned",
+        AuditAction::RoleRevoke => "role revoked",
+        AuditAction::Decision => "decision",
+        AuditAction::ExclusiveAcquire => "exclusive hold acquired",
+        AuditAction::ExclusivePreempt => "exclusive hold taken over",
+        AuditAction::ExclusiveRelease => "exclusive hold released",
+        AuditAction::ExclusiveExpire => "exclusive hold expired",
     }
 }
 
 fn outcome_label(t: Tokens, outcome: &AuditOutcome) -> Div {
     match outcome {
-        AuditOutcome::Applied => label(Some("check"), "aplicada", t.effect(Effect::Allow)),
-        AuditOutcome::Rejected => label(Some("x"), "recusada", t.effect(Effect::Deny)),
-        AuditOutcome::Allowed => label(Some("check"), "permitido", t.effect(Effect::Allow)),
-        AuditOutcome::Denied => label(Some("x"), "negado", t.effect(Effect::Deny)),
+        AuditOutcome::Applied => label(Some("check"), "applied", t.effect(Effect::Allow)),
+        AuditOutcome::Rejected => label(Some("x"), "refused", t.effect(Effect::Deny)),
+        AuditOutcome::Allowed => label(Some("check"), "allowed", t.effect(Effect::Allow)),
+        AuditOutcome::Denied => label(Some("x"), "denied", t.effect(Effect::Deny)),
     }
 }
 
@@ -833,7 +833,7 @@ impl InspectView {
 
     fn reload(&mut self) {
         self.errors.clear();
-        let hint = "Corrija o arquivo e salve: o app recarrega sozinho.";
+        let hint = "Fix the file and save it: the app reloads on its own.";
         if let Some(path) = &self.scenario_path {
             let loaded = Scenario::load(path).and_then(|scenario| match self.inspector.as_mut() {
                 Some(inspector) => inspector.replace(scenario),
@@ -1096,19 +1096,19 @@ impl InspectView {
                     .h_full()
                     .ml(px(8.0))
                     .gap(px(4.0))
-                    .child(tab("tab-eval", "scale", "Avaliação", Tab::Evaluate, cx))
-                    .child(tab("tab-matrix", "grid", "Matriz", Tab::Matrix, cx))
-                    .child(tab("tab-audit", "list", "Auditoria", Tab::Audit, cx)),
+                    .child(tab("tab-eval", "scale", "Evaluation", Tab::Evaluate, cx))
+                    .child(tab("tab-matrix", "grid", "Matrix", Tab::Matrix, cx))
+                    .child(tab("tab-audit", "list", "Audit", Tab::Audit, cx)),
             )
             .child(div().flex_1())
             .when(self.simulating(), |this| {
                 this.child(
-                    button(t, "reset", "undo", "Desfazer simulação", t.caution())
+                    button(t, "reset", "undo", "Undo simulation", t.caution())
                         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.on_undo(&Undo, window, cx))),
                 )
             })
             .child(
-                button(t, "reload", "refresh", "Recarregar", (t.ink, t.panel, t.line))
+                button(t, "reload", "refresh", "Reload", (t.ink, t.panel, t.line))
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.on_reload(&Reload, window, cx))),
             )
     }
@@ -1209,14 +1209,14 @@ impl InspectView {
                 .gap(px(6.0))
                 .py(px(5.0))
                 .px(px(8.0))
-                .child(label(None, "simulado", t.caution()))
+                .child(label(None, "simulated", t.caution()))
                 .child(text(grant.id.clone()))
                 .child(mono(grant.permission.clone()).text_color(t.mute))
         });
         div()
             .flex()
             .flex_col()
-            .child(sidebar_title(t, "Grants", Some("Espaço liga e desliga"), active))
+            .child(sidebar_title(t, "Grants", Some("Space toggles"), active))
             .children(rows)
             .children(added)
     }
@@ -1224,8 +1224,8 @@ impl InspectView {
     /// O vazio de uma aba sem cenário: arquivo passado e ilegível aponta a faixa de erro; nenhum arquivo ensina a flag.
     fn no_scenario(&self, purpose: &str) -> String {
         match &self.scenario_path {
-            Some(_) => "O cenário não pôde ser lido: veja o erro acima.".to_string(),
-            None => format!("Abra um cenário com --scenario para {purpose}."),
+            Some(_) => "The scenario could not be read: see the error above.".to_string(),
+            None => format!("Open a scenario with --scenario to {purpose}."),
         }
     }
 
@@ -1265,7 +1265,7 @@ impl InspectView {
                 });
                 explanation_panel(t, &now, sim)
             }
-            _ => empty(t, self.no_scenario("avaliar")),
+            _ => empty(t, self.no_scenario("evaluate")),
         };
         div().flex().flex_1().min_h(px(0.0)).child(sidebar).child(
             div()
@@ -1280,17 +1280,17 @@ impl InspectView {
     fn matrix_tab(&self, t: Tokens, cx: &mut Context<Self>) -> Div {
         let (_, _, resources) = self.names();
         let Some(inspector) = &self.inspector else {
-            return empty(t, self.no_scenario("ver a matriz"));
+            return empty(t, self.no_scenario("see the matrix"));
         };
         let Some(matrix) = resources.get(self.resource).and_then(|r| inspector.matrix(r).ok()) else {
-            return empty(t, "O cenário não declara recursos.");
+            return empty(t, "The scenario declares no resources.");
         };
         let chooser = div()
             .flex()
             .flex_wrap()
             .items_center()
             .gap(px(6.0))
-            .child(div().text_color(t.mute).mr(px(4.0)).child("Recurso"))
+            .child(div().text_color(t.mute).mr(px(4.0)).child("Resource"))
             .children(resources.iter().enumerate().map(|(i, name)| {
                 let on = i == self.resource;
                 div()
@@ -1323,7 +1323,7 @@ impl InspectView {
                     .ml(px(8.0))
                     .text_size(px(12.0))
                     .text_color(t.mute)
-                    .child("setas trocam o recurso"),
+                    .child("arrows switch the resource"),
             );
         let resource = resources.get(self.resource).cloned().unwrap_or_default();
         div()
@@ -1346,7 +1346,7 @@ impl InspectView {
 
     fn audit_tab(&self, t: Tokens, cx: &mut Context<Self>) -> Div {
         let Some(trail) = &self.trail else {
-            return empty(t, "Abra uma trilha com --audit (JSON Lines gerado por JsonLinesAudit).");
+            return empty(t, "Open a trail with --audit (JSON Lines written by JsonLinesAudit).");
         };
         let chain = trail.chain();
         let (chain_icon, chain_tone) = match chain {
@@ -1366,7 +1366,7 @@ impl InspectView {
             .border_r_1()
             .border_color(t.line)
             .child(note(t, chain_icon, chain_text(&chain), chain_tone).mb(px(8.0)))
-            .child(sidebar_title(t, "Registros", Some("setas navegam"), self.ring))
+            .child(sidebar_title(t, "Records", Some("arrows navigate"), self.ring))
             .children(trail.records.iter().enumerate().map(|(i, record)| {
                 let on = i == self.record;
                 div()
@@ -1424,7 +1424,7 @@ impl InspectView {
             .overflow_y_scrollbar();
         let detail = match trail.records.get(self.record) {
             Some(record) => self.record_detail(t, record),
-            None => empty(t, "Trilha vazia."),
+            None => empty(t, "Empty trail."),
         };
         div().flex().flex_1().min_h(px(0.0)).child(list).child(
             div()
@@ -1446,14 +1446,14 @@ impl InspectView {
             out = out
                 .child(section_heading(
                     t,
-                    "Rastro gravado na auditoria",
-                    Some("como o motor decidiu na época"),
+                    "Trace recorded in the audit",
+                    Some("how the engine decided at the time"),
                 ))
                 .child(explanation_panel(t, explanation, None));
         }
         out.child(boxed(
             t,
-            box_title(t, "Registro", Some(&format!("nível {}", record.level))),
+            box_title(t, "Record", Some(&format!("level {}", record.level))),
             div()
                 .p(px(16.0))
                 .font_family(MONO)
@@ -1482,13 +1482,13 @@ fn shortcuts(t: Tokens) -> Div {
         .mx(px(8.0))
         .text_size(px(12.0))
         .text_color(t.mute)
-        .child(div().font_weight(FontWeight::SEMIBOLD).child("Teclado"))
-        .child(row(vec!["↑".into(), "↓".into()], "escolhe na lista"))
-        .child(row(vec!["Tab".into()], "troca de lista"))
-        .child(row(vec!["Espaço".into()], "liga ou desliga o grant"))
-        .child(row(vec![shortcut("1"), shortcut("2"), shortcut("3")], "abas"))
-        .child(row(vec![shortcut("R")], "recarrega"))
-        .child(row(vec![shortcut("Z")], "desfaz a simulação"))
+        .child(div().font_weight(FontWeight::SEMIBOLD).child("Keyboard"))
+        .child(row(vec!["↑".into(), "↓".into()], "picks from the list"))
+        .child(row(vec!["Tab".into()], "switches list"))
+        .child(row(vec!["Space".into()], "turns the grant on or off"))
+        .child(row(vec![shortcut("1"), shortcut("2"), shortcut("3")], "tabs"))
+        .child(row(vec![shortcut("R")], "reloads"))
+        .child(row(vec![shortcut("Z")], "undoes the simulation"))
 }
 
 fn sidebar_title(t: Tokens, title: &str, sub: Option<&str>, active: bool) -> Div {
@@ -1589,8 +1589,8 @@ fn explanation_panel(t: Tokens, e: &Explanation, sim: Option<Sim>) -> Div {
     let focus_rank = decisive.and_then(|g| g.rank).or(why.as_ref().and_then(|w| w.rank));
     let subject = e.subject.id.clone().unwrap_or_else(|| e.subject.kind.clone());
     let state_caption = match effect {
-        Effect::Allow => "Permitido",
-        Effect::Deny => "Negado",
+        Effect::Allow => "Allowed",
+        Effect::Deny => "Denied",
     };
     let (state_fg, _, _) = t.effect(effect);
     let state = div()
@@ -1615,7 +1615,7 @@ fn explanation_panel(t: Tokens, e: &Explanation, sim: Option<Sim>) -> Div {
         .text_size(px(20.0))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(t.ink)
-        .child(text(format!("{subject} pede")))
+        .child(text(format!("{subject} asks")))
         .child(
             div()
                 .font_family(MONO)
@@ -1631,7 +1631,7 @@ fn explanation_panel(t: Tokens, e: &Explanation, sim: Option<Sim>) -> Div {
                 t,
                 "alert",
                 text(format!(
-                    "Com os grants originais, o pedido seria {}: {}.",
+                    "With the original grants, the request would be {}: {}.",
                     effect_text(b.decision.effect),
                     render::reason(&b.decision.reason)
                 )),
@@ -1653,7 +1653,7 @@ fn explanation_panel(t: Tokens, e: &Explanation, sim: Option<Sim>) -> Div {
                 .flex_1()
                 .min_w(px(260.0))
                 .gap(px(8.0))
-                .child(div().flex_none().text_color(t.mute).child("Motivo"))
+                .child(div().flex_none().text_color(t.mute).child("Reason"))
                 .child(
                     div()
                         .flex_1()
@@ -1685,15 +1685,15 @@ fn explanation_panel(t: Tokens, e: &Explanation, sim: Option<Sim>) -> Div {
         .py(px(12.0))
         .child(fact(
             t,
-            "Papéis efetivos",
+            "Effective roles",
             text(if e.roles.is_empty() {
-                "nenhum".to_string()
+                "none".to_string()
             } else {
                 e.roles.join(", ")
             }),
         ))
-        .child(fact(t, "Permissões que concedem", mono(e.effective.join(", "))))
-        .child(fact(t, "Estratégia", mono(e.strategy.clone())))
+        .child(fact(t, "Permissions that grant", mono(e.effective.join(", "))))
+        .child(fact(t, "Strategy", mono(e.strategy.clone())))
         .children(e.overrides.iter().map(|step| {
             fact(
                 t,
@@ -1733,7 +1733,7 @@ fn explanation_panel(t: Tokens, e: &Explanation, sim: Option<Sim>) -> Div {
         .child(facts);
     let path = boxed(
         t,
-        box_title(t, "Caminho do recurso", Some("degrau · âncora")),
+        box_title(t, "Resource path", Some("step · anchor")),
         div()
             .flex()
             .flex_wrap()
@@ -1834,11 +1834,11 @@ fn explanation_panel(t: Tokens, e: &Explanation, sim: Option<Sim>) -> Div {
         .child(path)
         .child(section_heading(
             t,
-            "Grants entregues pela fonte",
-            Some("destino de cada um"),
+            "Grants delivered by the source",
+            Some("fate of each one"),
         ))
         .child(if e.grants.is_empty() && sim.is_none() {
-            empty(t, "A fonte não entregou nenhum grant para este pedido.")
+            empty(t, "The source delivered no grant for this request.")
         } else {
             timeline
         })
@@ -1864,12 +1864,12 @@ fn grant_identity(t: Tokens, grant: &Grant, rank: Option<usize>, hot: bool) -> D
         .child(effect_label(t, grant.effect))
         .child(mono(grant.permission.clone()))
         .child(icon("arrow-right", 14.0, t.comment))
-        .child(text(format!("{} em", render::matcher(&grant.subject))))
+        .child(text(format!("{} on", render::matcher(&grant.subject))))
         .child(mono(target_text(grant)))
         .when_some(rank, |this, rank| {
             this.child(label(
                 None,
-                format!("degrau {rank}"),
+                format!("step {rank}"),
                 (t.accent, t.accent_bg, t.accent_line),
             ))
         })
@@ -1949,7 +1949,7 @@ fn timeline_item(t: Tokens, n: String, trace: &GrantTrace, outcome: Effect, deci
     };
     let hot = is_decisive || explains || trace.verdict.is_candidate();
     let destination = if is_decisive {
-        label(Some("check"), "decisivo", t.effect(trace.grant.effect))
+        label(Some("check"), "decisive", t.effect(trace.grant.effect))
     } else {
         match &trace.verdict {
             Verdict::Candidate | Verdict::CandidateFailSafe { .. } => label(
@@ -1957,7 +1957,7 @@ fn timeline_item(t: Tokens, n: String, trace: &GrantTrace, outcome: Effect, deci
                 render::verdict(&trace.verdict),
                 (t.accent, t.accent_bg, t.accent_line),
             ),
-            Verdict::ConditionFalse => label(Some("x"), "condição falsa", (t.deny, t.bg, t.deny)),
+            Verdict::ConditionFalse => label(Some("x"), "condition false", (t.deny, t.bg, t.deny)),
             Verdict::ConditionUnresolved { .. } | Verdict::SubjectUnresolved { .. } | Verdict::OverrideOnly => {
                 label(Some("alert"), render::verdict(&trace.verdict), t.caution())
             }
@@ -1990,7 +1990,7 @@ fn disabled_item(t: Tokens, n: String, grant: &Grant) -> Div {
         badge(t, "slash", t.mute, t.sunk),
         n,
         grant_identity(t, grant, None, false),
-        label(None, "desligado na simulação", t.caution()),
+        label(None, "turned off in the simulation", t.caution()),
     ))
 }
 
@@ -2021,7 +2021,7 @@ fn condition_box(t: Tokens, root: &ConditionTrace) -> Div {
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(t.ink)
                 .child(icon("chevron-down", 14.0, t.mute))
-                .child("Árvore da condição"),
+                .child("Condition tree"),
         )
         .children(rows)
 }
@@ -2035,8 +2035,8 @@ fn condition_rows(t: Tokens, node: &ConditionTrace, depth: usize, out: &mut Vec<
     };
     let skipped = matches!(node.result, TraceResult::Skipped);
     let detail = match &node.result {
-        TraceResult::Error(problem) => Some(format!("erro: {problem}")),
-        TraceResult::Skipped => Some("não avaliado: curto-circuito".to_string()),
+        TraceResult::Error(problem) => Some(format!("error: {problem}")),
+        TraceResult::Skipped => Some("not evaluated: short-circuit".to_string()),
         _ => None,
     };
     let first = out.is_empty();
@@ -2082,7 +2082,7 @@ fn matrix_table(t: Tokens, matrix: &Matrix, resource: &str, cx: &mut Context<Ins
         .text_size(px(12.0))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(t.mute)
-        .child(div().w(first_w).child("Permissão"))
+        .child(div().w(first_w).child("Permission"))
         .children(matrix.subjects.iter().map(|s| div().w(cell_w).child(text(s.clone()))));
     let rows = matrix.permissions.iter().enumerate().map(|(pi, permission)| {
         div()
@@ -2098,8 +2098,8 @@ fn matrix_table(t: Tokens, matrix: &Matrix, resource: &str, cx: &mut Context<Ins
                 let changed = matrix.changed(pi, si);
                 let (fg, bg, line) = t.effect(effect);
                 let caption = match effect {
-                    Effect::Allow => "sim",
-                    Effect::Deny => "não",
+                    Effect::Allow => "yes",
+                    Effect::Deny => "no",
                 };
                 let glyph = if effect == Effect::Allow { "check" } else { "x" };
                 div().w(cell_w).child(
@@ -2122,12 +2122,12 @@ fn matrix_table(t: Tokens, matrix: &Matrix, resource: &str, cx: &mut Context<Ins
                             .hover(move |s| s.border_color(t.accent)),
                         )
                         .when(changed, |this| {
-                            let was = if before == Effect::Allow { "sim" } else { "não" };
+                            let was = if before == Effect::Allow { "yes" } else { "no" };
                             this.child(
                                 div()
                                     .text_size(px(12.0))
                                     .text_color(t.caution_ink)
-                                    .child(text(format!("antes: {was}"))),
+                                    .child(text(format!("before: {was}"))),
                             )
                         })
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -2140,9 +2140,9 @@ fn matrix_table(t: Tokens, matrix: &Matrix, resource: &str, cx: &mut Context<Ins
             }))
     });
     let footer = match matrix.changes().len() {
-        0 => "Clique numa célula para ver o rastro.".to_string(),
-        1 => "1 célula mudou em relação aos grants originais. Clique numa célula para ver o rastro.".to_string(),
-        n => format!("{n} células mudaram em relação aos grants originais. Clique numa célula para ver o rastro."),
+        0 => "Click a cell to see the trace.".to_string(),
+        1 => "1 cell changed from the original grants. Click a cell to see the trace.".to_string(),
+        n => format!("{n} cells changed from the original grants. Click a cell to see the trace."),
     };
     div()
         .flex()
@@ -2152,8 +2152,8 @@ fn matrix_table(t: Tokens, matrix: &Matrix, resource: &str, cx: &mut Context<Ins
             t,
             box_title(
                 t,
-                "Quem pode o quê",
-                Some(&format!("permissões × sujeitos em {resource}")),
+                "Who can do what",
+                Some(&format!("permissions × subjects on {resource}")),
             ),
             div().flex().flex_col().child(header).children(rows),
         ))
@@ -2163,9 +2163,9 @@ fn matrix_table(t: Tokens, matrix: &Matrix, resource: &str, cx: &mut Context<Ins
 fn replay_box(t: Tokens, replay: &Replay) -> Div {
     let changed = replay.changed();
     let message = if changed {
-        "A decisão mudou: a política ou os grants de hoje decidem diferente do que foi gravado."
+        "The decision changed: today's policy or grants decide differently from what was recorded."
     } else {
-        "A política e os grants de hoje decidem igual ao que foi gravado."
+        "Today's policy and grants decide the same as what was recorded."
     };
     let (fg, bg, _) = if changed { t.caution() } else { t.effect(Effect::Allow) };
     div()
@@ -2180,11 +2180,15 @@ fn replay_box(t: Tokens, replay: &Replay) -> Div {
                 .flex_wrap()
                 .items_center()
                 .gap(px(10.0))
-                .child(box_title(t, "Reavaliação", Some("com a política e os grants atuais")))
+                .child(box_title(
+                    t,
+                    "Re-evaluation",
+                    Some("with the current policy and grants"),
+                ))
                 .child(div().flex_1())
-                .child(div().text_color(t.mute).text_size(px(13.0)).child("gravado"))
+                .child(div().text_color(t.mute).text_size(px(13.0)).child("recorded"))
                 .child(outcome_label(t, &replay.recorded))
-                .child(div().text_color(t.mute).text_size(px(13.0)).child("hoje"))
+                .child(div().text_color(t.mute).text_size(px(13.0)).child("today"))
                 .child(effect_now(t, replay.now.decision.effect)),
             div()
                 .flex()
@@ -2205,8 +2209,8 @@ fn replay_box(t: Tokens, replay: &Replay) -> Div {
 
 fn effect_now(t: Tokens, effect: Effect) -> Div {
     match effect {
-        Effect::Allow => label(Some("check"), "permitido", t.effect(effect)),
-        Effect::Deny => label(Some("x"), "negado", t.effect(effect)),
+        Effect::Allow => label(Some("check"), "allowed", t.effect(effect)),
+        Effect::Deny => label(Some("x"), "denied", t.effect(effect)),
     }
 }
 

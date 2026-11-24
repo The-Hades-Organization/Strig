@@ -20,62 +20,62 @@ pub fn effect_word(effect: Effect) -> &'static str {
 
 pub fn effect(effect: Effect) -> &'static str {
     match effect {
-        Effect::Allow => "PERMITIDO",
-        Effect::Deny => "NEGADO",
+        Effect::Allow => "ALLOWED",
+        Effect::Deny => "DENIED",
     }
 }
 
 pub fn reason(reason: &Reason) -> String {
     match reason {
-        Reason::Override { name } => format!("o override {name} decidiu antes dos grants"),
+        Reason::Override { name } => format!("override {name} decided before the grants"),
         Reason::Grant {
             grant_id,
             permission,
             rank,
             strategy,
-        } => format!("grant {grant_id} ({permission}, degrau {rank}) escolhido pela estratégia {strategy}"),
-        Reason::NoApplicableGrant => "nenhum grant se aplicou: negado por padrão".into(),
-        Reason::UnknownPermission => "a permissão não existe no catálogo".into(),
+        } => format!("grant {grant_id} ({permission}, step {rank}) chosen by strategy {strategy}"),
+        Reason::NoApplicableGrant => "no grant applied: denied by default".into(),
+        Reason::UnknownPermission => "the permission is not in the catalog".into(),
         Reason::MissingPrerequisite {
             permission,
             prerequisite,
-        } => format!("{permission} exige {prerequisite}, que não é permitida neste recurso"),
+        } => format!("{permission} requires {prerequisite}, which is not allowed on this resource"),
     }
 }
 
 pub fn matcher(subject: &SubjectMatcher) -> String {
     match subject {
-        SubjectMatcher::User { id } => format!("usuário {id}"),
-        SubjectMatcher::Role { id } => format!("papel {id}"),
+        SubjectMatcher::User { id } => format!("user {id}"),
+        SubjectMatcher::Role { id } => format!("role {id}"),
         SubjectMatcher::Principal { name } => format!("principal {name}"),
-        SubjectMatcher::Relation { relation } => format!("relação {relation}"),
-        SubjectMatcher::Any => "qualquer sujeito".into(),
+        SubjectMatcher::Relation { relation } => format!("relation {relation}"),
+        SubjectMatcher::Any => "any subject".into(),
     }
 }
 
 pub fn verdict(verdict: &Verdict) -> String {
     match verdict {
-        Verdict::Candidate => "candidato".into(),
-        Verdict::CandidateFailSafe { problem } => format!("candidato por segurança (deny com erro: {problem})"),
-        Verdict::PermissionUnrelated => "permissão não relacionada".into(),
-        Verdict::OutsideWindow => "fora da janela de validade".into(),
-        Verdict::OutOfScope => "escopo fora do caminho do recurso".into(),
-        Verdict::TargetNotOnPath => "alvo não casa nenhum degrau".into(),
-        Verdict::SubjectMismatch => "sujeito não casa".into(),
-        Verdict::SubjectUnresolved { problem } => format!("allow descartado: sujeito não avaliável ({problem})"),
-        Verdict::ConditionFalse => "condição falsa".into(),
-        Verdict::ConditionUnresolved { problem } => format!("allow descartado: condição não avaliável ({problem})"),
-        Verdict::OverrideOnly => "permissão só vale por override: grant ignorado".into(),
-        Verdict::NotReached => "não avaliado (override decidiu antes)".into(),
+        Verdict::Candidate => "candidate".into(),
+        Verdict::CandidateFailSafe { problem } => format!("candidate for safety (deny with an error: {problem})"),
+        Verdict::PermissionUnrelated => "permission not related".into(),
+        Verdict::OutsideWindow => "outside the validity window".into(),
+        Verdict::OutOfScope => "scope is not on the resource path".into(),
+        Verdict::TargetNotOnPath => "target matches no step".into(),
+        Verdict::SubjectMismatch => "subject does not match".into(),
+        Verdict::SubjectUnresolved { problem } => format!("allow dropped: subject cannot be evaluated ({problem})"),
+        Verdict::ConditionFalse => "condition false".into(),
+        Verdict::ConditionUnresolved { problem } => format!("allow dropped: condition cannot be evaluated ({problem})"),
+        Verdict::OverrideOnly => "permission only holds through an override: grant ignored".into(),
+        Verdict::NotReached => "not evaluated (an override decided first)".into(),
     }
 }
 
 pub fn override_outcome(outcome: OverrideOutcome) -> &'static str {
     match outcome {
-        OverrideOutcome::Excepted => "fora do alcance (exceção)",
-        OverrideOutcome::Abstained => "não se pronunciou",
-        OverrideOutcome::Allowed => "permitiu",
-        OverrideOutcome::Denied => "negou",
+        OverrideOutcome::Excepted => "out of reach (exception)",
+        OverrideOutcome::Abstained => "abstained",
+        OverrideOutcome::Allowed => "allowed",
+        OverrideOutcome::Denied => "denied",
     }
 }
 
@@ -94,9 +94,9 @@ pub fn grant_line(trace: &GrantTrace) -> String {
         Some(id) => format!("{}:{id}", g.target.kind),
         None => g.target.kind.clone(),
     };
-    let rank = trace.rank.map(|r| format!(" [degrau {r}]")).unwrap_or_default();
+    let rank = trace.rank.map(|r| format!(" [step {r}]")).unwrap_or_default();
     format!(
-        "{} {} {} → {} em {}{}",
+        "{} {} {} → {} on {}{}",
         g.id,
         if g.effect == Effect::Allow { "allow" } else { "deny" },
         g.permission,
@@ -131,20 +131,20 @@ pub fn explanation(e: &Explanation) -> String {
     let path: Vec<String> = e.path.iter().map(ToString::to_string).collect();
     let _ = writeln!(
         out,
-        "{} — {subject} pede {} em {}",
+        "{} — {subject} asks {} on {}",
         effect(e.decision.effect),
         e.permission,
         path.join(" → ")
     );
-    let _ = writeln!(out, "motivo: {}", reason(&e.decision.reason));
+    let _ = writeln!(out, "reason: {}", reason(&e.decision.reason));
     if !e.effective.is_empty() {
-        let _ = writeln!(out, "permissões que concedem: {}", e.effective.join(", "));
+        let _ = writeln!(out, "permissions that grant: {}", e.effective.join(", "));
     }
     let _ = writeln!(
         out,
-        "papéis efetivos: {}",
+        "effective roles: {}",
         if e.roles.is_empty() {
-            "nenhum".into()
+            "none".into()
         } else {
             e.roles.join(", ")
         }
@@ -169,7 +169,7 @@ pub fn explanation(e: &Explanation) -> String {
         }
     }
     for warning in &e.decision.warnings {
-        let _ = writeln!(out, "aviso: {warning}");
+        let _ = writeln!(out, "warning: {warning}");
     }
     out
 }
@@ -184,14 +184,14 @@ pub fn matrix(m: &Matrix) -> String {
     for (p, permission) in m.permissions.iter().enumerate() {
         let _ = write!(out, "{permission:width$}");
         for s in 0..m.subjects.len() {
-            let cell = if m.cells[p][s] == Effect::Allow { "sim" } else { "não" };
+            let cell = if m.cells[p][s] == Effect::Allow { "yes" } else { "no" };
             let flag = if m.changed(p, s) { "*" } else { " " };
             let _ = write!(out, "  {:>9}{flag}", cell);
         }
         out.push('\n');
     }
     if !m.changes().is_empty() {
-        out.push_str("* mudou em relação aos grants originais\n");
+        out.push_str("* changed from the original grants\n");
     }
     out
 }
@@ -205,21 +205,21 @@ pub fn record_line(record: &AuditRecord) -> String {
 
 pub fn chain(status: &ChainStatus) -> String {
     match status {
-        ChainStatus::Absent => "nenhum registro no nível forensic: não há cadeia de hashes para conferir".into(),
+        ChainStatus::Absent => "no record at the forensic level: there is no hash chain to check".into(),
         ChainStatus::Intact { records } => match records {
-            1 => "cadeia de hashes íntegra: 1 registro no nível forensic".into(),
-            n => format!("cadeia de hashes íntegra: {n} registros no nível forensic"),
+            1 => "hash chain intact: 1 record at the forensic level".into(),
+            n => format!("hash chain intact: {n} records at the forensic level"),
         },
-        ChainStatus::Broken(error) => format!("cadeia de hashes QUEBRADA: {error}"),
+        ChainStatus::Broken(error) => format!("hash chain BROKEN: {error}"),
     }
 }
 
 pub fn replay(replay: &Replay) -> String {
     let now = effect(replay.now.decision.effect);
     if replay.changed() {
-        format!("registrado {:?}, hoje {now}: a decisão MUDOU", replay.recorded)
+        format!("recorded {:?}, today {now}: the decision CHANGED", replay.recorded)
     } else {
-        format!("registrado {:?}, hoje {now}: igual", replay.recorded)
+        format!("recorded {:?}, today {now}: same", replay.recorded)
     }
 }
 
@@ -231,11 +231,11 @@ mod tests {
     #[test]
     fn text_explanation_marks_decisive_grant_and_condition() {
         let inspector = inspector();
-        let text = explanation(&inspector.explain_named("beto", "project.edit", "roadmap").unwrap());
-        assert!(text.starts_with("NEGADO"));
-        assert!(text.contains("condição falsa"));
+        let text = explanation(&inspector.explain_named("ben", "project.edit", "roadmap").unwrap());
+        assert!(text.starts_with("DENIED"));
+        assert!(text.contains("condition false"));
         assert!(text.contains(r#"✘ subject.plan ("free") = "pro""#));
-        let text = explanation(&inspector.explain_named("beto", "document.view", "secret").unwrap());
+        let text = explanation(&inspector.explain_named("ben", "document.view", "secret").unwrap());
         assert!(text.contains("★ no-secret deny"));
     }
 }

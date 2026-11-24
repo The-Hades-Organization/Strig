@@ -32,7 +32,7 @@ Consulta pontual: a pessoa abre o app para responder uma dúvida e fecha. Os arq
 - Abas: Avaliação (sujeito × permissão × recurso, com rastro), Matriz (permissões × sujeitos para um recurso, células que mudaram com a simulação marcadas) e Auditoria (lista de registros, estado da cadeia, reavaliação, rastro gravado, JSON).
 - Simulação: ligar/desligar grants do cenário, adicionar grants, desfazer.
 - Vocabulário do domínio: sujeito, permissão, recurso, grant, papel, relação, âncora, degrau, override, estratégia, veredito, cadeia de hash.
-- Textos em português.
+- Textos da interface em inglês (os comentários do código seguem em português).
 - Crate opcional (`strig-inspect`), fora do `default-members` do workspace.
 
 ## Brand Commitments

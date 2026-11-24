@@ -12,15 +12,15 @@ use strig_inspect::{Inspector, Scenario};
 
 const REQUESTS: [(&str, &str, &str); 6] = [
     ("ana", "project.view", "roadmap"),
-    ("ana", "document.export", "fatura-7"),
-    ("beto", "document.export", "fatura-7"),
-    ("beto", "document.view", "secret"),
-    ("carla", "project.edit", "roadmap"),
-    ("visitante", "project.view", "roadmap"),
+    ("ana", "document.export", "invoice-7"),
+    ("ben", "document.export", "invoice-7"),
+    ("ben", "document.view", "secret"),
+    ("cara", "project.edit", "roadmap"),
+    ("visitor", "project.view", "roadmap"),
 ];
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = std::env::args().nth(1).ok_or("uso: trail CENARIO.json")?;
+    let path = std::env::args().nth(1).ok_or("usage: trail SCENARIO.json")?;
     let inspector = Inspector::new(Scenario::load(std::path::Path::new(&path))?)?;
     let sink = Arc::new(JsonLinesAudit::new(Vec::new()));
     let clock = Arc::new(AtomicU64::new(1_795_300_000_000));
@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         record?;
     }
     drop(auditor);
-    let sink = Arc::try_unwrap(sink).map_err(|_| "trilha ainda em uso")?;
+    let sink = Arc::try_unwrap(sink).map_err(|_| "trail still in use")?;
     std::io::stdout().write_all(&sink.into_inner())?;
     Ok(())
 }
