@@ -477,9 +477,9 @@ An optional crate, outside the `default-members`: `cargo build -p strig-inspect`
 
 ```sh
 strig-inspect --scenario scenario.json --audit trail.jsonl     # window
-strig-inspect --scenario scenario.json --subject beto --permission document.export --resource fatura-7 \
-               --disable pro-export --tab matriz                 # window opened on a selection and tab
-strig-inspect explain --scenario scenario.json --subject beto --permission document.view --resource secret
+strig-inspect --scenario scenario.json --subject ben --permission document.export --resource invoice-7 \
+               --disable pro-export --tab matrix                  # window opened on a selection and tab
+strig-inspect explain --scenario scenario.json --subject ben --permission document.view --resource secret
 strig-inspect matrix  --scenario scenario.json --resource secret --disable no-secret --add grant.json
 strig-inspect audit   --audit trail.jsonl --scenario scenario.json
 ```
@@ -491,12 +491,12 @@ cargo run -p strig-inspect --no-default-features --example trail -- \
     crates/strig-inspect/examples/scenario.json > crates/strig-inspect/examples/audit.jsonl
 ```
 
-- **Evaluation** (`avaliacao`): pick a subject, permission and resource and see the decision, the reason, the resource path with the deciding step, the effective roles, each override and the fate of each grant (candidate, unrelated permission, out of scope, target off the path, subject does not match, condition false or not evaluable), with the condition tree and the resolved values. It is built on `Engine::explain`, also available from Rust and JS.
+- **Evaluation** (`evaluation`): pick a subject, permission and resource and see the decision, the reason, the resource path with the deciding step, the effective roles, each override and the fate of each grant (candidate, unrelated permission, out of scope, target off the path, subject does not match, condition false or not evaluable), with the condition tree and the resolved values. It is built on `Engine::explain`, also available from Rust and JS.
 - **Simulation**: turn grants on and off (or add some with `--add`) and see whether the set would allow the access. When the decision changes, the panel also shows the decision with the original grants.
-- **Matrix** (`matriz`): every catalog permission for every subject on a resource, with the cells the simulation changed marked. Clicking a cell opens its trace.
-- **Audit** (`auditoria`): reads the JSON Lines trail, checks the hash chain of the `forensic` records, shows the recorded trace and re-evaluates `detailed` or `forensic` decisions against the current policy, pointing out the ones that would change.
+- **Matrix** (`matrix`): every catalog permission for every subject on a resource, with the cells the simulation changed marked. Clicking a cell opens its trace.
+- **Audit** (`audit`): reads the JSON Lines trail, checks the hash chain of the `forensic` records, shows the recorded trace and re-evaluates `detailed` or `forensic` decisions against the current policy, pointing out the ones that would change.
 
-`strig-inspect fmt [--check] <file|dir>` formats `.strig` files without opening the window. Files are reloaded on their own when they change on disk. The window follows the system light or dark appearance, with the palette of the playground: jade for structure and allow, clay for deny, gold for who, where and numbers. The window embeds the Noto Sans and JetBrains Mono fonts (OFL license, in `crates/strig-inspect/assets/fonts`) and its own icons, so it looks the same on any machine. The interface text is in Brazilian Portuguese.
+`strig-inspect fmt [--check] <file|dir>` formats `.strig` files without opening the window. Files are reloaded on their own when they change on disk. The window follows the system light or dark appearance, with the palette of the playground: jade for structure and allow, clay for deny, gold for who, where and numbers. The window embeds the Noto Sans and JetBrains Mono fonts (OFL license, in `crates/strig-inspect/assets/fonts`) and its own icons, so it looks the same on any machine. The interface text is in English.
 
 ## Extension points
 
@@ -534,7 +534,7 @@ The JS tests also accept `STRIG_RUST_SERVER` (the URL of the `strig-axum` `serve
 
 The gpui window of `strig-inspect` needs the Wayland and X11 development libraries on Linux (for example `libxkbcommon-dev`, `libwayland-dev`, `libxcb1-dev`, `libvulkan-dev`).
 
-Source comments and the inspector interface are in Brazilian Portuguese; issues and pull requests are welcome in English or Portuguese. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Source comments are in Brazilian Portuguese; issues and pull requests are welcome in English or Portuguese. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Migrating from Themis
 

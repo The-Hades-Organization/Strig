@@ -4,15 +4,15 @@ use std::process::ExitCode;
 use strig_inspect::{Inspector, Scenario, Trail, render};
 
 const USAGE: &str = "\
-uso:
-  strig-inspect [--scenario CENARIO.json] [--audit TRILHA.jsonl]     abre a janela
-      [--subject S] [--permission P] [--resource R] [--disable ID]... [--tab avaliacao|matriz|auditoria]
+usage:
+  strig-inspect [--scenario SCENARIO.json] [--audit TRAIL.jsonl]   opens the window
+      [--subject S] [--permission P] [--resource R] [--disable ID]... [--tab evaluation|matrix|audit]
   strig-inspect explain --scenario F --subject S --permission P --resource R
   strig-inspect matrix  --scenario F --resource R [--disable ID]... [--add GRANT.json]...
-  strig-inspect audit   --audit F [--scenario F]                     lista, confere a cadeia e reavalia
-  strig-inspect fmt [--check] ARQUIVO|DIRETORIO                      formata os .strig; --check só lista e sai com 1
+  strig-inspect audit   --audit F [--scenario F]                     lists, checks the chain and re-evaluates
+  strig-inspect fmt [--check] FILE|DIR                              formats .strig files; --check only lists and exits with 1
 
-O cenário é um JSON com spec, grants, tuples, env, subjects e resources (ver README).";
+The scenario is a JSON file with spec, grants, tuples, env, subjects and resources (see the README).";
 
 #[derive(Default)]
 struct Args {
@@ -33,7 +33,7 @@ fn parse() -> Result<Args, String> {
     let mut args = Args::default();
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
-        let mut value = || it.next().ok_or_else(|| format!("{arg} precisa de valor"));
+        let mut value = || it.next().ok_or_else(|| format!("{arg} needs a value"));
         match arg.as_str() {
             "--scenario" => args.scenario = Some(value()?.into()),
             "--audit" => args.audit = Some(value()?.into()),
@@ -49,14 +49,14 @@ fn parse() -> Result<Args, String> {
             path if args.command.as_deref() == Some("fmt") && args.path.is_none() && !path.starts_with('-') => {
                 args.path = Some(path.into());
             }
-            other => return Err(format!("argumento desconhecido: {other}")),
+            other => return Err(format!("unknown argument: {other}")),
         }
     }
     Ok(args)
 }
 
 fn inspector(args: &Args) -> Result<Inspector, String> {
-    let path = args.scenario.as_ref().ok_or("falta --scenario")?;
+    let path = args.scenario.as_ref().ok_or("missing --scenario")?;
     let mut inspector = Inspector::new(Scenario::load(path).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     for id in &args.disable {
         inspector.toggle(id);
@@ -69,7 +69,7 @@ fn inspector(args: &Args) -> Result<Inspector, String> {
 }
 
 fn need<'a>(value: &'a Option<String>, flag: &str) -> Result<&'a str, String> {
-    value.as_deref().ok_or_else(|| format!("falta {flag}"))
+    value.as_deref().ok_or_else(|| format!("missing {flag}"))
 }
 
 fn run(args: Args) -> Result<ExitCode, String> {
@@ -102,7 +102,7 @@ fn run_inspect(args: Args) -> Result<(), String> {
             Ok(())
         }
         Some("audit") => {
-            let trail = Trail::load(args.audit.as_ref().ok_or("falta --audit")?).map_err(|e| e.to_string())?;
+            let trail = Trail::load(args.audit.as_ref().ok_or("missing --audit")?).map_err(|e| e.to_string())?;
             let inspector = args.scenario.is_some().then(|| inspector(&args)).transpose()?;
             println!("{}", render::chain(&trail.chain()));
             for record in &trail.records {
@@ -114,25 +114,21 @@ fn run_inspect(args: Args) -> Result<(), String> {
             Ok(())
         }
         None => open_window(args),
-        Some(other) => Err(format!("comando desconhecido: {other}")),
+        Some(other) => Err(format!("unknown command: {other}")),
     }
 }
 
 fn format_files(args: &Args) -> Result<ExitCode, String> {
-    let path = args.path.as_ref().ok_or("fmt precisa de um arquivo ou diretório")?;
+    let path = args.path.as_ref().ok_or("fmt needs a file or a directory")?;
     let report = strig_inspect::fmt::run(path, args.check)?;
     for file in &report.changed {
-        println!("{}{}", if args.check { "" } else { "formatado: " }, file.display());
+        println!("{}{}", if args.check { "" } else { "formatted: " }, file.display());
     }
     for error in &report.errors {
         eprintln!("{error}");
     }
     if !args.check {
-        println!(
-            "{} formatados, {} já estavam certos",
-            report.changed.len(),
-            report.unchanged
-        );
+        println!("{} formatted, {} already tidy", report.changed.len(), report.unchanged);
     }
     let failed = !report.errors.is_empty() || (args.check && !report.changed.is_empty());
     Ok(if failed { ExitCode::from(1) } else { ExitCode::SUCCESS })
@@ -141,13 +137,11 @@ fn format_files(args: &Args) -> Result<ExitCode, String> {
 #[cfg(feature = "gui")]
 fn open_window(args: Args) -> Result<(), String> {
     let tab = match args.tab.as_deref() {
-        None | Some("avaliacao") => strig_inspect::gui::Tab::Evaluate,
-        Some("matriz") => strig_inspect::gui::Tab::Matrix,
-        Some("auditoria") => strig_inspect::gui::Tab::Audit,
+        None | Some("evaluation") => strig_inspect::gui::Tab::Evaluate,
+        Some("matrix") => strig_inspect::gui::Tab::Matrix,
+        Some("audit") => strig_inspect::gui::Tab::Audit,
         Some(other) => {
-            return Err(format!(
-                "aba desconhecida: {other} (use avaliacao, matriz ou auditoria)"
-            ));
+            return Err(format!("unknown tab: {other} (use evaluation, matrix or audit)"));
         }
     };
     let start = strig_inspect::gui::Start {
@@ -163,7 +157,7 @@ fn open_window(args: Args) -> Result<(), String> {
 
 #[cfg(not(feature = "gui"))]
 fn open_window(_: Args) -> Result<(), String> {
-    Err("compilado sem a feature `gui`: use explain, matrix ou audit".into())
+    Err("built without the `gui` feature: use explain, matrix or audit".into())
 }
 
 fn main() -> ExitCode {

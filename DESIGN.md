@@ -197,7 +197,7 @@ Cada família tem fundo tingido (`*_bg`) e borda derivada por mistura (`*_line`,
 
 Nenhuma fonte de fallback é declarada; as famílias são carregadas de `assets/fonts` no início e o gpui usa a do sistema se o carregamento falhar.
 
-**Character:** a Cinzel só aparece no nome do produto no cabeçalho, como manda a marca (Cinzel é a fonte do wordmark e não se troca por outra inscricional). O resto é Noto Sans neutra para a prosa em português e JetBrains Mono para tudo que é identificador do motor.
+**Character:** a Cinzel só aparece no nome do produto no cabeçalho, como manda a marca (Cinzel é a fonte do wordmark e não se troca por outra inscricional). O resto é Noto Sans neutra para a prosa em inglês e JetBrains Mono para tudo que é identificador do motor.
 
 ### Hierarchy
 - **Wordmark** (Cinzel 500, 14 px, capitais espaçadas): o nome do produto no cabeçalho.

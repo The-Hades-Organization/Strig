@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- The `strig-inspect` interface is in English: window, terminal output, error messages and the example scenario (`examples/scenario.json` now uses `ben`, `cara`, `visitor` and `invoice-7`). There is no locale selection yet.
+
+### Breaking
+
+- `strig-inspect --tab` takes `evaluation`, `matrix` or `audit` instead of `avaliacao`, `matriz` or `auditoria`. The text of the terminal commands changed language, so scripts that match it need updating (for example `NEGADO` is now `DENIED`).
+
 ## [0.6.1] - 2026-11-24
 
 ### Changed

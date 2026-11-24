@@ -52,9 +52,9 @@ impl Matrix {
 
 #[derive(Debug, thiserror::Error)]
 pub enum InspectError {
-    #[error("sujeito desconhecido no cenário: {0}")]
+    #[error("unknown subject in the scenario: {0}")]
     UnknownSubject(String),
-    #[error("recurso desconhecido no cenário: {0}")]
+    #[error("unknown resource in the scenario: {0}")]
     UnknownResource(String),
 }
 
@@ -239,8 +239,8 @@ pub(crate) mod tests {
       ],
       "subjects": {
         "ana": {"kind": "user", "id": "ana", "roles": [{"role": "admin", "scope": {"kind": "org", "id": "acme"}}], "attrs": {"plan": "pro"}},
-        "beto": {"kind": "user", "id": "beto", "roles": [{"role": "member", "scope": {"kind": "org", "id": "acme"}}], "attrs": {"plan": "free"}},
-        "visitante": {"kind": "user", "principals": ["anonymous"]}
+        "ben": {"kind": "user", "id": "ben", "roles": [{"role": "member", "scope": {"kind": "org", "id": "acme"}}], "attrs": {"plan": "free"}},
+        "visitor": {"kind": "user", "principals": ["anonymous"]}
       },
       "resources": {
         "roadmap": {"path": [{"kind": "project", "id": "roadmap"}, {"kind": "org", "id": "acme"}]},
@@ -255,7 +255,7 @@ pub(crate) mod tests {
     #[test]
     fn explanation_shows_each_grant_fate() {
         let inspector = inspector();
-        let e = inspector.explain_named("beto", "document.view", "secret").unwrap();
+        let e = inspector.explain_named("ben", "document.view", "secret").unwrap();
         assert!(!e.decision.is_allowed());
         let verdicts: Vec<_> = e.grants.iter().map(|g| (g.grant.id.as_str(), &g.verdict)).collect();
         assert_eq!(verdicts[0], ("members-view", &Verdict::Candidate));
@@ -264,7 +264,7 @@ pub(crate) mod tests {
         assert_eq!(e.decisive().unwrap().grant.id, "no-secret");
         assert_eq!(e.roles, ["member"]);
 
-        let edit = inspector.explain_named("beto", "project.edit", "roadmap").unwrap();
+        let edit = inspector.explain_named("ben", "project.edit", "roadmap").unwrap();
         assert_eq!(edit.grants[2].verdict, Verdict::ConditionFalse);
         assert!(edit.grants[2].condition.is_some());
     }
@@ -296,17 +296,17 @@ pub(crate) mod tests {
         inspector.toggle("no-secret");
         inspector.add(Grant::allow(
             "sim-edit",
-            SubjectMatcher::user("beto"),
+            SubjectMatcher::user("ben"),
             "project.edit",
             TargetSelector::kind("project"),
         ));
         let after = inspector.matrix("secret").unwrap();
         let changes = after.changes();
-        assert!(changes.contains(&("document.view", "beto", Effect::Deny, Effect::Allow)));
-        assert!(changes.contains(&("project.edit", "beto", Effect::Deny, Effect::Allow)));
-        assert!(!changes.iter().any(|c| c.1 == "visitante"));
+        assert!(changes.contains(&("document.view", "ben", Effect::Deny, Effect::Allow)));
+        assert!(changes.contains(&("project.edit", "ben", Effect::Deny, Effect::Allow)));
+        assert!(!changes.iter().any(|c| c.1 == "visitor"));
 
-        let e = inspector.explain_named("beto", "document.view", "secret").unwrap();
+        let e = inspector.explain_named("ben", "document.view", "secret").unwrap();
         assert!(matches!(e.decision.reason, Reason::Grant { ref grant_id, .. } if grant_id == "members-view"));
         inspector.reset();
         assert!(!inspector.is_simulating());
