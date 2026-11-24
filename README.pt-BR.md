@@ -9,7 +9,7 @@
 ![Rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-orange.svg)
 [![crates.io](https://img.shields.io/crates/v/strig.svg)](https://crates.io/crates/strig)
 [![docs.rs](https://img.shields.io/docsrs/strig)](https://docs.rs/strig)
-[![npm](https://img.shields.io/npm/v/strig.svg)](https://www.npmjs.com/package/strig)
+[![npm](https://img.shields.io/npm/v/@the-hades-organization/strig.svg)](https://www.npmjs.com/package/@the-hades-organization/strig)
 
 [English](README.md) · **Português (Brasil)**
 
@@ -17,7 +17,7 @@ Biblioteca de autorização em Rust. Um catálogo de permissões validado e um m
 
 O núcleo não faz IO, não depende de runtime assíncrono e compila para WebAssembly. Tempo real, transportes e bindings ficam em crates separados, cada um opcional.
 
-> **Estado:** antes da 1.0. A API ainda pode mudar entre versões menores. As versões saem como `strig` no [crates.io](https://crates.io/crates/strig) (documentação da API no [docs.rs](https://docs.rs/strig)) e no [npm](https://www.npmjs.com/package/strig). Antes chamada Themis (crate `themis-auth`, pacote npm `themis-auth`): o projeto foi renomeado para Strig, veja a [nota de migração](#migrando-do-themis).
+> **Estado:** antes da 1.0. A API ainda pode mudar entre versões menores. As versões saem como `strig` no [crates.io](https://crates.io/crates/strig) (documentação da API no [docs.rs](https://docs.rs/strig)) e como `@the-hades-organization/strig` no [npm](https://www.npmjs.com/package/@the-hades-organization/strig). Antes chamada Themis (crate `themis-auth`, pacote npm `themis-auth`): o projeto foi renomeado para Strig, veja a [nota de migração](#migrando-do-themis).
 
 ## Crates
 
@@ -322,10 +322,10 @@ if client.check(&request).await.is_allowed() {
 
 ## JavaScript: Node, Bun e navegador
 
-Instale com `npm install strig`. O pacote fica em `crates/strig-node/js`. `scripts/build.sh` gera o módulo nativo (`js/native/strig.<plataforma>-<arch>.node`) e o WebAssembly (`js/wasm/`).
+Instale com `npm install @the-hades-organization/strig`. O pacote fica em `crates/strig-node/js`. `scripts/build.sh` gera o módulo nativo (`js/native/strig.<plataforma>-<arch>.node`) e o WebAssembly (`js/wasm/`).
 
 ```js
-import { load } from 'strig';
+import { load } from '@the-hades-organization/strig';
 const { Engine, Context } = await load(); // nativo em Node/Bun, wasm no navegador
 
 const engine = new Engine(spec); // a mesma EngineSpec do servidor
@@ -339,7 +339,7 @@ Em Node e Bun, `load()` tenta o módulo nativo e cai para o wasm. `STRIG_BACKEND
 **Frontend.** `PermissionClient` (`/client`) conecta por SSE ou WebSocket, guarda as capacidades de cada escopo e decide localmente com o mesmo motor. A decisão no cliente serve para a interface; o servidor continua decidindo em toda operação.
 
 ```js
-import { PermissionClient } from 'strig/client';
+import { PermissionClient } from '@the-hades-organization/strig/client';
 const client = new PermissionClient({ url: '/permissions/events', scopes, strig, engine }).connect();
 client.on('capabilities', () => render());
 client.can('document.edit', resource);
@@ -350,8 +350,8 @@ client.can('document.edit', resource);
 **Frameworks web.** Express, Fastify e NestJS decidem em cada rota com as mesmas opções. `subject(req)` devolve o sujeito (nada significa `401`), `resource(req)` o recurso, e exatamente um entre `local: { engine, context, now }` e `remote: RemoteClient` diz de onde vem a decisão. Negar é `403`, não conseguir decidir é `503`, e um erro no seu extrator é `500` sem detalhe, nunca uma passagem. `denyStatus`, `failureStatus`, `unauthenticatedStatus`, `errorStatus` e `onError` mudam isso.
 
 ```js
-import { load, scopeFromString } from 'strig';
-import { authorize } from 'strig/express';
+import { load, scopeFromString } from '@the-hades-organization/strig';
+import { authorize } from '@the-hades-organization/strig/express';
 
 const { Engine, Context } = await load();
 const options = {
@@ -368,7 +368,7 @@ app.get('/doc/:id', authorize({ ...options, permission: 'document.view' }), hand
 - **Remoto** (`strig/remote`): o `RemoteClient` fala com um servidor de decisão, com timeout e breaker, e nega quando não há resposta. Passe-o como `remote` no lugar de `local`.
 
 ```js
-import { RemoteClient } from 'strig/remote';
+import { RemoteClient } from '@the-hades-organization/strig/remote';
 const remote = new RemoteClient({ url: 'http://127.0.0.1:8080', timeoutMs: 250 });
 const { allowed } = await remote.check({ subject, permission: 'document.view', resource });
 ```
@@ -416,7 +416,7 @@ Com `dsl-fs`, `strig::dsl::fs::read_dir` lê todos os arquivos `*.strig` de um d
 A mesma linguagem está no binding JavaScript, nativo e WebAssembly, atrás do `load()`. A política é o JSON canônico, com os comentários em `notes`, e é a mesma para as três sintaxes.
 
 ```js
-import { load } from 'strig';
+import { load } from '@the-hades-organization/strig';
 const strig = await load();
 
 const source = `language blocks
@@ -544,7 +544,7 @@ O Strig se chamou Themis até a 0.5.0. O código é o mesmo; só os nomes mudara
 |---|---|
 | crate `themis-auth` (biblioteca `themis`) | crate `strig` (biblioteca `strig`) |
 | `themis-sync`, `themis-redis`, `themis-postgres`, `themis-axum`, `themis-macros`, `themis-server` | `strig-sync`, `strig-redis`, `strig-postgres`, `strig-axum`, `strig-macros`, `strig-server` |
-| pacote npm `themis-auth` | pacote npm `strig` |
+| pacote npm `themis-auth` | pacote npm `@the-hades-organization/strig` |
 | `themis-inspect` | `strig-inspect` |
 | arquivos de política `.themis` | arquivos de política `.strig` |
 | variáveis de ambiente `THEMIS_*` | variáveis de ambiente `STRIG_*` |

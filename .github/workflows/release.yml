@@ -36,7 +36,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Publish in dependency order
         run: |
+          version="${GITHUB_REF_NAME#v}"
           for crate in strig strig-macros strig-sync strig-redis strig-postgres strig-axum strig-server; do
+            # A rerun after a partial publish (e.g. the crates.io rate limit for new crates) skips what is already out.
+            if curl -sfA "strig-release (github.com/${{ github.repository }})" \
+                "https://crates.io/api/v1/crates/$crate/$version" >/dev/null; then
+              echo "$crate $version is already on crates.io"
+              continue
+            fi
             cargo publish -p "$crate" --locked
             # The index takes a moment to list the new version for its dependents.
             sleep 30
@@ -156,12 +163,12 @@ jobs:
           \`\`\`
 
           \`\`\`sh
-          npm install strig@$version
+          npm install @the-hades-organization/strig@$version
           \`\`\`
 
           The \`.node\` files are the N-API modules shipped in the npm package; \`SHA256SUMS\` lists their hashes.
 
-          [crates.io](https://crates.io/crates/strig/$version) · [docs.rs](https://docs.rs/strig/$version) · [npm](https://www.npmjs.com/package/strig/v/$version)
+          [crates.io](https://crates.io/crates/strig/$version) · [docs.rs](https://docs.rs/strig/$version) · [npm](https://www.npmjs.com/package/@the-hades-organization/strig/v/$version)
           EOF
           cat notes.md
       - name: Create the release or refresh its assets

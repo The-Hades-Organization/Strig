@@ -64,7 +64,7 @@ export class MissingPeerError extends Error {
   readonly peer: string;
 
   constructor(peer: string, subpath: string, cause: unknown) {
-    super(`strig/${subpath} needs the optional peer dependency "${peer}". Install it with: npm install ${peer}`, { cause });
+    super(`@the-hades-organization/strig/${subpath} needs the optional peer dependency "${peer}". Install it with: npm install ${peer}`, { cause });
     this.name = 'MissingPeerError';
     this.peer = peer;
   }

@@ -25,7 +25,7 @@ interface NestCommon {
 // `reflect-metadata` is the Nest project's own: it installs these on `Reflect` before any guard runs.
 const reflect = Reflect as unknown as { getMetadata(key: string, target: object): CanMetadata | undefined };
 
-// Loaded on first use, not at import, so `require('strig/nestjs')` works from a CommonJS Nest project.
+// Loaded on first use, not at import, so `require('@the-hades-organization/strig/nestjs')` works from a CommonJS Nest project.
 let nest: NestCommon | undefined;
 const peer = (): NestCommon => (nest ??= requirePeer('@nestjs/common', 'nestjs'));
 
