@@ -23,6 +23,7 @@ mod blocks_print;
 mod build;
 mod convert;
 mod error;
+mod format;
 #[cfg(feature = "dsl-fs")]
 pub mod fs;
 mod grammar;
@@ -40,6 +41,7 @@ use grammar::Cursor;
 
 pub use convert::{ConvertError, convert};
 pub use error::{Diagnostic, Diagnostics, Location, PrintError};
+pub use format::{FormatError, format, is_formatted};
 pub use policy::{Language, Note, NoteAnchor, NoteOrigin, Origins, Placement, Policy};
 pub use project::{Built, MAX_PROJECT_BYTES, MAX_SOURCES, Project};
 
