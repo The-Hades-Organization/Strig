@@ -23,6 +23,7 @@
   --brand: #B01030;       /* the mark */
   --mark: #111111;        /* the wordmark */
   --comment: #665252;
+  --code-kw: #8A0F34; --code-rel: #1D4C96; --code-ref: #664500; --code-num: #065048; --code-str: #335A0C; --code-com: #505050;
   --shadow: 0 1px 0 rgba(17,17,17,.04), 0 8px 24px -12px rgba(17,17,17,.18);
 
   --f-ui: Inter, ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -43,6 +44,7 @@
     --gold: #B88282; --gold-ink: #E3B04B; --gold-bg: #2E2410;
     --deny: #FF5E70; --deny-bg: #3A141A;
     --err: #C9A0F0; --brand: #FF5E70; --mark: #F2F2F2; --comment: #B09A9A;
+    --code-kw: #FF9DAA; --code-rel: #82B4FF; --code-ref: #E3B04B; --code-num: #4FD1C5; --code-str: #A6DB78; --code-com: #9C9C9C;
     --shadow: 0 1px 0 rgba(0,0,0,.2), 0 10px 28px -14px rgba(0,0,0,.6);
 }
 @media (prefers-color-scheme: dark) {
@@ -55,6 +57,7 @@
     --gold: #B88282; --gold-ink: #E3B04B; --gold-bg: #2E2410;
     --deny: #FF5E70; --deny-bg: #3A141A;
     --err: #C9A0F0; --brand: #FF5E70; --mark: #F2F2F2; --comment: #B09A9A;
+    --code-kw: #FF9DAA; --code-rel: #82B4FF; --code-ref: #E3B04B; --code-num: #4FD1C5; --code-str: #A6DB78; --code-com: #9C9C9C;
     --shadow: 0 1px 0 rgba(0,0,0,.2), 0 10px 28px -14px rgba(0,0,0,.6);
   }
 }
@@ -181,15 +184,15 @@ svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none;
 .l.cite { background: var(--gold-bg); box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--gold) 30%, transparent); }
 
 /* Syntax: colour by role in the decision, not by token class. */
-.t-kw   { color: var(--jade); font-weight: 600; }          /* declares something */
-.t-rel  { color: var(--mute); }                              /* relates things: depends_on, inherits, when */
+.t-kw   { color: var(--code-kw); font-weight: 600; }          /* declares something */
+.t-rel  { color: var(--code-rel); }                              /* relates things: depends_on, inherits, when */
 .t-perm { color: var(--ink); }                               /* what is asked */
-.t-ref  { color: var(--gold-ink); }                          /* who and where: user:ana, org:acme */
+.t-ref  { color: var(--code-ref); }                          /* who and where: user:ana, org:acme */
 .t-id   { color: var(--ink); font-weight: 700; }             /* grant ids */
-.t-num  { color: var(--gold-ink); }
-.t-str  { color: var(--mute); font-style: italic; }
+.t-num  { color: var(--code-num); }
+.t-str  { color: var(--code-str); font-style: italic; }
 .t-op   { color: var(--mute); }
-.t-com  { color: var(--comment); font-style: italic; }
+.t-com  { color: var(--code-com); font-style: italic; }
 .t-allow { color: var(--allow); background: var(--allow-bg); font-weight: 700; padding: 0 5px; margin: 0 -1px; border-radius: 3px; }
 .t-deny  { color: var(--deny); background: var(--deny-bg); font-weight: 700; padding: 0 5px; margin: 0 -1px; border-radius: 3px; }
 .t-err {
