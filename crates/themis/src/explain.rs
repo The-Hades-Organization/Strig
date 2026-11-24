@@ -204,7 +204,7 @@ pub fn trace_condition(condition: &Condition, ctx: &EvalContext<'_>, registry: &
     trace_condition_at(condition, ctx, registry, None)
 }
 
-/// [`trace_condition`] at the decision instant `now`, in seconds since the Unix epoch.
+/// [`trace_condition`] at the decision instant `now`, in milliseconds since the Unix epoch.
 pub fn trace_condition_at(
     condition: &Condition,
     ctx: &EvalContext<'_>,
