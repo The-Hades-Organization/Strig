@@ -19,7 +19,7 @@ default = ["gui"]
 gui = ["dep:gpui", "dep:gpui_platform", "dep:gpui-component"]
 
 [dependencies]
-themis.workspace = true
+themis = { workspace = true, features = ["dsl-fs"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
