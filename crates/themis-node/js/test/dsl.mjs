@@ -144,6 +144,31 @@ for (const backend of ['native', 'wasm']) {
     }
   });
 
+  await test(`${backend}: format é canônico, idempotente e guarda os comentários`, () => {
+    for (const scenario of SCENARIOS) {
+      for (const language of LANGUAGES) {
+        const text = source(scenario, language);
+        const once = themis.format(text);
+        assert.equal(themis.format(once), once, `${scenario} ${language}`);
+        assert.equal(themis.isFormatted(once), true, `${scenario} ${language}`);
+        assert.deepEqual(themis.compile(once).notes?.map((n) => n.text), themis.compile(text).notes?.map((n) => n.text));
+      }
+    }
+    const messy = 'language blocks\n\n\n\ntarget_kinds = [org]   // kinds\n\npermission org.read {\n    targets = [org]\n}\n';
+    const canonical = themis.format(messy);
+    assert.equal(canonical, 'language blocks\n\ntarget_kinds = [org]  // kinds\n\npermission org.read {\n  targets = [org]\n}\n');
+    assert.equal(themis.isFormatted(messy), false);
+    assert.equal(themis.isFormatted(canonical), true);
+  });
+
+  await test(`${backend}: format de fonte inválida diz a posição`, () => {
+    const error = failure(() => themis.format(READ, { file: 'x.themis' }));
+    assert.equal(error.code, 'DSL_VALIDATE');
+    assert.equal(error.diagnostics[0].file, 'x.themis');
+    assert.equal(failure(() => themis.isFormatted('nada')).code, 'DSL_PARSE');
+    assert.equal(failure(() => themis.format(1)).code, 'INVALID_ARGUMENT');
+  });
+
   await test(`${backend}: argumento errado é INVALID_ARGUMENT`, () => {
     assert.equal(failure(() => themis.compile(1)).code, 'INVALID_ARGUMENT');
     assert.equal(failure(() => themis.convert(READ, 'yaml')).code, 'INVALID_ARGUMENT');
