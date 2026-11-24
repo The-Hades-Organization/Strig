@@ -11,6 +11,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - `themis-node`: the `Condition` type in `index.d.ts`, in place of `unknown`.
 - Formatter for the policy language. `themis::dsl::format` and `is_formatted` (`dsl` feature) rewrite a source in the canonical layout of its syntax, comments kept and idempotent; `themis-inspect fmt [--check] <file|dir>` formats `.themis` files, and `--check` lists the ones that would change and exits with 1; `themis-node` has `format` and `isFormatted`.
 - Playground (`playground/`): a page that runs the engine in the browser through the WebAssembly binding. It edits a policy in the three syntaxes, shows the problems with position and hint, answers who can do what, and shows the canonical JSON. `sh playground/build.sh` builds it, and CI checks that the build works.
+- Policy language: the validator suggests the closest name when one is a slip away. `unknown permission`, `role X is not declared`, `inherits ... which is not declared` and the catalog's unknown parent, prerequisite and target kind now carry `did you mean `x`?` in the hint, joined to the existing hint where there was one. Candidates are compared in alphabetical order, so a tie gives the same answer every time, and a name with no close candidate gets no suggestion. The message, the order of the errors and the JSON do not change.
 
 ### Breaking
 
