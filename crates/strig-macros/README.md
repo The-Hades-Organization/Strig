@@ -4,8 +4,8 @@ Compile-time macros for the Strig policy language: a policy that does not valida
 
 ```toml
 [dependencies]
-strig = { version = "0.5", features = ["dsl"] }
-strig-macros = "0.5"
+strig = { version = "0.6", features = ["dsl"] }
+strig-macros = "0.6"
 ```
 
 ```rust
