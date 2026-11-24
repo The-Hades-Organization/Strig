@@ -26,5 +26,5 @@ catalog
   project.view on project label "View project"
   // Reading a document follows from viewing its project.
   document.view on project, folder, document implied by project.view
-  document.edit on project, folder, document needs document.view
+  document.edit on project, folder, document depends_on document.view
     // never alone

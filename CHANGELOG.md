@@ -12,6 +12,10 @@ All notable changes to this project are documented here. The format follows [Kee
 - Formatter for the policy language. `themis::dsl::format` and `is_formatted` (`dsl` feature) rewrite a source in the canonical layout of its syntax, comments kept and idempotent; `themis-inspect fmt [--check] <file|dir>` formats `.themis` files, and `--check` lists the ones that would change and exits with 1; `themis-node` has `format` and `isFormatted`.
 - Playground (`playground/`): a page that runs the engine in the browser through the WebAssembly binding. It edits a policy in the three syntaxes, shows the problems with position and hint, answers who can do what, and shows the canonical JSON. `sh playground/build.sh` builds it, and CI checks that the build works.
 
+### Breaking
+
+- Policy language: the Rules and Actors syntaxes write `depends_on <ids>` on a `permission` line where they wrote `needs <ids>`, so the three syntaxes use the same word as the JSON field. `needs` is now an error with the hint `write: depends_on <ids>`; replace it in existing `.themis` files, in the same position on the line. `DSL_SCHEMA` stays at 2, since the JSON does not change. Blocks was already `depends_on`.
+
 ### Changed
 
 - `DSL_SCHEMA` goes from 1 to 2: a reader of schema 1 does not know the new `op` values and fails on a policy that uses one. A policy without them is the same JSON as before. `themis-macros` reads the constant from `themis`, so there is no second number to keep in step.

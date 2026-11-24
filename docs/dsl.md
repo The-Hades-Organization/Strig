@@ -114,7 +114,7 @@ broad org
 permission project.view on project label "View project"
 // Reading a document follows from viewing its project.
 permission document.view on project, folder, document implied by project.view
-permission document.edit on project, folder, document needs document.view
+permission document.edit on project, folder, document depends_on document.view
   // never alone
 
 role editor inherits viewer
@@ -160,7 +160,7 @@ catalog
   project.view on project label "View project"
   // Reading a document follows from viewing its project.
   document.view on project, folder, document implied by project.view
-  document.edit on project, folder, document needs document.view
+  document.edit on project, folder, document depends_on document.view
     // never alone
 ```
 
@@ -423,7 +423,7 @@ One statement per line. A line indented deeper than the one above continues it.
 | `broad` | `broad org` |
 | `strategy` | `strategy <name>` |
 | `depth` | `depth <n>` |
-| `permission` | `permission <id> on <kinds> [implied by <ids>] [needs <ids>] [label "..."] [about "..."] [non-delegable] [management-only] [override-only] [meta k = "v"]` |
+| `permission` | `permission <id> on <kinds> [implied by <ids>] [depends_on <ids>] [label "..."] [about "..."] [non-delegable] [management-only] [override-only] [meta k = "v"]` |
 | `role` | `role <name> [inherits <names>]` |
 | `subject` | `subject team:ops` declares a subject; `user:ana has role <name> [in <scope>] [from <date>] [until <date>]`, `user:ana has principal <id>` and `user:ana has attr <key> = <value>` fill it in |
 | `relations` | `relations none` declares that the policy uses no relations |
