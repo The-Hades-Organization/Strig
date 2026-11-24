@@ -1,7 +1,7 @@
 // NestJS integration for Strig: the `@Can(permission, resolver?)` decorator and `StrigGuard`.
 import { createAuthorizer, requirePeer } from './web-core.js';
 
-// Loaded on first use, not at import, so `require('strig/nestjs')` works from a CommonJS Nest project.
+// Loaded on first use, not at import, so `require('@the-hades-organization/strig/nestjs')` works from a CommonJS Nest project.
 let nest;
 const peer = () => (nest ??= requirePeer('@nestjs/common', 'nestjs'));
 

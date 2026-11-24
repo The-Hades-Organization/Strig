@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-24
+
+### Changed
+
+- The npm package is `@the-hades-organization/strig`: npm refused the unscoped name `strig` as too similar to existing packages, so 0.6.0 never reached npm. Install with `npm install @the-hades-organization/strig` and import from `@the-hades-organization/strig` (subpaths `/client`, `/remote`, `/express`, `/fastify`, `/nestjs` as before). The crates keep their names.
+- `strig-server` 0.6.0 did not reach crates.io (rate limit on new crates); 0.6.1 publishes every crate, and the release workflow now skips crates already published when it is rerun.
+
 ## [0.6.0] - 2026-11-24
 
 ### Changed
@@ -118,7 +125,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - `themis-node`: JavaScript bindings (N-API for Node and Bun, WebAssembly for the browser), real-time client and server in JS.
 - `themis-inspect`: inspector with evaluation trace, grant simulation, access matrix and audit trail reading, as terminal commands and an optional gpui window.
 
-[Unreleased]: https://github.com/The-Hades-Organization/Strig/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/The-Hades-Organization/Strig/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/The-Hades-Organization/Strig/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.3.1...v0.4.0
