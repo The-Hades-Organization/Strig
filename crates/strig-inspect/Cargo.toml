@@ -1,0 +1,32 @@
+[package]
+name = "strig-inspect"
+description = "Inspector for Strig decisions: trace of each decision, grant simulation, access matrix and audit trail reading. Optional gpui window."
+keywords = ["authorization", "permissions", "gpui", "audit", "inspector"]
+categories = ["authentication", "development-tools", "gui"]
+readme = "../../README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+default = ["gui"]
+## Janela gpui. Sem ela sobram a biblioteca e os comandos de terminal.
+gui = ["dep:gpui", "dep:gpui_platform", "dep:gpui-component"]
+
+[dependencies]
+strig = { workspace = true, features = ["dsl-fs"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+gpui = { package = "gpui-pre", version = "=0.3.11", optional = true }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.11", default-features = false, features = ["wayland", "x11"], optional = true }
+gpui-component = { version = "=0.9.0", optional = true }
+
+[[bin]]
+name = "strig-inspect"
+path = "src/main.rs"

@@ -1,6 +1,6 @@
-# Themis playground
+# Strig playground
 
-A page where you write a policy, see its problems with line, column and hint, and ask who can do what. The engine is the real one, compiled to WebAssembly through the `themis-node` binding; nothing is simulated.
+A page where you write a policy, see its problems with line, column and hint, and ask who can do what. The engine is the real one, compiled to WebAssembly through the `strig-node` binding; nothing is simulated.
 
 ## Run it
 
@@ -13,7 +13,7 @@ Open `http://127.0.0.1:8080`. The page needs HTTP, not `file://`, to load the wa
 
 ## How it is built
 
-`build.sh` runs `crates/themis-node/scripts/build.sh wasm`, the same build the Node binding uses in CI, then copies the page and the browser entry of the binding into `playground/dist/`. It needs the `wasm32-unknown-unknown` target and `wasm-bindgen-cli` at the version the workspace pins. `playground/dist/` is generated and not committed.
+`build.sh` runs `crates/strig-node/scripts/build.sh wasm`, the same build the Node binding uses in CI, then copies the page and the browser entry of the binding into `playground/dist/`. It needs the `wasm32-unknown-unknown` target and `wasm-bindgen-cli` at the version the workspace pins. `playground/dist/` is generated and not committed.
 
 ## Files
 

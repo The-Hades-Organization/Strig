@@ -11,7 +11,7 @@ body:
     id: repro
     attributes:
       label: Reproduction
-      description: The smallest spec, grants and request that show the problem. A `themis-inspect` scenario is ideal.
+      description: The smallest spec, grants and request that show the problem. A `strig-inspect` scenario is ideal.
       render: json
     validations:
       required: true
@@ -19,7 +19,7 @@ body:
     id: got
     attributes:
       label: What happened
-      description: The decision or output you got (the `themis-inspect explain` output helps).
+      description: The decision or output you got (the `strig-inspect explain` output helps).
     validations:
       required: true
   - type: textarea

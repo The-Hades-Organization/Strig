@@ -1,4 +1,4 @@
-// The playground page. The source is compiled by the Themis engine (WebAssembly) on every edit,
+// The playground page. The source is compiled by the Strig engine (WebAssembly) on every edit,
 // and the questions of a case are put to that same engine: nothing on the page decides anything.
 import { load } from './engine/browser.js';
 import { CASES } from './cases.js';
@@ -14,7 +14,7 @@ const state = { sc: 0, syn: 'rules', tab: 'evaluate', ask: 0, cite: null, texts:
 const $ = (id) => document.getElementById(id);
 const el = { cases: $('cases'), seg: $('seg'), thumb: $('thumb'), status: $('status'), src: $('src'), hl: $('hl'), gutter: $('gutter-in'), gutterBox: $('gutter'), problems: $('problems'), tabs: $('tabs'), rule: $('rule'), theme: $('theme') };
 
-let themis = null;
+let strig = null;
 function current() { return CASES[state.sc]; }
 function textOf() {
   const k = state.sc + ':' + state.syn;
@@ -55,7 +55,7 @@ function problemButton(p) {
   if (p.line !== null) {
     const at = document.createElement('span');
     at.className = 'at';
-    at.textContent = `policy.themis:${p.line}:${p.column}`;
+    at.textContent = `policy.strig:${p.line}:${p.column}`;
     b.appendChild(at);
     b.addEventListener('click', () => jump(p));
   } else {
@@ -70,7 +70,7 @@ function problemButton(p) {
   if (p.related) {
     const also = document.createElement('span');
     also.className = 'hint';
-    also.textContent = `also at policy.themis:${p.related.line}:${p.related.column}`;
+    also.textContent = `also at policy.strig:${p.related.line}:${p.related.column}`;
     b.appendChild(also);
   }
   return b;
@@ -79,7 +79,7 @@ function problemButton(p) {
 /* ───────── Render: editor ───────── */
 function renderEditor() {
   const text = el.src.value;
-  const compiled = compileSource(themis, text);
+  const compiled = compileSource(strig, text);
   state.compiled = compiled;
   const problems = compiled.ok ? [] : compiled.problems;
   const lines = text.split('\n');
@@ -199,7 +199,7 @@ function renderEvaluate() {
   kids.push(list);
 
   const bad = hasProblems();
-  const ruling = bad ? null : rule(themis, state.compiled, c.asks[state.ask] ?? c.asks[0], Date.now());
+  const ruling = bad ? null : rule(strig, state.compiled, c.asks[state.ask] ?? c.asks[0], Date.now());
   const v = document.createElement('div');
   v.className = 'verdict';
   v.setAttribute('role', 'group');
@@ -308,7 +308,7 @@ function renderAbout() {
     p('Colour follows the role a word plays in a decision, not its token class.', 'fine'),
     legend,
     Object.assign(h('What is real here'), { className: 'gap-top' }),
-    p('All of it. The page compiles your source with the Themis engine, built to WebAssembly, and puts the questions of the case to the same engine. The problems, the rulings and the JSON are what it answers; the page decides nothing. Dates are UTC.', 'fine')
+    p('All of it. The page compiles your source with the Strig engine, built to WebAssembly, and puts the questions of the case to the same engine. The problems, the rulings and the JSON are what it answers; the page decides nothing. Dates are UTC.', 'fine')
   );
 }
 
@@ -357,7 +357,7 @@ function switchSyntax(next) {
   const text = el.src.value;
   state.texts[`${state.sc}:${from}`] = text;
   const edited = text !== current().text[from];
-  const converted = edited ? convertSource(themis, text, next) : null;
+  const converted = edited ? convertSource(strig, text, next) : null;
   state.notice = edited && converted === null
     ? `The source has problems, so it could not be converted to ${next}. This is the last ${next} text.`
     : null;
@@ -425,7 +425,7 @@ async function start() {
   setTab(TABS.includes(q.get('tab')) ? q.get('tab') : 'evaluate');
   placeThumb();
   try {
-    themis = await load();
+    strig = await load();
   } catch (error) {
     failed(error);
     return;
