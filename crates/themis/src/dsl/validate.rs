@@ -5,6 +5,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::dsl::error::{Diagnostic, Location, MAX_DIAGNOSTICS, capped};
+use crate::dsl::grammar::closest;
 use crate::dsl::policy::{Origins, Policy, ids};
 use crate::{
     Catalog, CatalogError, Condition, InvariantSpec, Operand, OverrideRule, Rewrite, RoleAssignment, SubjectMatcher,
@@ -61,14 +62,30 @@ fn catalog(policy: &Policy, report: &mut Report<'_>) -> Option<Catalog> {
         Ok(catalog) => Some(catalog),
         Err(errors) => {
             for error in errors.0 {
-                catalog_error(error, report);
+                catalog_error(error, policy, report);
             }
             None
         }
     }
 }
 
-fn catalog_error(error: CatalogError, report: &mut Report<'_>) {
+/// "did you mean `x`?" when `name` is a slip away from one of `names`, followed by `rest`.
+/// Nothing is listed when no name is close, since the set can be large.
+fn near<'a>(name: &str, names: impl IntoIterator<Item = &'a str>, rest: Option<String>) -> Option<String> {
+    let names: BTreeSet<&str> = names.into_iter().collect();
+    let names: Vec<&str> = names.into_iter().collect();
+    match (closest(name, &names), rest) {
+        (Some(c), Some(rest)) => Some(format!("did you mean `{c}`? or {rest}")),
+        (Some(c), None) => Some(format!("did you mean `{c}`?")),
+        (None, rest) => rest,
+    }
+}
+
+fn permission_keys(policy: &Policy) -> impl Iterator<Item = &str> {
+    policy.catalog.permissions.iter().map(|p| p.key.as_str())
+}
+
+fn catalog_error(error: CatalogError, policy: &Policy, report: &mut Report<'_>) {
     let hint = |text: &str| Some(text.to_string());
     match error {
         CatalogError::InvalidKey(key) => report.error(
@@ -83,12 +100,12 @@ fn catalog_error(error: CatalogError, report: &mut Report<'_>) {
         CatalogError::UnknownParent { key, parent } => report.error(
             &format!("{}/implied_by/{parent}", ids::permission(&key)),
             format!("`{key}` is implied by `{parent}`, which is not in the catalog"),
-            hint("declare it or fix the name"),
+            near(&parent, permission_keys(policy), hint("declare it or fix the name")),
         ),
         CatalogError::UnknownPrerequisite { key, prerequisite } => report.error(
             &format!("{}/depends_on/{prerequisite}", ids::permission(&key)),
             format!("`{key}` depends on `{prerequisite}`, which is not in the catalog"),
-            hint("declare it or fix the name"),
+            near(&prerequisite, permission_keys(policy), hint("declare it or fix the name")),
         ),
         CatalogError::UnreachablePrerequisite {
             key,
@@ -112,7 +129,16 @@ fn catalog_error(error: CatalogError, report: &mut Report<'_>) {
         CatalogError::UnknownTarget { key, target } => report.error(
             &format!("{}/targets/{target}", ids::permission(&key)),
             format!("`{key}` targets `{target}`, which is not in target_kinds or broad_targets"),
-            hint("add it to target_kinds"),
+            near(
+                &target,
+                policy
+                    .catalog
+                    .target_kinds
+                    .iter()
+                    .chain(&policy.catalog.broad_targets)
+                    .map(String::as_str),
+                hint("add it to target_kinds"),
+            ),
         ),
         CatalogError::NoTargets(key) => report.error(
             &ids::permission(&key),
@@ -148,7 +174,11 @@ fn roles(policy: &Policy, report: &mut Report<'_>) {
                 report.error(
                     &format!("{id}/inherits/{parent}"),
                     format!("role `{}` inherits `{parent}`, which is not declared", role.role),
-                    Some(format!("declare it with: role {parent} {{ }}")),
+                    near(
+                        parent,
+                        policy.roles.iter().map(|r| r.role.as_str()),
+                        Some(format!("declare it with: role {parent} {{ }}")),
+                    ),
                 );
             }
         }
@@ -304,7 +334,11 @@ fn grants(policy: &Policy, catalog: Option<&Catalog>, report: &mut Report<'_>) {
             report.error(
                 &ids::field(&id, "permission"),
                 format!("unknown permission `{}`", grant.permission),
-                Some("declare it as a permission block".into()),
+                near(
+                    &grant.permission,
+                    permission_keys(policy),
+                    Some("declare it as a permission block".into()),
+                ),
             );
             continue;
         };
@@ -477,7 +511,11 @@ fn assignments(policy: &Policy, report: &mut Report<'_>) {
                 report.error(
                     &id,
                     format!("role `{role}` is not declared"),
-                    Some(format!("declare it with: role {role} {{ }}")),
+                    near(
+                        role,
+                        policy.roles.iter().map(|r| r.role.as_str()),
+                        Some(format!("declare it with: role {role} {{ }}")),
+                    ),
                 );
             }
             if window_inverted(*valid_from, *valid_until) {
@@ -517,7 +555,11 @@ fn overrides(policy: &Policy, catalog: Option<&Catalog>, report: &mut Report<'_>
         }
         for key in named {
             if !catalog.contains(key) {
-                report.error(&id, format!("unknown permission `{key}`"), None);
+                report.error(
+                    &id,
+                    format!("unknown permission `{key}`"),
+                    near(key, permission_keys(policy), None),
+                );
             }
         }
     }
@@ -544,7 +586,11 @@ fn invariants(policy: &Policy, catalog: Option<&Catalog>, report: &mut Report<'_
         if let Some(catalog) = catalog {
             for key in permissions {
                 if !catalog.contains(key) {
-                    report.error(&id, format!("unknown permission `{key}`"), None);
+                    report.error(
+                        &id,
+                        format!("unknown permission `{key}`"),
+                        near(key, permission_keys(policy), None),
+                    );
                 }
             }
         }
@@ -559,7 +605,11 @@ fn invariants(policy: &Policy, catalog: Option<&Catalog>, report: &mut Report<'_
             InvariantSpec::ManagementOnly { roles } => {
                 for role in roles {
                     if !declared.contains(role.as_str()) {
-                        report.error(&id, format!("role `{role}` is not declared"), None);
+                        report.error(
+                            &id,
+                            format!("role `{role}` is not declared"),
+                            near(role, policy.roles.iter().map(|r| r.role.as_str()), None),
+                        );
                     }
                 }
             }

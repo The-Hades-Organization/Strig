@@ -284,15 +284,22 @@ pub(crate) fn describe(tok: &Tok) -> String {
     }
 }
 
-/// "did you mean ...?" when a candidate is close, otherwise the list of valid names.
-pub(crate) fn suggest(name: &str, candidates: &[&str]) -> String {
-    let best = candidates
+/// The candidate nearest to `name`, when it is a slip away from it. On a tie in distance the
+/// first in alphabetical order wins, so the answer does not depend on the order of `candidates`.
+pub(crate) fn closest<'a>(name: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    candidates
         .iter()
         .map(|c| (edit_distance(name, c), *c))
-        .min_by_key(|(d, _)| *d);
-    match best {
-        Some((d, c)) if d <= 2.max(name.chars().count() / 3) => format!("did you mean `{c}`?"),
-        _ => format!("expected one of: {}", candidates.join(", ")),
+        .min()
+        .filter(|(d, _)| *d <= 2.max(name.chars().count() / 3))
+        .map(|(_, c)| c)
+}
+
+/// "did you mean ...?" when a candidate is close, otherwise the list of valid names.
+pub(crate) fn suggest(name: &str, candidates: &[&str]) -> String {
+    match closest(name, candidates) {
+        Some(c) => format!("did you mean `{c}`?"),
+        None => format!("expected one of: {}", candidates.join(", ")),
     }
 }
 
