@@ -28,8 +28,8 @@ use crate::trail::{ChainStatus, Replay, Trail};
 
 const SANS: &str = "Noto Sans";
 const MONO: &str = "JetBrains Mono";
-/// Serifa romana de capitais clássicas (OFL), só para o veredito e os rótulos.
-const SERIF: &str = "Cinzel";
+/// Cinzel Medium (OFL): tipografia do logotipo da marca, só para o nome do produto no cabeçalho.
+const WORDMARK: &str = "Cinzel";
 const KEY_CONTEXT: &str = "StrigInspect";
 
 actions!(
@@ -100,7 +100,7 @@ fn load_fonts(cx: &mut App) {
         Cow::Borrowed(include_bytes!("../assets/fonts/NotoSans-Medium.ttf").as_slice()),
         Cow::Borrowed(include_bytes!("../assets/fonts/NotoSans-SemiBold.ttf").as_slice()),
         Cow::Borrowed(include_bytes!("../assets/fonts/NotoSans-Italic.ttf").as_slice()),
-        Cow::Borrowed(include_bytes!("../assets/fonts/Cinzel-Variable.ttf").as_slice()),
+        Cow::Borrowed(include_bytes!("../assets/fonts/Cinzel-Medium.ttf").as_slice()),
         Cow::Borrowed(include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf").as_slice()),
         Cow::Borrowed(include_bytes!("../assets/fonts/JetBrainsMono-SemiBold.ttf").as_slice()),
     ];
@@ -173,11 +173,9 @@ impl AssetSource for Assets {
             "icons/link.svg" => include_bytes!("../assets/icons/link.svg"),
             "icons/list.svg" => include_bytes!("../assets/icons/list.svg"),
             "icons/refresh.svg" => include_bytes!("../assets/icons/refresh.svg"),
-            "icons/seal-band.svg" => include_bytes!("../assets/icons/seal-band.svg"),
             "icons/seal-allow.svg" => include_bytes!("../assets/icons/seal-allow.svg"),
-            "icons/seal-cross.svg" => include_bytes!("../assets/icons/seal-cross.svg"),
             "icons/seal-deny.svg" => include_bytes!("../assets/icons/seal-deny.svg"),
-            "icons/seal-knot.svg" => include_bytes!("../assets/icons/seal-knot.svg"),
+            "icons/strig-mark.svg" => include_bytes!("../assets/icons/strig-mark.svg"),
             "icons/scale.svg" => include_bytes!("../assets/icons/scale.svg"),
             "icons/slash.svg" => include_bytes!("../assets/icons/slash.svg"),
             "icons/undo.svg" => include_bytes!("../assets/icons/undo.svg"),
@@ -192,10 +190,11 @@ impl AssetSource for Assets {
     }
 }
 
-/// Paleta da identidade do playground (`playground/IDENTITY.md`), nos dois temas.
+/// Paleta da marca Strig (`brand/` do site de docs), nos dois temas.
 ///
-/// Jade para estrutura, seleção e allow; argila para deny; `err` para defeito de texto;
-/// `gold_ink` para quem, onde e números; `gold` só como ornamento e foco, nunca como texto.
+/// Vinho da marca (`brand`) para o símbolo e para o veredito `deny`; verde para `allow`; rosa-cinza de apoio (`accent`) para
+/// estrutura, seleção e foco; `caution_ink` para quem, onde e números; `ornament` só como ornamento,
+/// nunca como texto; violeta (`err`) para defeito de texto, que não divide matiz com nenhum efeito.
 #[derive(Clone, Copy)]
 struct Tokens {
     bg: Hsla,
@@ -206,17 +205,21 @@ struct Tokens {
     ink: Hsla,
     mute: Hsla,
     comment: Hsla,
-    jade: Hsla,
-    jade_bg: Hsla,
-    jade_soft: Hsla,
-    jade_line: Hsla,
-    gold: Hsla,
-    gold_ink: Hsla,
-    gold_bg: Hsla,
-    gold_line: Hsla,
+    accent: Hsla,
+    accent_bg: Hsla,
+    accent_soft: Hsla,
+    accent_line: Hsla,
+    ornament: Hsla,
+    caution_ink: Hsla,
+    caution_bg: Hsla,
+    caution_line: Hsla,
+    brand: Hsla,
     deny: Hsla,
     deny_bg: Hsla,
     deny_line: Hsla,
+    allow: Hsla,
+    allow_bg: Hsla,
+    allow_line: Hsla,
     err: Hsla,
     err_bg: Hsla,
     err_line: Hsla,
@@ -229,15 +232,15 @@ const R1: f32 = 4.0;
 const R2: f32 = 8.0;
 const R3: f32 = 14.0;
 
-/// Um tema: `[bg, panel, sunk, line, line-strong, ink, mute, comment, jade, jade-bg, gold, gold-ink,
-/// gold-bg, deny, deny-bg, err]`, na ordem da tabela da identidade.
-const LIGHT: [u32; 16] = [
-    0xF1F0EB, 0xF8F7F3, 0xECEAE2, 0xDAD6CA, 0xBDB8A8, 0x16201D, 0x4E6B63, 0x496359, 0x1F5C51, 0xDAE8E1, 0xB07D1E,
-    0x7A5410, 0xF0E3C2, 0x8E3226, 0xF3DED6, 0xB0301F,
+/// Um tema: `[bg, panel, sunk, line, line-strong, ink, mute, comment, accent, accent-bg, ornament,
+/// caution-ink, caution-bg, deny, deny-bg, err, allow, allow-bg]`, na ordem da tabela de `DESIGN.md`.
+const LIGHT: [u32; 18] = [
+    0xFFFFFF, 0xF8F6F6, 0xF1EEEE, 0xE4DEDE, 0xCFC5C5, 0x111111, 0x5C4A4A, 0x665252, 0x7D4A4A, 0xF3E6E6, 0x996C6C,
+    0x6F5200, 0xF5EBCB, 0xB01030, 0xFBE4E8, 0x7A35B5, 0x1B6B3A, 0xDDF1E4,
 ];
-const DARK: [u32; 16] = [
-    0x16201D, 0x1B2824, 0x131B19, 0x26352F, 0x3A5047, 0xE9E2D0, 0x9FC0B2, 0x8DAA9F, 0x7CC3AE, 0x1F3A33, 0xE3B04B,
-    0xE3B04B, 0x3A3118, 0xF0A08D, 0x3C2420, 0xF4906F,
+const DARK: [u32; 18] = [
+    0x0A0A0A, 0x141212, 0x070707, 0x2A2424, 0x3F3535, 0xF2F2F2, 0xBFAAAA, 0xB09A9A, 0xE0A8A8, 0x2E1C1C, 0xB88282,
+    0xE3B04B, 0x2E2410, 0xFF5E70, 0x3A141A, 0xC9A0F0, 0x5FD08A, 0x12301E,
 ];
 
 fn hex(color: u32) -> Hsla {
@@ -265,14 +268,16 @@ fn tokens(dark: bool) -> Tokens {
         ink,
         mute,
         comment,
-        jade,
-        jade_bg,
-        gold,
-        gold_ink,
-        gold_bg,
+        accent,
+        accent_bg,
+        ornament,
+        caution_ink,
+        caution_bg,
         deny,
         deny_bg,
         err,
+        allow,
+        allow_bg,
     ] = *c;
     Tokens {
         bg: hex(bg),
@@ -283,17 +288,21 @@ fn tokens(dark: bool) -> Tokens {
         ink: hex(ink),
         mute: hex(mute),
         comment: hex(comment),
-        jade: hex(jade),
-        jade_bg: hex(jade_bg),
-        jade_soft: mix(jade_bg, panel, 0.45),
-        jade_line: mix(jade, jade_bg, 0.45),
-        gold: hex(gold),
-        gold_ink: hex(gold_ink),
-        gold_bg: hex(gold_bg),
-        gold_line: mix(gold, gold_bg, 0.7),
+        accent: hex(accent),
+        accent_bg: hex(accent_bg),
+        accent_soft: mix(accent_bg, panel, 0.45),
+        accent_line: mix(accent, accent_bg, 0.45),
+        ornament: hex(ornament),
+        caution_ink: hex(caution_ink),
+        caution_bg: hex(caution_bg),
+        caution_line: mix(caution_ink, caution_bg, 0.45),
+        brand: hex(deny),
         deny: hex(deny),
         deny_bg: hex(deny_bg),
         deny_line: mix(deny, deny_bg, 0.45),
+        allow: hex(allow),
+        allow_bg: hex(allow_bg),
+        allow_line: mix(allow, allow_bg, 0.45),
         err: hex(err),
         err_bg: mix(err, panel, 0.1),
         err_line: mix(err, panel, 0.5),
@@ -303,17 +312,17 @@ fn tokens(dark: bool) -> Tokens {
 impl Tokens {
     fn effect(&self, effect: Effect) -> Tone {
         match effect {
-            Effect::Allow => (self.jade, self.jade_bg, self.jade_line),
+            Effect::Allow => (self.allow, self.allow_bg, self.allow_line),
             Effect::Deny => (self.deny, self.deny_bg, self.deny_line),
         }
     }
 
     fn info(&self) -> Tone {
-        (self.jade, self.jade_soft, self.jade_line)
+        (self.accent, self.accent_soft, self.accent_line)
     }
 
     fn caution(&self) -> Tone {
-        (self.gold_ink, self.gold_bg, self.gold_line)
+        (self.caution_ink, self.caution_bg, self.caution_line)
     }
 
     /// Defeito de texto ou de leitura: nunca divide forma nem cor com o deny.
@@ -379,8 +388,8 @@ fn caps(s: &str) -> SharedString {
     out.into()
 }
 
-/// JSON com as cores de realce do playground: chaves em jade, textos em `mute`, números e booleanos
-/// em `gold_ink`, e `allow`/`deny` na cor do efeito.
+/// JSON com as cores de realce do playground: chaves em `accent`, textos em `mute`, números e booleanos
+/// em `caution_ink`, e `allow`/`deny` na cor do efeito.
 fn json_text(t: Tokens, json: String) -> StyledText {
     let paint = |color: Hsla, bold: bool| HighlightStyle {
         color: Some(color),
@@ -402,8 +411,8 @@ fn json_text(t: Tokens, json: String) -> StyledText {
                 let word = &json[start..at];
                 let is_key = json[at..].trim_start_matches(' ').starts_with(':');
                 let style = match word {
-                    _ if is_key => paint(t.jade, true),
-                    "\"allow\"" => paint(t.jade, true),
+                    _ if is_key => paint(t.accent, true),
+                    "\"allow\"" => paint(t.allow, true),
                     "\"deny\"" => paint(t.deny, true),
                     _ => paint(t.mute, false),
                 };
@@ -415,7 +424,7 @@ fn json_text(t: Tokens, json: String) -> StyledText {
                 {
                     at += 1;
                 }
-                marks.push((start..at, paint(t.gold_ink, false)));
+                marks.push((start..at, paint(t.caution_ink, false)));
             }
             _ => at += 1,
         }
@@ -483,49 +492,25 @@ fn label(icon_name: Option<&str>, caption: impl Into<SharedString>, tone: Tone) 
         .child(caption.into())
 }
 
-/// O selo da decisão: a faixa a −9° aberta no allow, fechada e cruzada no deny, com o nó dourado.
-/// A palavra do veredito vai ao lado, então a forma nunca depende só da cor.
+/// O selo da decisão: o disco inteiro no allow, o disco mordido pela marca (as presas) no deny, e o
+/// ícone do efeito no centro. A palavra do veredito vai ao lado, então a forma nunca depende só da cor.
 fn seal(t: Tokens, effect: Effect, size: f32) -> Div {
-    let (fg, _, _) = t.effect(effect);
-    let fg_bg = t.effect(effect).1;
-    let layer = |name: &str, color: Hsla| icon(name, size, color).absolute().top_0().left_0();
+    let (fg, fg_bg, _) = t.effect(effect);
+    let (disc, glyph) = match effect {
+        Effect::Allow => ("seal-allow", "check"),
+        Effect::Deny => ("seal-deny", "x"),
+    };
     div()
         .relative()
         .flex_none()
         .size(px(size))
-        .child(layer(
-            match effect {
-                Effect::Allow => "seal-allow",
-                Effect::Deny => "seal-deny",
-            },
-            fg,
-        ))
-        .child(layer("seal-knot", t.gold))
-        .when(effect == Effect::Deny, |this| {
-            this.child(
-                icon("seal-cross", size * 0.34, fg_bg)
-                    .absolute()
-                    .top(px(size * 0.30))
-                    .left(px(size * 0.30)),
-            )
-        })
-}
-
-/// A faixa a −9° atrás do veredito, no tom tingido do efeito. É um retângulo girado: o contêiner
-/// (relativo, com overflow escondido) recorta o que sai.
-fn band(t: Tokens, effect: Effect) -> Svg {
-    let tint = t.effect(effect).1;
-    svg()
-        .path("icons/seal-band.svg")
-        .absolute()
-        .left(gpui::relative(0.5))
-        .ml(px(-1500.0))
-        .top(gpui::relative(0.5))
-        .mt(px(-14.0))
-        .w(px(3000.0))
-        .h(px(28.0))
-        .text_color(tint)
-        .with_transformation(gpui::Transformation::rotate(gpui::radians(-9.0_f32.to_radians())))
+        .child(icon(disc, size, fg).absolute().top_0().left_0())
+        .child(
+            icon(glyph, size * 0.4, fg_bg)
+                .absolute()
+                .top(px(size * if effect == Effect::Deny { 0.50 } else { 0.30 }))
+                .left(px(size * 0.30)),
+        )
 }
 
 fn effect_label(t: Tokens, effect: Effect) -> Div {
@@ -567,7 +552,7 @@ fn box_title(t: Tokens, title: &str, sub: Option<&str>) -> Div {
         .gap(px(8.0))
         .child(
             div()
-                .font_family(SERIF)
+                .font_family(SANS)
                 .text_size(px(12.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(t.ink)
@@ -1000,7 +985,7 @@ impl InspectView {
     /// Anel de foco na linha ativa da lista que recebe as setas.
     fn ring(&self, t: Tokens, on: bool) -> Hsla {
         if self.ring && on {
-            t.jade
+            t.accent
         } else {
             gpui::transparent_black()
         }
@@ -1026,8 +1011,8 @@ impl InspectView {
                         .px(px(8.0))
                         .py(px(4.0))
                         .rounded(px(R2))
-                        .text_color(if on { t.jade } else { t.mute })
-                        .font_family(SERIF)
+                        .text_color(if on { t.accent } else { t.mute })
+                        .font_family(SANS)
                         .text_size(px(12.0))
                         .font_weight(FontWeight::SEMIBOLD)
                         .hover(move |s| s.bg(t.sunk))
@@ -1042,7 +1027,7 @@ impl InspectView {
                             .bottom(px(-1.0))
                             .h(px(2.0))
                             .rounded(px(2.0))
-                            .bg(t.gold),
+                            .bg(t.ornament),
                     )
                 })
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.show(tab, cx)))
@@ -1072,23 +1057,12 @@ impl InspectView {
                     .flex_none()
                     .items_center()
                     .gap(px(8.0))
+                    .child(icon("strig-mark", 28.0, t.brand))
                     .child(
                         div()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .size(px(28.0))
-                            .rounded(px(R2))
-                            .border_1()
-                            .border_color(t.line)
-                            .bg(t.panel)
-                            .child(icon("scale", 16.0, t.ink)),
-                    )
-                    .child(
-                        div()
-                            .font_family(SERIF)
+                            .font_family(WORDMARK)
                             .text_size(px(14.0))
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .font_weight(FontWeight::MEDIUM)
                             .text_color(t.ink)
                             .child(caps("Strig Inspect")),
                     ),
@@ -1163,13 +1137,15 @@ impl InspectView {
                     .cursor_pointer()
                     .text_color(t.ink)
                     .hover(move |s| s.bg(t.sunk))
-                    .when(on, |this| this.bg(t.jade_bg).font_weight(FontWeight::SEMIBOLD))
+                    .when(on, |this| this.bg(t.accent_bg).font_weight(FontWeight::SEMIBOLD))
                     .child(if field == Field::Subject {
                         div().child(text(name.clone()))
                     } else {
                         mono(name.clone())
                     })
-                    .when(on, |this| this.child(div().flex_1()).child(icon("check", 16.0, t.jade)))
+                    .when(on, |this| {
+                        this.child(div().flex_1()).child(icon("check", 16.0, t.accent))
+                    })
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.select(field, i);
                         cx.notify();
@@ -1327,14 +1303,14 @@ impl InspectView {
                     .border_1()
                     .cursor_pointer()
                     .border_color(if on && self.ring {
-                        t.jade
+                        t.accent
                     } else if on {
-                        t.jade_line
+                        t.accent_line
                     } else {
                         t.line
                     })
-                    .bg(if on { t.jade_soft } else { t.bg })
-                    .text_color(if on { t.jade } else { t.ink })
+                    .bg(if on { t.accent_soft } else { t.bg })
+                    .text_color(if on { t.accent } else { t.ink })
                     .hover(move |s| s.bg(t.sunk))
                     .child(mono(name.clone()))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -1405,7 +1381,7 @@ impl InspectView {
                     .border_color(self.ring(t, on))
                     .cursor_pointer()
                     .hover(move |s| s.bg(t.sunk))
-                    .when(on, |this| this.bg(t.jade_bg))
+                    .when(on, |this| this.bg(t.accent_bg))
                     .child(
                         div()
                             .flex()
@@ -1523,7 +1499,7 @@ fn sidebar_title(t: Tokens, title: &str, sub: Option<&str>, active: bool) -> Div
         .mb(px(4.0))
         .mx(px(8.0))
         .text_size(px(12.0))
-        .text_color(if active { t.jade } else { t.mute })
+        .text_color(if active { t.accent } else { t.mute })
         .child(div().font_weight(FontWeight::SEMIBOLD).child(text(title.to_string())))
         .when_some(sub, |this, sub| {
             this.child(div().text_color(t.mute).child(text(format!("· {sub}"))))
@@ -1541,7 +1517,9 @@ fn checkbox(t: Tokens, on: bool) -> Div {
         .rounded(px(R1))
         .border_1()
         .when(on, |this| {
-            this.bg(t.jade).border_color(t.jade).child(icon("check", 12.0, t.bg))
+            this.bg(t.accent)
+                .border_color(t.accent)
+                .child(icon("check", 12.0, t.bg))
         })
         .when(!on, |this| this.bg(t.bg).border_color(t.line))
 }
@@ -1554,10 +1532,10 @@ fn section_heading(t: Tokens, title: &str, sub: Option<&str>) -> Div {
         .mt(px(4.0))
         .child(
             div()
-                .font_family(SERIF)
+                .font_family(SANS)
                 .text_size(px(12.0))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(t.jade)
+                .text_color(t.accent)
                 .child(caps(title)),
         )
         .when_some(sub, |this, sub| {
@@ -1623,7 +1601,7 @@ fn explanation_panel(t: Tokens, e: &Explanation, sim: Option<Sim>) -> Div {
         .child(seal(t, effect, 48.0))
         .child(
             div()
-                .font_family(SERIF)
+                .font_family(SANS)
                 .text_size(px(26.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(state_fg)
@@ -1748,7 +1726,6 @@ fn explanation_panel(t: Tokens, e: &Explanation, sim: Option<Sim>) -> Div {
                 .bg(t.panel)
                 .border_b_1()
                 .border_color(t.line)
-                .child(band(t, effect))
                 .child(state)
                 .child(ask),
         )
@@ -1775,9 +1752,9 @@ fn explanation_panel(t: Tokens, e: &Explanation, sim: Option<Sim>) -> Div {
                     .pr(px(10.0))
                     .rounded_full()
                     .border_1()
-                    .border_color(if hit { t.jade } else { t.line })
-                    .bg(if hit { t.jade_soft } else { t.bg })
-                    .text_color(if hit { t.jade } else { t.ink })
+                    .border_color(if hit { t.accent } else { t.line })
+                    .bg(if hit { t.accent_soft } else { t.bg })
+                    .text_color(if hit { t.accent } else { t.ink })
                     .child(
                         div()
                             .flex()
@@ -1787,7 +1764,7 @@ fn explanation_panel(t: Tokens, e: &Explanation, sim: Option<Sim>) -> Div {
                             .h(px(20.0))
                             .px(px(6.0))
                             .rounded_full()
-                            .bg(if hit { t.jade } else { t.sunk })
+                            .bg(if hit { t.accent } else { t.sunk })
                             .text_color(if hit { t.bg } else { t.ink })
                             .text_size(px(12.0))
                             .font_weight(FontWeight::SEMIBOLD)
@@ -1890,7 +1867,11 @@ fn grant_identity(t: Tokens, grant: &Grant, rank: Option<usize>, hot: bool) -> D
         .child(text(format!("{} em", render::matcher(&grant.subject))))
         .child(mono(target_text(grant)))
         .when_some(rank, |this, rank| {
-            this.child(label(None, format!("degrau {rank}"), (t.jade, t.jade_bg, t.jade_line)))
+            this.child(label(
+                None,
+                format!("degrau {rank}"),
+                (t.accent, t.accent_bg, t.accent_line),
+            ))
         })
 }
 
@@ -1956,11 +1937,11 @@ fn timeline_item(t: Tokens, n: String, trace: &GrantTrace, outcome: Effect, deci
         )
     } else {
         match &trace.verdict {
-            Verdict::Candidate | Verdict::CandidateFailSafe { .. } => ("dot", t.jade, t.jade_bg),
+            Verdict::Candidate | Verdict::CandidateFailSafe { .. } => ("dot", t.accent, t.accent_bg),
             Verdict::ConditionFalse if explains => ("x", t.bg, t.deny),
             Verdict::ConditionFalse => ("x", t.mute, t.sunk),
             Verdict::ConditionUnresolved { .. } | Verdict::SubjectUnresolved { .. } | Verdict::OverrideOnly => {
-                ("alert", t.bg, t.gold_ink)
+                ("alert", t.bg, t.caution_ink)
             }
             Verdict::NotReached => ("dot", t.comment, t.sunk),
             _ => ("slash", t.mute, t.sunk),
@@ -1971,9 +1952,11 @@ fn timeline_item(t: Tokens, n: String, trace: &GrantTrace, outcome: Effect, deci
         label(Some("check"), "decisivo", t.effect(trace.grant.effect))
     } else {
         match &trace.verdict {
-            Verdict::Candidate | Verdict::CandidateFailSafe { .. } => {
-                label(None, render::verdict(&trace.verdict), (t.jade, t.jade_bg, t.jade_line))
-            }
+            Verdict::Candidate | Verdict::CandidateFailSafe { .. } => label(
+                None,
+                render::verdict(&trace.verdict),
+                (t.accent, t.accent_bg, t.accent_line),
+            ),
             Verdict::ConditionFalse => label(Some("x"), "condição falsa", (t.deny, t.bg, t.deny)),
             Verdict::ConditionUnresolved { .. } | Verdict::SubjectUnresolved { .. } | Verdict::OverrideOnly => {
                 label(Some("alert"), render::verdict(&trace.verdict), t.caution())
@@ -2045,9 +2028,9 @@ fn condition_box(t: Tokens, root: &ConditionTrace) -> Div {
 
 fn condition_rows(t: Tokens, node: &ConditionTrace, depth: usize, out: &mut Vec<Div>) {
     let (glyph, color) = match node.result {
-        TraceResult::True => ("check", t.jade),
+        TraceResult::True => ("check", t.allow),
         TraceResult::False => ("x", t.deny),
-        TraceResult::Error(_) => ("alert", t.gold_ink),
+        TraceResult::Error(_) => ("alert", t.caution_ink),
         TraceResult::Skipped => ("dot", t.comment),
     };
     let skipped = matches!(node.result, TraceResult::Skipped);
@@ -2130,16 +2113,20 @@ fn matrix_table(t: Tokens, matrix: &Matrix, resource: &str, cx: &mut Context<Ins
                             label(
                                 Some(glyph),
                                 caption,
-                                if changed { (fg, bg, t.gold_line) } else { (fg, bg, line) },
+                                if changed {
+                                    (fg, bg, t.caution_line)
+                                } else {
+                                    (fg, bg, line)
+                                },
                             )
-                            .hover(move |s| s.border_color(t.jade)),
+                            .hover(move |s| s.border_color(t.accent)),
                         )
                         .when(changed, |this| {
                             let was = if before == Effect::Allow { "sim" } else { "não" };
                             this.child(
                                 div()
                                     .text_size(px(12.0))
-                                    .text_color(t.gold_ink)
+                                    .text_color(t.caution_ink)
                                     .child(text(format!("antes: {was}"))),
                             )
                         })

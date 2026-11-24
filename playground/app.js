@@ -161,13 +161,11 @@ function jumpToGrant(id) {
 function sealSvg() {
   const NS = 'http://www.w3.org/2000/svg';
   const mk = (tag, attrs, parent) => { const n = document.createElementNS(NS, tag); Object.keys(attrs).forEach((k) => n.setAttribute(k, attrs[k])); if (parent) parent.appendChild(n); return n; };
-  const s = mk('svg', { class: 'seal', viewBox: '70 96 400 320', 'aria-hidden': 'true' });
-  mk('circle', { class: 'm-disc', cx: 236, cy: 256, r: 150 }, s);
-  const g = mk('g', { transform: 'rotate(-9 256 256)' }, s);
-  mk('rect', { class: 'm-gap', x: 70, y: 222, width: 340, height: 64 }, g);
-  const k = mk('g', { class: 'knot' }, g);
-  mk('circle', { fill: 'var(--gold)', cx: 400, cy: 254, r: 30 }, k);
-  mk('path', { fill: 'var(--gold)', d: 'M412 270 L456 360 L428 366 Z M396 278 L404 380 L376 372 Z' }, k);
+  const s = mk('svg', { class: 'seal', viewBox: '0 0 64 64', 'aria-hidden': 'true' });
+  const mask = mk('mask', { id: 'seal-cut', maskUnits: 'userSpaceOnUse', x: 0, y: -2, width: 64, height: 66 }, s);
+  mk('rect', { x: 0, y: -2, width: 64, height: 66, fill: '#fff' }, mask);
+  mk('path', { class: 'm-fangs', fill: '#000', d: 'M19.5 -1H28.5C28.5 15.5 27.3 26.72 25.5 32C23.7 26.72 19.5 15.5 19.5 -1Z M35.5 -1H44.5C44.5 15.5 40.3 26.72 38.5 32C36.7 26.72 35.5 15.5 35.5 -1Z' }, mask);
+  mk('circle', { class: 'm-disc', cx: 32, cy: 32, r: 29, mask: 'url(#seal-cut)' }, s);
   return s;
 }
 
