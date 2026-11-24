@@ -612,6 +612,8 @@ pub struct AccessFilter {
     known: bool,
     subject: Subject,
     env: Attributes,
+    /// The decision instant the listing was built for, which the time conditions read.
+    now: Option<u64>,
     conditions: ConditionRegistry,
     strategy: Arc<dyn Strategy>,
     /// The strategy as a crate strategy, when it really is one (not decided by its name).
@@ -948,7 +950,7 @@ impl AccessFilter {
                     resource,
                     env: &self.env,
                 };
-                condition.evaluate(&ctx, &self.conditions).ok()
+                condition.evaluate_at(&ctx, &self.conditions, self.now).ok()
             }
             FilterResidual::Override { .. }
             | FilterResidual::Strategy { .. }
@@ -1076,6 +1078,13 @@ fn reads_resource(condition: &Condition) -> bool {
         | Condition::Gt { left, right }
         | Condition::Ge { left, right } => operand(left) || operand(right),
         Condition::In { item, set } => operand(item) || operand(set),
+        Condition::StartsWith { left, right }
+        | Condition::EndsWith { left, right }
+        | Condition::Contains { left, right }
+        | Condition::AnyIn { left, right }
+        | Condition::AllIn { left, right } => operand(left) || operand(right),
+        Condition::IpIn { item, set } => operand(item) || operand(set),
+        Condition::TimeBetween { .. } | Condition::WeekdayIn { .. } => false,
         Condition::Exists { attr } => resource_attr(attr),
         Condition::All { of } | Condition::Any { of } => of.iter().any(reads_resource),
         Condition::Not { cond } => reads_resource(cond),
@@ -1211,6 +1220,7 @@ impl Engine {
             known: true,
             subject: subject.clone(),
             env: ctx.env.clone(),
+            now: ctx.now,
             conditions: self.conditions.clone(),
             strategy: Arc::clone(&self.strategy),
             native,
@@ -1319,7 +1329,7 @@ impl Engine {
                     resource: probe,
                     env: ctx.env,
                 };
-                match condition.evaluate(&eval, &self.conditions) {
+                match condition.evaluate_at(&eval, &self.conditions, ctx.now) {
                     Ok(true) => {}
                     Ok(false) => return,
                     Err(error) => {

@@ -617,6 +617,84 @@ pub(crate) fn matcher(cur: &mut Cursor) -> PResult<SubjectMatcher> {
 
 // ---- conditions ---------------------------------------------------------------------------
 
+/// Builds a condition from its two operands.
+type BinaryCondition = fn(Operand, Operand) -> Condition;
+
+/// The operators written between two operands as a word, besides `in` and `ip_in`.
+const WORD_OPERATORS: [(&str, BinaryCondition); 5] = [
+    ("starts_with", Condition::starts_with),
+    ("ends_with", Condition::ends_with),
+    ("contains", Condition::contains),
+    ("any_in", Condition::any_in),
+    ("all_in", Condition::all_in),
+];
+
+/// A literal CIDR, or list of them, that does not parse is refused here, where it can be pointed
+/// at; an attribute holds whatever it holds and is judged at decision time.
+fn check_cidrs(set: &Operand, at: Span) -> PResult<()> {
+    let texts: Vec<&str> = match set {
+        Operand::Lit(Value::Str(text)) => vec![text.as_str()],
+        Operand::Lit(Value::List(items)) => items.iter().filter_map(Value::as_str).collect(),
+        _ => return Ok(()),
+    };
+    for text in texts {
+        crate::condition::check_cidr(text).map_err(|_| {
+            Raw::new(at, format!("`{text}` is not a CIDR block"))
+                .hint("write an address and a prefix length, like \"10.0.0.0/8\" or \"2001:db8::/32\"")
+        })?;
+    }
+    Ok(())
+}
+
+fn string_arg(cur: &mut Cursor, what: &str) -> PResult<(String, Span)> {
+    let token = cur.current();
+    match token.tok {
+        Tok::Str(text) => {
+            cur.advance();
+            Ok((text, token.span))
+        }
+        other => Err(Raw::new(
+            token.span,
+            format!("expected {what} in quotes, found {}", describe(&other)),
+        )),
+    }
+}
+
+fn clock_arg(cur: &mut Cursor, what: &str) -> PResult<String> {
+    let (text, span) = string_arg(cur, what)?;
+    crate::condition::parse_clock(&text).map_err(|_| {
+        Raw::new(span, format!("`{text}` is not a time of day"))
+            .hint("write hours and minutes with two digits each, 00:00 to 23:59, like \"09:30\"")
+    })?;
+    Ok(text)
+}
+
+fn time_between(cur: &mut Cursor) -> PResult<Condition> {
+    cur.advance();
+    let from = clock_arg(cur, "the start time")?;
+    let until = clock_arg(cur, "the end time")?;
+    Ok(Condition::TimeBetween { from, until })
+}
+
+fn weekday_in(cur: &mut Cursor) -> PResult<Condition> {
+    cur.advance();
+    cur.expect_punct("[", "to open the list of days")?;
+    let mut days = Vec::new();
+    while !cur.is_punct("]") {
+        let (day, span) = string_arg(cur, "a day")?;
+        crate::condition::parse_weekday(&day).map_err(|_| {
+            Raw::new(span, format!("`{day}` is not a day of the week"))
+                .hint("use mon, tue, wed, thu, fri, sat or sun, in lower case")
+        })?;
+        days.push(day);
+        if !cur.eat_punct(",") {
+            break;
+        }
+    }
+    cur.expect_punct("]", "to close the list of days")?;
+    Ok(Condition::WeekdayIn { days })
+}
+
 pub(crate) fn condition(cur: &mut Cursor) -> PResult<Condition> {
     cur.enter()?;
     let first = and_expr(cur)?;
@@ -714,6 +792,12 @@ fn atom(cur: &mut Cursor) -> PResult<Condition> {
         attr_path(&word)?;
         return Ok(Condition::Exists { attr: word.v });
     }
+    if cur.is_word("time_between") {
+        return time_between(cur);
+    }
+    if cur.is_word("weekday_in") {
+        return weekday_in(cur);
+    }
     if cur.eat_punct("@") {
         let func = cur.word("a function name")?;
         cur.expect_punct("(", "after the function name")?;
@@ -731,6 +815,17 @@ fn atom(cur: &mut Cursor) -> PResult<Condition> {
     if cur.eat_word("in") {
         let set = operand(cur)?;
         return Ok(Condition::In { item: left, set });
+    }
+    if cur.eat_word("ip_in") {
+        let at = cur.current().span;
+        let set = operand(cur)?;
+        check_cidrs(&set, at)?;
+        return Ok(Condition::IpIn { item: left, set });
+    }
+    for (word, build) in WORD_OPERATORS {
+        if cur.eat_word(word) {
+            return Ok(build(left, operand(cur)?));
+        }
     }
     let token = cur.current();
     let build: Option<fn(Operand, Operand) -> Condition> = match token.tok {
@@ -750,7 +845,7 @@ fn atom(cur: &mut Cursor) -> PResult<Condition> {
         None => Err(Raw::new(
             token.span,
             format!(
-                "expected a comparison (==, !=, <, <=, >, >=, in) after the value, found {}",
+                "expected a comparison (==, !=, <, <=, >, >=, in, starts_with, ends_with, contains, any_in, all_in, ip_in) after the value, found {}",
                 describe(&token.tok)
             ),
         )),

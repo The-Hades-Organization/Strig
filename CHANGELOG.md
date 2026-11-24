@@ -6,10 +6,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Conditions (`themis`): `starts_with`, `ends_with` and `contains` on text (`contains` also tests list membership), `any_in` and `all_in` on lists, `ip_in` for an IPv4 or IPv6 address in a CIDR or a list of CIDRs, and `time_between` and `weekday_in` on the decision instant, always in UTC. They are new `op` values, so existing conditions do not change, and there is no regular-expression condition. The time conditions read the instant of `Context::at` (and `QueryContext::at`) through the new `Condition::evaluate_at`; `Condition::evaluate` is unchanged and, without an instant, they cannot be resolved, so an `allow` that uses them does not apply. A listing keeps a condition on a `resource.` attribute as a residue, and `themis-postgres` never turns it into an allow.
+- Policy language: the three syntaxes write the new conditions as `a starts_with b`, `env.ip ip_in "10.0.0.0/8"`, `time_between "09:00" "17:30"` and `weekday_in ["mon", "tue"]`. The validator refuses a CIDR, a time of day or a weekday it cannot read, with position and hint. See `docs/dsl.md`.
+- `themis-node`: the `Condition` type in `index.d.ts`, in place of `unknown`.
 - Formatter for the policy language. `themis::dsl::format` and `is_formatted` (`dsl` feature) rewrite a source in the canonical layout of its syntax, comments kept and idempotent; `themis-inspect fmt [--check] <file|dir>` formats `.themis` files, and `--check` lists the ones that would change and exits with 1; `themis-node` has `format` and `isFormatted`.
 
 ### Changed
 
+- `DSL_SCHEMA` goes from 1 to 2: a reader of schema 1 does not know the new `op` values and fails on a policy that uses one. A policy without them is the same JSON as before. `themis-macros` reads the constant from `themis`, so there is no second number to keep in step.
 - Release: the crates job also publishes `themis-macros` and `themis-server`, in dependency order.
 
 ## [0.4.0] - 2026-11-23

@@ -61,6 +61,39 @@ export interface BindingError extends Error {
   code: ErrorCode;
 }
 
+/** One side of a comparison: an attribute read at decision time (`subject.*`, `resource.*`, `env.*`) or a literal. */
+export type ConditionOperand = { attr: string } | string | number | boolean | null | unknown[] | { [key: string]: unknown };
+
+export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
+/**
+ * A condition stored with a grant. `time_between` and `weekday_in` read the decision instant
+ * (`now` of the context) in UTC; without one they cannot be resolved, so a grant with them never allows.
+ */
+export type Condition =
+  | { op: 'eq' | 'ne' | 'lt' | 'le' | 'gt' | 'ge'; left: ConditionOperand; right: ConditionOperand }
+  | { op: 'in'; item: ConditionOperand; set: ConditionOperand }
+  /** Text prefix. */
+  | { op: 'starts_with'; left: ConditionOperand; right: ConditionOperand }
+  /** Text suffix. */
+  | { op: 'ends_with'; left: ConditionOperand; right: ConditionOperand }
+  /** Substring when `left` is text; membership when `left` is a list. */
+  | { op: 'contains'; left: ConditionOperand; right: ConditionOperand }
+  /** The list `left` has at least one element of the list `right`. */
+  | { op: 'any_in'; left: ConditionOperand; right: ConditionOperand }
+  /** Every element of the list `left` is in the list `right` (an empty `left` holds). */
+  | { op: 'all_in'; left: ConditionOperand; right: ConditionOperand }
+  /** IPv4 or IPv6 address inside a CIDR, or inside any CIDR of a list. */
+  | { op: 'ip_in'; item: ConditionOperand; set: ConditionOperand }
+  /** UTC time of day in `[from, until)`, as `HH:MM`; `from` after `until` crosses midnight. */
+  | { op: 'time_between'; from: string; until: string }
+  /** UTC weekday of the decision instant. */
+  | { op: 'weekday_in'; days: Weekday[] }
+  | { op: 'exists'; attr: string }
+  | { op: 'all' | 'any'; of: Condition[] }
+  | { op: 'not'; cond: Condition }
+  | { op: 'call'; func: string; args?: ConditionOperand[] };
+
 export interface Grant {
   id: string;
   subject: SubjectMatcher;
@@ -68,7 +101,7 @@ export interface Grant {
   target: { kind: string; id?: string };
   effect: 'allow' | 'deny';
   scope?: { kind: string; id?: string };
-  condition?: unknown;
+  condition?: Condition;
   /** Milliseconds since the Unix epoch. The grant counts from this instant (inclusive). */
   validFrom?: number;
   /** Milliseconds since the Unix epoch. The grant stops counting at this instant (exclusive). */
@@ -203,7 +236,7 @@ export interface TemplateGrant {
   target: { kind: string; id?: string };
   effect?: 'allow' | 'deny';
   scope?: { kind: string; id?: string };
-  condition?: unknown;
+  condition?: Condition;
 }
 
 /** A versioned set of model grants; materializing it copies them, with no link back to the template. */
@@ -292,7 +325,7 @@ export type FilterShape =
 
 /** What only the resource, not the filter, decides. Never counts as permission. */
 export type FilterResidual =
-  | { type: 'condition'; grantId: string; condition: unknown }
+  | { type: 'condition'; grantId: string; condition: Condition }
   | { type: 'override'; name: string }
   | { type: 'strategy'; name: string }
   | { type: 'outside_layout'; grantIds: string[] }

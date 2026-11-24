@@ -258,6 +258,21 @@ pub(crate) fn condition(c: &Condition, parent: u8) -> Printed<String> {
         Condition::Gt { left, right } => compare(left, ">", right),
         Condition::Ge { left, right } => compare(left, ">=", right),
         Condition::In { item, set } => compare(item, "in", set),
+        Condition::StartsWith { left, right } => compare(left, "starts_with", right),
+        Condition::EndsWith { left, right } => compare(left, "ends_with", right),
+        Condition::Contains { left, right } => compare(left, "contains", right),
+        Condition::AnyIn { left, right } => compare(left, "any_in", right),
+        Condition::AllIn { left, right } => compare(left, "all_in", right),
+        Condition::IpIn { item, set } => compare(item, "ip_in", set),
+        Condition::TimeBetween { from, until } => Ok(format!(
+            "time_between {} {}",
+            value(&Value::Str(from.clone()))?,
+            value(&Value::Str(until.clone()))?
+        )),
+        Condition::WeekdayIn { days } => Ok(format!(
+            "weekday_in {}",
+            value(&Value::List(days.iter().cloned().map(Value::Str).collect()))?
+        )),
         Condition::Exists { attr: path } => Ok(format!("exists {}", attr(path)?)),
         Condition::All { of } => group(of, "and", "all", 2),
         Condition::Any { of } => group(of, "or", "any", 1),

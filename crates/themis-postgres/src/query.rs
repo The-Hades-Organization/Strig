@@ -730,6 +730,69 @@ mod tests {
         ));
     }
 
+    /// A condition the database cannot evaluate is never translated and never opens a row: the
+    /// lower bound (`settled_sql`) is `FALSE` and the grant stays a residue for the engine.
+    #[test]
+    fn new_conditions_over_a_resource_attribute_stay_residual_and_never_allow() {
+        use themis::{Catalog, Condition, Engine, Grant, Operand, PathLayout, PermissionDef, QueryContext};
+        use themis::{Subject, SubjectMatcher, TargetSelector};
+
+        let catalog = Catalog::builder()
+            .target_kinds(["document"])
+            .broad_target("org")
+            .permission(PermissionDef::new("document.view").targets(["document"]))
+            .build()
+            .unwrap();
+        let engine = Engine::builder(catalog).build().unwrap();
+        let layout = PathLayout::new("document").within("org");
+        let lit = |text: &str| Operand::lit(text);
+        let name = || Operand::attr("resource.name");
+        let conditions = [
+            Condition::starts_with(name(), lit("a")),
+            Condition::ends_with(name(), lit(".md")),
+            Condition::contains(name(), lit("x")),
+            Condition::any_in(Operand::attr("resource.tags"), Operand::lit(vec!["a"])),
+            Condition::all_in(Operand::attr("resource.tags"), Operand::lit(vec!["a"])),
+            Condition::ip_in(Operand::attr("resource.ip"), lit("10.0.0.0/8")),
+        ];
+        for condition in conditions {
+            let grants = vec![
+                Grant::allow(
+                    "g",
+                    SubjectMatcher::role("member"),
+                    "document.view",
+                    TargetSelector::exact("org", "o1"),
+                )
+                .scoped(Anchor::new("org", "o1"))
+                .when(condition.clone()),
+            ];
+            let qctx = QueryContext::new(&grants);
+            let subject = Subject::user("u1").with_role_in("member", Anchor::new("org", "o1"));
+            let filter = engine.list(&qctx, &subject, "document.view", "document");
+            let pg = filter_where(&filter, &layout, &table(), 1).unwrap();
+            assert_eq!(
+                pg.settled_sql.as_deref(),
+                Some("FALSE"),
+                "{condition:?} must not widen the settled rows"
+            );
+            assert!(
+                pg.residual
+                    .iter()
+                    .any(|r| matches!(r, FilterResidual::Condition { grant_id, .. } if grant_id == "g")),
+                "{condition:?} must stay a residue"
+            );
+            assert!(
+                !pg.where_sql.contains("name") && !pg.where_sql.contains("tags"),
+                "the condition is never spliced into SQL: {}",
+                pg.where_sql
+            );
+            assert!(matches!(
+                to_where(&filter.expr(&layout), &table(), 1),
+                Err(PgQueryError::Residual)
+            ));
+        }
+    }
+
     /// F1: a grant on every project (`TargetSelector::kind`) is the commonest shape; it must
     /// translate, as "the path has a step of this kind".
     #[test]
