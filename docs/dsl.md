@@ -5,7 +5,7 @@ or load it from JSON, and you can also write it as text. This guide covers the t
 or DSL. It needs the `dsl` feature of `themis-auth`; reading and writing files needs `dsl-fs` as well.
 
 ```toml
-themis-auth = { version = "0.4", features = ["dsl", "dsl-fs"] }
+themis-auth = { version = "0.5", features = ["dsl", "dsl-fs"] }
 ```
 
 Parsing the text produces a `Policy`, the same value you would build in code.
@@ -304,8 +304,8 @@ build.
 
 ```toml
 [dependencies]
-themis-auth = { version = "0.4", features = ["dsl"] }
-themis-macros = "0.4"
+themis-auth = { version = "0.5", features = ["dsl"] }
+themis-macros = "0.5"
 ```
 
 ```rust
