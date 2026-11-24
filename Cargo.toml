@@ -1,20 +1,20 @@
 [workspace]
 resolver = "3"
-members = ["crates/themis", "crates/themis-sync", "crates/themis-redis", "crates/themis-postgres", "crates/themis-axum", "crates/themis-node", "crates/themis-inspect", "crates/themis-server", "crates/themis-macros"]
-default-members = ["crates/themis", "crates/themis-sync", "crates/themis-redis", "crates/themis-postgres", "crates/themis-axum", "crates/themis-node"]
+members = ["crates/strig", "crates/strig-sync", "crates/strig-redis", "crates/strig-postgres", "crates/strig-axum", "crates/strig-node", "crates/strig-inspect", "crates/strig-server", "crates/strig-macros"]
+default-members = ["crates/strig", "crates/strig-sync", "crates/strig-redis", "crates/strig-postgres", "crates/strig-axum", "crates/strig-node"]
 
 [workspace.package]
 version = "0.5.0"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
-repository = "https://github.com/The-Hades-Organization/Themis"
-homepage = "https://github.com/The-Hades-Organization/Themis"
+repository = "https://github.com/The-Hades-Organization/Strig"
+homepage = "https://github.com/The-Hades-Organization/Strig"
 authors = ["Hadson Ramalho"]
 
 [workspace.dependencies]
-themis = { path = "crates/themis", version = "0.5.0", package = "themis-auth" }
-themis-sync = { path = "crates/themis-sync", version = "0.5.0" }
+strig = { path = "crates/strig", version = "0.5.0" }
+strig-sync = { path = "crates/strig-sync", version = "0.5.0" }
 async-trait = "0.1"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"] }

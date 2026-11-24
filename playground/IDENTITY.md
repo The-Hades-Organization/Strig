@@ -2,7 +2,7 @@
 
 ## Concept
 
-Themis decides without looking at who is asking: the blindfold, the scales, the gilt knot. The
+Strig decides without looking at who is asking: the blindfold, the scales, the gilt knot. The
 playground applies that to what it shows. The **band tilted by 9°** in the icon is the motif of the
 page, and the **seal** of the ruling is the icon itself: on *allow* the band opens, on *deny* it
 closes, and the gilt knot ties the decision. The reader sees the word, then the shape, and only then
@@ -24,7 +24,7 @@ the spaced Roman capitals of the labels.
 | Band at −9° behind the ruling and in the seal | the band of the icon (`rotate(-9)`) |
 | Allow seal (open band) and deny seal (closed band) | the split disc of the icon |
 | Gilt knot in the syntax switch | the knot of the icon |
-| "THEMIS" mark at the top | the lettering of the banner itself (not a font) |
+| "STRIG" mark at the top | the lettering of the banner itself (not a font) |
 | Spaced Roman capitals for labels | the capitals of the banner |
 | Large radii on cards, a circle for the seal | the `rx` of the banner and the disc |
 

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "generatedAt": "2026-11-21T22:08:41+00:00",
-  "title": "Design System: Themis Inspect",
+  "title": "Design System: Strig Inspect",
   "extensions": {
     "colorMeta": {
       "bg": {
@@ -19,7 +19,7 @@
           "#D1D1D1",
           "#EEEEEE"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "surface": {
         "role": "neutral",
@@ -36,7 +36,7 @@
           "#D0D1D2",
           "#EEEEEF"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "surface2": {
         "role": "neutral",
@@ -53,7 +53,7 @@
           "#D0D1D2",
           "#EEEEEF"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "selected": {
         "role": "neutral",
@@ -70,7 +70,7 @@
           "#CFD1D3",
           "#EEEEEF"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "line": {
         "role": "neutral",
@@ -87,7 +87,7 @@
           "#CED1D4",
           "#EDEEEF"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "line2": {
         "role": "neutral",
@@ -104,7 +104,7 @@
           "#CFD1D3",
           "#EEEEEF"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "ink": {
         "role": "neutral",
@@ -121,7 +121,7 @@
           "#CFD1D4",
           "#EEEEEF"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "mute": {
         "role": "neutral",
@@ -138,7 +138,7 @@
           "#CDD1D6",
           "#EDEFF0"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "faint": {
         "role": "neutral",
@@ -155,7 +155,7 @@
           "#CDD1D7",
           "#EDEEF1"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "accent": {
         "role": "primary",
@@ -172,7 +172,7 @@
           "#B6D3FE",
           "#E5EFFE"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "accent_bg": {
         "role": "primary",
@@ -189,7 +189,7 @@
           "#CAD3D7",
           "#ECEFF0"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "accent_line": {
         "role": "primary",
@@ -206,7 +206,7 @@
           "#C3D4DF",
           "#E9EFF3"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "accent_ink": {
         "role": "primary",
@@ -223,7 +223,7 @@
           "#B7D3FC",
           "#E5EFFE"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "accent_soft": {
         "role": "primary",
@@ -240,7 +240,7 @@
           "#CED1D4",
           "#EDEEEF"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "ok": {
         "role": "secondary",
@@ -257,7 +257,7 @@
           "#BADBBD",
           "#E6F2E7"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "ok_bg": {
         "role": "secondary",
@@ -274,7 +274,7 @@
           "#C8D5CB",
           "#EBF0EC"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "ok_line": {
         "role": "secondary",
@@ -291,7 +291,7 @@
           "#BDDAC2",
           "#E7F2E9"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "no": {
         "role": "secondary",
@@ -308,7 +308,7 @@
           "#FDBFBA",
           "#FFE9E6"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "no_bg": {
         "role": "secondary",
@@ -325,7 +325,7 @@
           "#D7CFCE",
           "#F0EEED"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "no_line": {
         "role": "secondary",
@@ -342,7 +342,7 @@
           "#DFCCCA",
           "#F4ECEC"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "warn": {
         "role": "tertiary",
@@ -359,7 +359,7 @@
           "#E3CDB0",
           "#F5EDE3"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "warn_bg": {
         "role": "tertiary",
@@ -376,7 +376,7 @@
           "#D4D2BF",
           "#F0EFE8"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       },
       "warn_line": {
         "role": "tertiary",
@@ -393,7 +393,7 @@
           "#E1CFA8",
           "#F4EEE0"
         ],
-        "source": "crates/themis-inspect/src/gui.rs, fn tokens()"
+        "source": "crates/strig-inspect/src/gui.rs, fn tokens()"
       }
     },
     "typographyMeta": {
@@ -407,7 +407,7 @@
       },
       "brand": {
         "displayName": "Brand",
-        "purpose": "Nome \"Themis Inspect\" no cabeçalho."
+        "purpose": "Nome \"Strig Inspect\" no cabeçalho."
       },
       "title-small": {
         "displayName": "Title small",
@@ -502,7 +502,7 @@
       }
     ],
     "icons": {
-      "source": "crates/themis-inspect/assets/icons",
+      "source": "crates/strig-inspect/assets/icons",
       "grid": "24",
       "stroke": "2 (2.5 em check e x), round caps/joins",
       "sizes": [
@@ -512,7 +512,7 @@
       ]
     },
     "fonts": {
-      "source": "crates/themis-inspect/assets/fonts",
+      "source": "crates/strig-inspect/assets/fonts",
       "license": "OFL",
       "files": [
         "NotoSans-Regular",
@@ -628,7 +628,7 @@
   ],
   "narrative": {
     "northStar": "A Revisão de Código",
-    "overview": "O Themis Inspect lê uma decisão de autorização do jeito que se lê um pull request no GitHub: o veredito fica numa caixa com cabeçalho cinza e um selo cheio, e os grants descem numa linha do tempo vertical em que cada destino tem o próprio ícone. A pessoa entra com uma dúvida (\"por que isto foi negado?\"), encontra a resposta no topo e desce até o grant que a explica, com a árvore da condição aberta logo abaixo dele.\n\nO acabamento segue a régua do GitHub Primer em modo claro: fundo branco, superfícies em cinza muito leve, bordas de 1 px, tinta quase preta e um único azul para seleção, foco e degrau decisivo. Verde e vermelho ficam reservados ao efeito (permitido, negado) e o amarelo à simulação e ao que não pôde ser avaliado. A densidade é de ferramenta de leitura: corpo em 14 px, linhas de 30 a 44 px, nada de cartões soltos nem selos espalhados.\n\nNão há sombra, animação ou gradiente. A profundidade vem do contraste entre o branco do conteúdo e o cinza dos cabeçalhos e barras laterais, sempre separados por uma borda. Identificadores do domínio (permissões, recursos, âncoras, expressões, horários, JSON, teclas) aparecem em monoespaçada; prosa, nomes de sujeitos e ids de grant em sans.",
+    "overview": "O Strig Inspect lê uma decisão de autorização do jeito que se lê um pull request no GitHub: o veredito fica numa caixa com cabeçalho cinza e um selo cheio, e os grants descem numa linha do tempo vertical em que cada destino tem o próprio ícone. A pessoa entra com uma dúvida (\"por que isto foi negado?\"), encontra a resposta no topo e desce até o grant que a explica, com a árvore da condição aberta logo abaixo dele.\n\nO acabamento segue a régua do GitHub Primer em modo claro: fundo branco, superfícies em cinza muito leve, bordas de 1 px, tinta quase preta e um único azul para seleção, foco e degrau decisivo. Verde e vermelho ficam reservados ao efeito (permitido, negado) e o amarelo à simulação e ao que não pôde ser avaliado. A densidade é de ferramenta de leitura: corpo em 14 px, linhas de 30 a 44 px, nada de cartões soltos nem selos espalhados.\n\nNão há sombra, animação ou gradiente. A profundidade vem do contraste entre o branco do conteúdo e o cinza dos cabeçalhos e barras laterais, sempre separados por uma borda. Identificadores do domínio (permissões, recursos, âncoras, expressões, horários, JSON, teclas) aparecem em monoespaçada; prosa, nomes de sujeitos e ids de grant em sans.",
     "keyCharacteristics": [
       "Caixas com cabeçalho cinza (#F6F8FA) e corpo branco, borda de 1 px e raio de 6 px.",
       "Selos em pílula com ícone e palavra; o efeito nunca depende só da cor.",
