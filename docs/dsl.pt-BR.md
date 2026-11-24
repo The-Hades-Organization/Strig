@@ -251,6 +251,26 @@ assert_eq!(actors, "language actors\n\n// hi\nrole viewer\n\ncatalog\n  kinds do
 `print(&policy, language)` faz o mesmo a partir de uma `Policy` que você já tem. A conversão falha com um
 `ConvertError` quando o texto não é lido, ou quando a política não cabe no tipo de destino.
 
+## Formatação
+
+`format` reescreve o texto no layout canônico do tipo que a linha `language` declara: o espaçamento, as linhas em
+branco e a ordem que o `print` escreve, com os comentários preservados. Formatar o resultado de novo não muda nada.
+`is_formatted` diz se o texto já está canônico sem guardar o texto novo. `file` só dá nome à fonte nas posições dos
+erros.
+
+```rust
+use themis::dsl::{format, is_formatted};
+
+let messy = "language rules\n\n\n\nkinds doc   // kinds\n";
+assert!(!is_formatted("a.themis", messy)?);
+assert_eq!(format("a.themis", messy)?, "language rules\n\nkinds doc  // kinds\n");
+```
+
+Um texto que não compila vira um `FormatError::Parse` com `arquivo:linha:coluna`. No terminal,
+`themis-inspect fmt <arquivo|dir>` reescreve os arquivos `.themis` no lugar, e `themis-inspect fmt --check
+<arquivo|dir>` não escreve nada, lista os arquivos que mudariam e sai com 1 (para CI). No Node,
+`themis.format(text)` e `themis.isFormatted(text)` fazem o mesmo sobre texto.
+
 ## Notas e reconstrução
 
 Os comentários não se perdem. Cada comentário `//` vira uma nota com o texto, o elemento a que está ligado e o lugar:
@@ -362,7 +382,10 @@ Comum aos três tipos:
 - Matchers de sujeito: `anyone`, `role <nome>`, `user <id>`, `principal <id>`, `relation <nome>`.
 - Condições usam `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `and` (ou `&&`), `or` (ou `||`), `not` (ou `!`),
   `exists <atributo>`, `all(...)`, `any(...)` e `@funcao(argumentos)`. Atributos começam com `subject.`,
-  `resource.` ou `env.`.
+  `resource.` ou `env.`. Os operadores de texto, conjunto e rede `starts_with`, `ends_with`, `contains`, `any_in`,
+  `all_in` e `ip_in` ficam entre dois operandos (`a starts_with "x"`), e as condições de tempo são
+  `time_between "HH:MM" "HH:MM"` e `weekday_in ["mon", ...]`, com os dias como texto; veja
+  [Condições de texto, conjunto, rede e tempo](#condições-de-texto-conjunto-rede-e-tempo).
 - Reescritas de relação: `this`, união `a | b`, interseção `a & b`, diferença `a - b`, caminhada `parent->relation` e
   as formas de função `union(...)`, `intersection(...)` e `exclusion(a, b)`. Não misture `|`, `&` e `-` sem
   parênteses.
@@ -618,6 +641,42 @@ grant g-principal {
   target = project
 }
 ```
+
+### Condições de texto, conjunto, rede e tempo
+
+Além das comparações, uma condição pode testar texto, listas, endereços de rede e o instante da decisão. As três
+sintaxes escrevem do mesmo jeito, e o `op` do JSON é o nome do operador.
+
+| Condição | Vale quando |
+| --- | --- |
+| `a starts_with b`, `a ends_with b` | o texto `a` começa ou termina com o texto `b` |
+| `a contains b` | o texto `a` tem `b` como trecho, ou a lista `a` tem `b` como elemento |
+| `a any_in b` | a lista `a` tem ao menos um elemento que está na lista `b` |
+| `a all_in b` | todo elemento da lista `a` está na lista `b` (um `a` vazio vale) |
+| `a ip_in b` | o endereço IPv4 ou IPv6 `a` está dentro do CIDR `b`, ou de um CIDR da lista `b` |
+| `time_between "09:00" "17:30"` | a hora do dia em UTC está em `[from, until)`; uma janela com `from` depois de `until` cruza a meia-noite, e limites iguais dão janela vazia |
+| `weekday_in ["mon", "tue"]` | o dia da semana em UTC é um dos dias (`mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`) |
+
+```themis
+when = resource.name ends_with ".md" and subject.tags any_in ["docs", "ops"]
+when = env.ip ip_in ["10.0.0.0/8", "2001:db8::/32"]
+when = time_between "22:00" "06:00" and weekday_in ["mon", "tue", "wed", "thu", "fri"]
+```
+
+- Um endereço sem tamanho de prefixo vale como um único host, e um IPv4 escrito como IPv6 mapeado (`::ffff:10.1.2.3`)
+  é comparado com os CIDRs IPv4.
+- Não há condição com expressão regular.
+- O validador recusa CIDR, hora do dia ou dia da semana ilegível, com posição e dica. As mesmas checagens valem para o
+  JSON.
+- Tipo errado ou operando ilegível é erro, como nas comparações: um `allow` com ele não vale e um `deny` com ele vale.
+- As condições de tempo leem o instante da decisão, `Context::at` (`setNow` no binding Node), sempre em UTC. Sem
+  instante não resolvem, então um grant que as usa nunca permite.
+- Uma condição que lê atributo `resource.` não vira SQL: a listagem a mantém como resíduo, conferido linha a linha, e o
+  `themis-postgres` nunca a transforma em allow.
+- `DSL_SCHEMA` sobe de 1 para 2. Um leitor do schema 1 recusa a política que usa uma dessas condições, e a política sem
+  elas lê como antes.
+
+### Relações
 
 As relações reescrevem uma relação em termos de outras, e as tuplas dão os fatos:
 

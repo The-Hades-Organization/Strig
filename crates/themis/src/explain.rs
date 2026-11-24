@@ -182,8 +182,13 @@ fn result_of(outcome: &Result<bool, crate::ConditionError>) -> TraceResult {
     }
 }
 
-fn skipped(condition: &Condition, ctx: &EvalContext<'_>, registry: &ConditionRegistry) -> ConditionTrace {
-    let mut node = trace_condition(condition, ctx, registry);
+fn skipped(
+    condition: &Condition,
+    ctx: &EvalContext<'_>,
+    registry: &ConditionRegistry,
+    now: Option<u64>,
+) -> ConditionTrace {
+    let mut node = trace_condition_at(condition, ctx, registry, now);
     mark_skipped(&mut node);
     node
 }
@@ -194,13 +199,24 @@ fn mark_skipped(node: &mut ConditionTrace) {
 }
 
 /// Evaluates `condition` the way the engine does (with short-circuiting) and returns the tree.
+/// Without a decision instant the time conditions trace as errors; see [`trace_condition_at`].
 pub fn trace_condition(condition: &Condition, ctx: &EvalContext<'_>, registry: &ConditionRegistry) -> ConditionTrace {
+    trace_condition_at(condition, ctx, registry, None)
+}
+
+/// [`trace_condition`] at the decision instant `now`, in milliseconds since the Unix epoch.
+pub fn trace_condition_at(
+    condition: &Condition,
+    ctx: &EvalContext<'_>,
+    registry: &ConditionRegistry,
+    now: Option<u64>,
+) -> ConditionTrace {
     let binary = |op: &str, left: &Operand, right: &Operand| {
         format!("{} {op} {}", show_operand(ctx, left), show_operand(ctx, right))
     };
     let leaf = |label: String| ConditionTrace {
         label,
-        result: result_of(&condition.evaluate(ctx, registry)),
+        result: result_of(&condition.evaluate_at(ctx, registry, now)),
         children: Vec::new(),
     };
     match condition {
@@ -211,6 +227,14 @@ pub fn trace_condition(condition: &Condition, ctx: &EvalContext<'_>, registry: &
         Condition::Gt { left, right } => leaf(binary(">", left, right)),
         Condition::Ge { left, right } => leaf(binary("≥", left, right)),
         Condition::In { item, set } => leaf(binary("∈", item, set)),
+        Condition::StartsWith { left, right } => leaf(binary("começa com", left, right)),
+        Condition::EndsWith { left, right } => leaf(binary("termina com", left, right)),
+        Condition::Contains { left, right } => leaf(binary("contém", left, right)),
+        Condition::AnyIn { left, right } => leaf(binary("tem algum em", left, right)),
+        Condition::AllIn { left, right } => leaf(binary("tem todos em", left, right)),
+        Condition::IpIn { item, set } => leaf(binary("IP em", item, set)),
+        Condition::TimeBetween { from, until } => leaf(format!("hora UTC em [{from}, {until})")),
+        Condition::WeekdayIn { days } => leaf(format!("dia UTC em {}", days.join(", "))),
         Condition::Exists { attr } => leaf(format!("existe {}", show_operand(ctx, &Operand::attr(attr.clone())))),
         Condition::Call { func, args } => {
             let args: Vec<String> = args.iter().map(|a| show_operand(ctx, a)).collect();
@@ -218,8 +242,8 @@ pub fn trace_condition(condition: &Condition, ctx: &EvalContext<'_>, registry: &
         }
         Condition::Not { cond } => ConditionTrace {
             label: "não".into(),
-            result: result_of(&condition.evaluate(ctx, registry)),
-            children: vec![trace_condition(cond, ctx, registry)],
+            result: result_of(&condition.evaluate_at(ctx, registry, now)),
+            children: vec![trace_condition_at(cond, ctx, registry, now)],
         },
         Condition::All { of } | Condition::Any { of } => {
             let stop_on = matches!(condition, Condition::Any { .. });
@@ -227,10 +251,10 @@ pub fn trace_condition(condition: &Condition, ctx: &EvalContext<'_>, registry: &
             let mut done = false;
             for child in of {
                 if done {
-                    children.push(skipped(child, ctx, registry));
+                    children.push(skipped(child, ctx, registry, now));
                     continue;
                 }
-                let node = trace_condition(child, ctx, registry);
+                let node = trace_condition_at(child, ctx, registry, now);
                 done = match node.result {
                     TraceResult::True => stop_on,
                     TraceResult::False => !stop_on,
@@ -240,7 +264,7 @@ pub fn trace_condition(condition: &Condition, ctx: &EvalContext<'_>, registry: &
             }
             ConditionTrace {
                 label: if stop_on { "qualquer um" } else { "todos" }.into(),
-                result: result_of(&condition.evaluate(ctx, registry)),
+                result: result_of(&condition.evaluate_at(ctx, registry, now)),
                 children,
             }
         }

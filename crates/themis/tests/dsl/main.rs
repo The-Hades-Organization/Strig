@@ -3,6 +3,7 @@
 
 mod corpus;
 mod errors;
+mod format;
 mod handwritten;
 mod hostile;
 mod notes;
@@ -13,8 +14,8 @@ use themis::dsl::Language;
 pub const LANGUAGES: [Language; 3] = [Language::Blocks, Language::Rules, Language::Actors];
 
 /// The scenarios. The Rules and Actors files of the first six were written by `convert` from their
-/// Blocks file and then checked; the last two were written by hand in all three syntaxes.
-pub const SCENARIOS: [&str; 8] = [
+/// Blocks file and then checked; the last three were written by hand in all three syntaxes.
+pub const SCENARIOS: [&str; 9] = [
     "roles",
     "conditions",
     "validity",
@@ -23,6 +24,7 @@ pub const SCENARIOS: [&str; 8] = [
     "members",
     "overrides",
     "late",
+    "matching",
 ];
 
 pub fn source(scenario: &str, language: Language) -> String {

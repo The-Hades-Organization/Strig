@@ -12,7 +12,18 @@ const PUNCT1: &str = "{}()[],=:<>#@|&!-*";
 /// value.
 const AFTER_VALUE: [&str; 3] = [")", "]", "}"];
 /// Words after which a `-` is the sign of a number, as after an operator.
-const BEFORE_NEGATIVE_WORDS: [&str; 4] = ["and", "or", "not", "in"];
+const BEFORE_NEGATIVE_WORDS: [&str; 10] = [
+    "and",
+    "or",
+    "not",
+    "in",
+    "starts_with",
+    "ends_with",
+    "contains",
+    "any_in",
+    "all_in",
+    "ip_in",
+];
 /// The most lexical errors kept: the rest is only counted, so hostile input stays small.
 const MAX_ERRORS: usize = 100;
 /// Characters a time-of-day may use after the `T` of a date.
