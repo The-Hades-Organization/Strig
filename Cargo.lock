@@ -6267,6 +6267,132 @@ dependencies = [
 ]
 
 [[package]]
+name = "strig"
+version = "0.5.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "strig-axum"
+version = "0.5.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "futures-util",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "strig",
+ "strig-sync",
+ "tokio",
+ "tokio-tungstenite",
+ "tower",
+]
+
+[[package]]
+name = "strig-inspect"
+version = "0.5.0"
+dependencies = [
+ "gpui-component",
+ "gpui-pre",
+ "gpui-pre-platform",
+ "serde",
+ "serde_json",
+ "strig",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "strig-macros"
+version = "0.5.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "strig",
+ "syn 2.0.119",
+ "trybuild",
+]
+
+[[package]]
+name = "strig-node"
+version = "0.5.0"
+dependencies = [
+ "js-sys",
+ "napi",
+ "napi-build",
+ "napi-derive",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "strig",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "strig-postgres"
+version = "0.5.0"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "serde_json",
+ "strig",
+ "strig-sync",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-postgres",
+ "tokio-stream",
+]
+
+[[package]]
+name = "strig-redis"
+version = "0.5.0"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "redis",
+ "strig",
+ "strig-sync",
+ "tokio",
+]
+
+[[package]]
+name = "strig-server"
+version = "0.5.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "futures-util",
+ "http-body-util",
+ "hyper-util",
+ "serde",
+ "serde_json",
+ "strig",
+ "thiserror 2.0.21",
+ "tokio",
+ "tower",
+ "tracing",
+]
+
+[[package]]
+name = "strig-sync"
+version = "0.5.0"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "strig",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "string_cache"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6529,132 +6655,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
-]
-
-[[package]]
-name = "themis-auth"
-version = "0.5.0"
-dependencies = [
- "serde",
- "serde_json",
- "sha2 0.11.1",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "themis-axum"
-version = "0.5.0"
-dependencies = [
- "async-trait",
- "axum",
- "futures-util",
- "http-body-util",
- "serde",
- "serde_json",
- "themis-auth",
- "themis-sync",
- "tokio",
- "tokio-tungstenite",
- "tower",
-]
-
-[[package]]
-name = "themis-inspect"
-version = "0.5.0"
-dependencies = [
- "gpui-component",
- "gpui-pre",
- "gpui-pre-platform",
- "serde",
- "serde_json",
- "themis-auth",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "themis-macros"
-version = "0.5.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "serde_json",
- "syn 2.0.119",
- "themis-auth",
- "trybuild",
-]
-
-[[package]]
-name = "themis-node"
-version = "0.5.0"
-dependencies = [
- "js-sys",
- "napi",
- "napi-build",
- "napi-derive",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "themis-auth",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "themis-postgres"
-version = "0.5.0"
-dependencies = [
- "async-trait",
- "futures-util",
- "serde_json",
- "themis-auth",
- "themis-sync",
- "thiserror 2.0.21",
- "tokio",
- "tokio-postgres",
- "tokio-stream",
-]
-
-[[package]]
-name = "themis-redis"
-version = "0.5.0"
-dependencies = [
- "async-trait",
- "futures-util",
- "redis",
- "themis-auth",
- "themis-sync",
- "tokio",
-]
-
-[[package]]
-name = "themis-server"
-version = "0.5.0"
-dependencies = [
- "async-trait",
- "axum",
- "futures-util",
- "http-body-util",
- "hyper-util",
- "serde",
- "serde_json",
- "themis-auth",
- "thiserror 2.0.21",
- "tokio",
- "tower",
- "tracing",
-]
-
-[[package]]
-name = "themis-sync"
-version = "0.5.0"
-dependencies = [
- "async-trait",
- "futures-util",
- "serde",
- "serde_json",
- "themis-auth",
- "thiserror 2.0.21",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]
