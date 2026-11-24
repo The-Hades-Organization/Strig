@@ -20,6 +20,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - `DSL_SCHEMA` goes from 1 to 2: a reader of schema 1 does not know the new `op` values and fails on a policy that uses one. A policy without them is the same JSON as before. `themis-macros` reads the constant from `themis`, so there is no second number to keep in step.
 - Release: the crates job also publishes `themis-macros` and `themis-server`, in dependency order.
+- `themis-inspect`: the window takes the visual identity of the playground. It uses the same palette in a light and a dark theme and follows the system appearance, switching when it changes; jade marks structure and allow, clay marks deny, and gold appears only for who, where and numbers. The ruling shows the seal of the playground (open band for allow, closed band with a cross for deny) next to the word, labels are in spaced capitals, and the JSON of an audit record is highlighted with the playground's colours. Read errors use their own tone, so they no longer look like a deny. The ruling header carries the tilted band of the playground, and the capitals use an embedded Roman serif (Cinzel, SIL Open Font License, licence file beside it). No behaviour, layout or command changes.
 
 ## [0.4.0] - 2026-11-23
 
