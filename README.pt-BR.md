@@ -396,6 +396,8 @@ let json = parsed.policy.to_json()?;
 let as_rules = dsl::convert(SOURCE, Language::Rules)?;
 ```
 
+Para experimentar a linguagem sem instalar nada, gere o [playground](playground/README.md): ele roda o motor no navegador.
+
 Com `dsl-fs`, `themis::dsl::fs::read_dir` lê todos os arquivos `*.themis` de um diretório para um `Project`, e `write_file` grava uma política de volta.
 
 ### Linguagem de políticas no Node
