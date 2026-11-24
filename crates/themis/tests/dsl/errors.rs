@@ -75,3 +75,50 @@ fn an_unknown_permission_in_a_grant_points_into_the_file() {
         assert!(line.is_some_and(|line| line > 2), "{text}");
     }
 }
+
+/// The matching scenario with one piece of a condition swapped for a bad one.
+fn matching_with(language: Language, good: &str, bad: &str) -> String {
+    let text = crate::source("matching", language);
+    assert!(text.contains(good), "{language} has no `{good}`");
+    text.replacen(good, bad, 1)
+}
+
+#[test]
+fn a_bad_cidr_time_or_day_is_pointed_at_with_a_hint_in_every_syntax() {
+    let cases = [
+        (r#""10.0.0.0/8", "2001:db8::/32""#, r#""10.0.0.0/33", "2001:db8::/32""#, "CIDR"),
+        (r#"ip_in "192.168.0.0/16""#, r#"ip_in "192.168.0.0/16/8""#, "CIDR"),
+        (r#"time_between "09:00" "17:30""#, r#"time_between "9:00" "17:30""#, "time of day"),
+        (r#"time_between "22:00" "06:00""#, r#"time_between "22:00" "24:00""#, "time of day"),
+        (r#""thu", "fri""#, r#""thu", "friday""#, "day of the week"),
+    ];
+    for language in LANGUAGES {
+        for (good, bad, what) in cases {
+            let text = matching_with(language, good, bad);
+            let errors = parse("bad.themis", &text).expect_err("the condition is wrong");
+            let first = errors.into_iter().next().unwrap();
+            assert!(first.message.contains(what), "{language} {bad}: {}", first.message);
+            assert!(first.hint.is_some(), "{language} {bad}: no hint");
+            let wrong_line = text.lines().position(|l| l.contains(bad)).unwrap() as u32 + 1;
+            assert_eq!(first.location.map(|l| l.line), Some(wrong_line), "{language} {bad}");
+        }
+    }
+}
+
+#[test]
+fn a_bad_cidr_time_or_day_in_the_json_fails_validation_with_a_hint() {
+    let policy = parse("p", &crate::source("matching", Language::Blocks)).unwrap().policy;
+    let json = policy.to_json().unwrap();
+    for (good, bad, what) in [
+        (r#""10.0.0.0/8""#, r#""10.0.0.0/33""#, "CIDR"),
+        (r#""09:00""#, r#""25:00""#, "time of day"),
+        (r#""wed""#, r#""wednesday""#, "day of the week"),
+    ] {
+        assert!(json.contains(good));
+        let broken = themis::dsl::Policy::from_json(&json.replacen(good, bad, 1)).unwrap();
+        let errors = broken.validate().expect_err("the policy is wrong");
+        let first = errors.into_iter().next().unwrap();
+        assert!(first.message.contains(what), "{bad}: {}", first.message);
+        assert!(first.hint.is_some(), "{bad}");
+    }
+}

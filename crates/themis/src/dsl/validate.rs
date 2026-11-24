@@ -7,7 +7,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use crate::dsl::error::{Diagnostic, Location, MAX_DIAGNOSTICS, capped};
 use crate::dsl::policy::{Origins, Policy, ids};
 use crate::{
-    Catalog, CatalogError, Condition, InvariantSpec, Operand, OverrideRule, Rewrite, RoleAssignment, SubjectMatcher,
+    Catalog, CatalogError, Condition, InvariantSpec, Operand, OverrideRule, Rewrite, RoleAssignment, SubjectMatcher, Value,
 };
 
 /// More than this many problems are only counted: the report sorts and cuts them afterwards.
@@ -380,6 +380,54 @@ fn condition_names(condition: &Condition, id: &str, report: &mut Report<'_>) {
         Condition::In { item, set } => {
             operand_names(item, id, report);
             operand_names(set, id, report);
+        }
+        Condition::StartsWith { left, right }
+        | Condition::EndsWith { left, right }
+        | Condition::Contains { left, right }
+        | Condition::AnyIn { left, right }
+        | Condition::AllIn { left, right } => {
+            operand_names(left, id, report);
+            operand_names(right, id, report);
+        }
+        Condition::IpIn { item, set } => {
+            operand_names(item, id, report);
+            operand_names(set, id, report);
+            let texts: Vec<&str> = match set {
+                Operand::Lit(Value::Str(text)) => vec![text.as_str()],
+                Operand::Lit(Value::List(items)) => items.iter().filter_map(Value::as_str).collect(),
+                _ => Vec::new(),
+            };
+            for text in texts {
+                if crate::condition::check_cidr(text).is_err() {
+                    report.error(
+                        id,
+                        format!("`{text}` is not a CIDR block"),
+                        Some("write an address and a prefix length, like \"10.0.0.0/8\" or \"2001:db8::/32\"".into()),
+                    );
+                }
+            }
+        }
+        Condition::TimeBetween { from, until } => {
+            for text in [from, until] {
+                if crate::condition::parse_clock(text).is_err() {
+                    report.error(
+                        id,
+                        format!("`{text}` is not a time of day"),
+                        Some("write hours and minutes with two digits each, 00:00 to 23:59, like \"09:30\"".into()),
+                    );
+                }
+            }
+        }
+        Condition::WeekdayIn { days } => {
+            for day in days {
+                if crate::condition::parse_weekday(day).is_err() {
+                    report.error(
+                        id,
+                        format!("`{day}` is not a day of the week"),
+                        Some("use mon, tue, wed, thu, fri, sat or sun, in lower case".into()),
+                    );
+                }
+            }
         }
         Condition::Exists { attr } => attr_name(attr, id, report),
         Condition::All { of } | Condition::Any { of } => {

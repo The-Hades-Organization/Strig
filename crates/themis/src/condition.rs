@@ -242,7 +242,7 @@ impl Condition {
         self.evaluate_at(ctx, registry, None)
     }
 
-    /// Evaluates at `now`, in seconds since the Unix epoch, the instant that `time_between` and
+    /// Evaluates at `now`, in milliseconds since the Unix epoch, the instant that `time_between` and
     /// `weekday_in` read, always in UTC. The core reads no clock; without an instant those two fail
     /// with [`ConditionError::MissingAttribute`], so an `allow` they guard does not apply.
     pub fn evaluate_at(
@@ -323,7 +323,7 @@ impl Condition {
             }
             Condition::TimeBetween { from, until } => {
                 let (from, until) = (parse_clock(from)?, parse_clock(until)?);
-                let at = second_of_day(now)? / 60;
+                let at = minute_of_day(now)?;
                 Ok(if from <= until {
                     from <= at && at < until
                 } else {
@@ -512,6 +512,12 @@ impl Cidr {
     }
 }
 
+/// Checks a CIDR block, for the language to refuse a literal one before any decision.
+#[cfg(feature = "dsl")]
+pub(crate) fn check_cidr(text: &str) -> Result<(), ConditionError> {
+    Cidr::parse(text).map(|_| ())
+}
+
 /// Minutes since midnight of an `HH:MM` clock time.
 pub(crate) fn parse_clock(text: &str) -> Result<u32, ConditionError> {
     let parsed = text.split_once(':').and_then(|(h, m)| {
@@ -534,15 +540,18 @@ pub(crate) fn parse_weekday(text: &str) -> Result<u8, ConditionError> {
         .ok_or_else(|| bad_value("dia da semana (mon a sun)", text))
 }
 
-fn second_of_day(now: Option<u64>) -> Result<u32, ConditionError> {
+const MS_PER_MINUTE: u64 = 60_000;
+const MS_PER_DAY: u64 = 86_400_000;
+
+fn minute_of_day(now: Option<u64>) -> Result<u32, ConditionError> {
     let now = now.ok_or_else(|| ConditionError::MissingAttribute("now".to_string()))?;
-    u32::try_from(now % 86_400).map_err(|_| ConditionError::BadPath("now".to_string()))
+    u32::try_from(now % MS_PER_DAY / MS_PER_MINUTE).map_err(|_| ConditionError::BadPath("now".to_string()))
 }
 
 fn weekday_of(now: Option<u64>) -> Result<u8, ConditionError> {
     let now = now.ok_or_else(|| ConditionError::MissingAttribute("now".to_string()))?;
     // Day 0 of the epoch, 1970-01-01, was a Thursday.
-    u8::try_from((now / 86_400 + 3) % 7).map_err(|_| ConditionError::BadPath("now".to_string()))
+    u8::try_from((now / MS_PER_DAY + 3) % 7).map_err(|_| ConditionError::BadPath("now".to_string()))
 }
 
 pub type ConditionFn = Arc<dyn Fn(&[Value]) -> Result<bool, ConditionError> + Send + Sync>;
@@ -802,28 +811,30 @@ mod tests {
         assert!(is_mismatch(holds(&Condition::ip_in(lit("10.0.0.1"), head))));
     }
 
-    const HOUR: u64 = 3600;
+    const MINUTE: u64 = 60_000;
+    const HOUR: u64 = 60 * MINUTE;
+    const DAY: u64 = 24 * HOUR;
     // 2024-01-01 was a Monday.
-    const MONDAY: u64 = 1_704_067_200;
+    const MONDAY: u64 = 1_704_067_200_000;
 
     #[test]
     fn time_between_is_half_open_in_utc() {
         let c = Condition::time_between("09:00", "17:30");
-        assert_eq!(holds_at(&c, MONDAY + 8 * HOUR + 59 * 60), Ok(false));
+        assert_eq!(holds_at(&c, MONDAY + 8 * HOUR + 59 * MINUTE), Ok(false));
         assert_eq!(holds_at(&c, MONDAY + 9 * HOUR), Ok(true));
-        assert_eq!(holds_at(&c, MONDAY + 17 * HOUR + 29 * 60 + 59), Ok(true));
-        assert_eq!(holds_at(&c, MONDAY + 17 * HOUR + 30 * 60), Ok(false));
+        assert_eq!(holds_at(&c, MONDAY + 17 * HOUR + 29 * MINUTE + 59_999), Ok(true));
+        assert_eq!(holds_at(&c, MONDAY + 17 * HOUR + 30 * MINUTE), Ok(false));
         assert_eq!(holds_at(&c, 0), Ok(false), "the epoch is midnight UTC");
     }
 
     #[test]
     fn time_between_accepts_a_window_that_crosses_midnight() {
         let c = Condition::time_between("22:00", "06:00");
-        assert_eq!(holds_at(&c, MONDAY + 21 * HOUR + 59 * 60), Ok(false));
+        assert_eq!(holds_at(&c, MONDAY + 21 * HOUR + 59 * MINUTE), Ok(false));
         assert_eq!(holds_at(&c, MONDAY + 22 * HOUR), Ok(true));
-        assert_eq!(holds_at(&c, MONDAY + 23 * HOUR + 59 * 60), Ok(true));
+        assert_eq!(holds_at(&c, MONDAY + 23 * HOUR + 59 * MINUTE), Ok(true));
         assert_eq!(holds_at(&c, MONDAY), Ok(true), "midnight");
-        assert_eq!(holds_at(&c, MONDAY + 5 * HOUR + 59 * 60), Ok(true));
+        assert_eq!(holds_at(&c, MONDAY + 5 * HOUR + 59 * MINUTE), Ok(true));
         assert_eq!(holds_at(&c, MONDAY + 6 * HOUR), Ok(false));
         assert_eq!(holds_at(&c, MONDAY + 12 * HOUR), Ok(false));
         let to_midnight = Condition::time_between("22:00", "00:00");
@@ -850,9 +861,9 @@ mod tests {
     fn weekday_in_reads_the_utc_weekday() {
         let c = Condition::weekday_in(["mon", "sun"]);
         assert_eq!(holds_at(&c, MONDAY), Ok(true));
-        assert_eq!(holds_at(&c, MONDAY + 24 * HOUR - 1), Ok(true));
-        assert_eq!(holds_at(&c, MONDAY + 24 * HOUR), Ok(false), "tuesday");
-        assert_eq!(holds_at(&c, MONDAY + 6 * 24 * HOUR), Ok(true), "sunday");
+        assert_eq!(holds_at(&c, MONDAY + DAY - 1), Ok(true));
+        assert_eq!(holds_at(&c, MONDAY + DAY), Ok(false), "tuesday");
+        assert_eq!(holds_at(&c, MONDAY + 6 * DAY), Ok(true), "sunday");
         assert_eq!(holds_at(&c, 0), Ok(false), "the epoch was a thursday");
         assert_eq!(holds_at(&Condition::weekday_in(["thu"]), 0), Ok(true));
         assert_eq!(holds_at(&Condition::weekday_in(Vec::<String>::new()), MONDAY), Ok(false));
