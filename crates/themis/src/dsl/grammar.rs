@@ -617,8 +617,11 @@ pub(crate) fn matcher(cur: &mut Cursor) -> PResult<SubjectMatcher> {
 
 // ---- conditions ---------------------------------------------------------------------------
 
+/// Builds a condition from its two operands.
+type BinaryCondition = fn(Operand, Operand) -> Condition;
+
 /// The operators written between two operands as a word, besides `in` and `ip_in`.
-const WORD_OPERATORS: [(&str, fn(Operand, Operand) -> Condition); 5] = [
+const WORD_OPERATORS: [(&str, BinaryCondition); 5] = [
     ("starts_with", Condition::starts_with),
     ("ends_with", Condition::ends_with),
     ("contains", Condition::contains),
