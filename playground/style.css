@@ -179,7 +179,7 @@ svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none;
 
 /* Syntax: colour by role in the decision, not by token class. */
 .t-kw   { color: var(--jade); font-weight: 600; }          /* declares something */
-.t-rel  { color: var(--mute); }                              /* relates things: needs, inherits, when */
+.t-rel  { color: var(--mute); }                              /* relates things: depends_on, inherits, when */
 .t-perm { color: var(--ink); }                               /* what is asked */
 .t-ref  { color: var(--gold-ink); }                          /* who and where: user:ana, org:acme */
 .t-id   { color: var(--ink); font-weight: 700; }             /* grant ids */
