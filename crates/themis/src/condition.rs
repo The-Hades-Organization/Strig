@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -64,6 +65,47 @@ pub enum Condition {
         item: Operand,
         set: Operand,
     },
+    /// Text `left` starts with text `right`.
+    StartsWith {
+        left: Operand,
+        right: Operand,
+    },
+    /// Text `left` ends with text `right`.
+    EndsWith {
+        left: Operand,
+        right: Operand,
+    },
+    /// Text `left` contains text `right` as a substring, or list `left` has `right` as an element.
+    Contains {
+        left: Operand,
+        right: Operand,
+    },
+    /// The list `left` has at least one element that belongs to the list `right`.
+    AnyIn {
+        left: Operand,
+        right: Operand,
+    },
+    /// Every element of the list `left` belongs to the list `right`; an empty `left` holds.
+    AllIn {
+        left: Operand,
+        right: Operand,
+    },
+    /// The IPv4 or IPv6 address `item` lies inside the CIDR `set`, or inside one of the CIDRs of
+    /// the list `set`. An address without a prefix length stands for a single host.
+    IpIn {
+        item: Operand,
+        set: Operand,
+    },
+    /// The UTC time of day of the decision instant is in `[from, until)`, both as `HH:MM`. A window
+    /// with `from` after `until` crosses midnight; equal bounds make an empty window.
+    TimeBetween {
+        from: String,
+        until: String,
+    },
+    /// The UTC weekday of the decision instant is one of `days` (`mon` to `sun`).
+    WeekdayIn {
+        days: Vec<String>,
+    },
     /// The attribute exists.
     Exists {
         attr: String,
@@ -114,6 +156,43 @@ impl Condition {
         Self::In { item, set }
     }
 
+    pub fn starts_with(left: Operand, right: Operand) -> Self {
+        Self::StartsWith { left, right }
+    }
+
+    pub fn ends_with(left: Operand, right: Operand) -> Self {
+        Self::EndsWith { left, right }
+    }
+
+    pub fn contains(left: Operand, right: Operand) -> Self {
+        Self::Contains { left, right }
+    }
+
+    pub fn any_in(left: Operand, right: Operand) -> Self {
+        Self::AnyIn { left, right }
+    }
+
+    pub fn all_in(left: Operand, right: Operand) -> Self {
+        Self::AllIn { left, right }
+    }
+
+    pub fn ip_in(item: Operand, set: Operand) -> Self {
+        Self::IpIn { item, set }
+    }
+
+    pub fn time_between(from: impl Into<String>, until: impl Into<String>) -> Self {
+        Self::TimeBetween {
+            from: from.into(),
+            until: until.into(),
+        }
+    }
+
+    pub fn weekday_in<S: Into<String>>(days: impl IntoIterator<Item = S>) -> Self {
+        Self::WeekdayIn {
+            days: days.into_iter().map(Into::into).collect(),
+        }
+    }
+
     pub fn exists(attr: impl Into<String>) -> Self {
         Self::Exists { attr: attr.into() }
     }
@@ -158,7 +237,20 @@ impl Condition {
         }
     }
 
+    /// Evaluates without a decision instant: the time conditions fail with a missing `now`.
     pub fn evaluate(&self, ctx: &EvalContext<'_>, registry: &ConditionRegistry) -> Result<bool, ConditionError> {
+        self.evaluate_at(ctx, registry, None)
+    }
+
+    /// Evaluates at `now`, in seconds since the Unix epoch, the instant that `time_between` and
+    /// `weekday_in` read, always in UTC. The core reads no clock; without an instant those two fail
+    /// with [`ConditionError::MissingAttribute`], so an `allow` they guard does not apply.
+    pub fn evaluate_at(
+        &self,
+        ctx: &EvalContext<'_>,
+        registry: &ConditionRegistry,
+        now: Option<u64>,
+    ) -> Result<bool, ConditionError> {
         match self {
             Condition::Eq { left, right } => Ok(ctx.operand(left)?.loosely_eq(&ctx.operand(right)?)),
             Condition::Ne { left, right } => Ok(!ctx.operand(left)?.loosely_eq(&ctx.operand(right)?)),
@@ -175,10 +267,82 @@ impl Condition {
                     "in: o conjunto precisa ser lista".to_string(),
                 )),
             },
+            Condition::StartsWith { left, right } => ctx.text("starts_with", left, right, |t, p| t.starts_with(p)),
+            Condition::EndsWith { left, right } => ctx.text("ends_with", left, right, |t, p| t.ends_with(p)),
+            Condition::Contains { left, right } => match ctx.operand(left)? {
+                Value::List(values) => {
+                    let item = ctx.operand(right)?;
+                    Ok(values.iter().any(|v| v.loosely_eq(&item)))
+                }
+                Value::Str(text) => match ctx.operand(right)? {
+                    Value::Str(part) => Ok(text.contains(part.as_str())),
+                    other => Err(ConditionError::TypeMismatch(format!(
+                        "contains: texto só contém texto, veio {other:?}"
+                    ))),
+                },
+                other => Err(ConditionError::TypeMismatch(format!(
+                    "contains: o lado esquerdo precisa ser texto ou lista, veio {other:?}"
+                ))),
+            },
+            Condition::AnyIn { left, right } => {
+                let (items, set) = ctx.lists("any_in", left, right)?;
+                Ok(items.iter().any(|i| set.iter().any(|v| v.loosely_eq(i))))
+            }
+            Condition::AllIn { left, right } => {
+                let (items, set) = ctx.lists("all_in", left, right)?;
+                Ok(items.iter().all(|i| set.iter().any(|v| v.loosely_eq(i))))
+            }
+            Condition::IpIn { item, set } => {
+                let addr = match ctx.operand(item)? {
+                    Value::Str(text) => parse_addr(&text)?,
+                    other => {
+                        return Err(ConditionError::TypeMismatch(format!(
+                            "ip_in: o endereço precisa ser texto, veio {other:?}"
+                        )));
+                    }
+                };
+                match ctx.operand(set)? {
+                    Value::Str(cidr) => Ok(Cidr::parse(&cidr)?.contains(addr)),
+                    Value::List(values) => {
+                        for value in &values {
+                            let Value::Str(cidr) = value else {
+                                return Err(ConditionError::TypeMismatch(format!(
+                                    "ip_in: CIDR precisa ser texto, veio {value:?}"
+                                )));
+                            };
+                            if Cidr::parse(cidr)?.contains(addr) {
+                                return Ok(true);
+                            }
+                        }
+                        Ok(false)
+                    }
+                    other => Err(ConditionError::TypeMismatch(format!(
+                        "ip_in: o conjunto precisa ser CIDR ou lista de CIDRs, veio {other:?}"
+                    ))),
+                }
+            }
+            Condition::TimeBetween { from, until } => {
+                let (from, until) = (parse_clock(from)?, parse_clock(until)?);
+                let at = second_of_day(now)? / 60;
+                Ok(if from <= until {
+                    from <= at && at < until
+                } else {
+                    at >= from || at < until
+                })
+            }
+            Condition::WeekdayIn { days } => {
+                let today = weekday_of(now)?;
+                for day in days {
+                    if parse_weekday(day)? == today {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
             Condition::Exists { attr } => Ok(ctx.resolve(attr)?.is_some()),
             Condition::All { of } => {
                 for cond in of {
-                    if !cond.evaluate(ctx, registry)? {
+                    if !cond.evaluate_at(ctx, registry, now)? {
                         return Ok(false);
                     }
                 }
@@ -186,13 +350,13 @@ impl Condition {
             }
             Condition::Any { of } => {
                 for cond in of {
-                    if cond.evaluate(ctx, registry)? {
+                    if cond.evaluate_at(ctx, registry, now)? {
                         return Ok(true);
                     }
                 }
                 Ok(false)
             }
-            Condition::Not { cond } => Ok(!cond.evaluate(ctx, registry)?),
+            Condition::Not { cond } => Ok(!cond.evaluate_at(ctx, registry, now)?),
             Condition::Call { func, args } => {
                 let f = registry
                     .get(func)
@@ -253,6 +417,26 @@ impl EvalContext<'_> {
         }
     }
 
+    fn text(
+        &self,
+        op: &str,
+        left: &Operand,
+        right: &Operand,
+        test: impl Fn(&str, &str) -> bool,
+    ) -> Result<bool, ConditionError> {
+        match (self.operand(left)?, self.operand(right)?) {
+            (Value::Str(l), Value::Str(r)) => Ok(test(&l, &r)),
+            (l, r) => Err(ConditionError::TypeMismatch(format!("{op}: {l:?} e {r:?} precisam ser texto"))),
+        }
+    }
+
+    fn lists(&self, op: &str, left: &Operand, right: &Operand) -> Result<(Vec<Value>, Vec<Value>), ConditionError> {
+        match (self.operand(left)?, self.operand(right)?) {
+            (Value::List(l), Value::List(r)) => Ok((l, r)),
+            (l, r) => Err(ConditionError::TypeMismatch(format!("{op}: {l:?} e {r:?} precisam ser listas"))),
+        }
+    }
+
     fn order(
         &self,
         op: &str,
@@ -265,6 +449,100 @@ impl EvalContext<'_> {
             .map(accept)
             .ok_or_else(|| ConditionError::TypeMismatch(format!("{op}: {l:?} e {r:?} não se comparam")))
     }
+}
+
+fn bad_value(what: &str, text: &str) -> ConditionError {
+    ConditionError::TypeMismatch(format!("{what} inválido: {text:?}"))
+}
+
+/// An address with an IPv4-mapped IPv6 form read as the IPv4 address it wraps.
+fn parse_addr(text: &str) -> Result<IpAddr, ConditionError> {
+    text.parse::<IpAddr>()
+        .map(|a| a.to_canonical())
+        .map_err(|_| bad_value("endereço IP", text))
+}
+
+/// A CIDR block, normalized so that IPv4 and its IPv4-mapped IPv6 spelling are the same block.
+struct Cidr {
+    network: IpAddr,
+    prefix: u8,
+}
+
+impl Cidr {
+    fn parse(text: &str) -> Result<Self, ConditionError> {
+        let (addr, prefix) = match text.split_once('/') {
+            Some((addr, prefix)) => (addr, Some(prefix)),
+            None => (text, None),
+        };
+        let addr: IpAddr = addr.parse().map_err(|_| bad_value("CIDR", text))?;
+        let max: u8 = if addr.is_ipv4() { 32 } else { 128 };
+        let prefix = match prefix {
+            None => max,
+            Some(p) => p
+                .parse::<u8>()
+                .ok()
+                .filter(|p| *p <= max)
+                .ok_or_else(|| bad_value("CIDR", text))?,
+        };
+        // `::ffff:a.b.c.d/n` with n >= 96 is the IPv4 block `a.b.c.d/(n - 96)`.
+        if let IpAddr::V6(v6) = addr
+            && prefix >= 96
+            && let Some(v4) = v6.to_ipv4_mapped()
+        {
+            return Ok(Self {
+                network: IpAddr::V4(v4),
+                prefix: prefix - 96,
+            });
+        }
+        Ok(Self { network: addr, prefix })
+    }
+
+    fn contains(&self, addr: IpAddr) -> bool {
+        match (self.network, addr) {
+            (IpAddr::V4(n), IpAddr::V4(a)) => {
+                let mask = u32::MAX.checked_shl(32 - u32::from(self.prefix)).unwrap_or(0);
+                u32::from(n) & mask == u32::from(a) & mask
+            }
+            (IpAddr::V6(n), IpAddr::V6(a)) => {
+                let mask = u128::MAX.checked_shl(128 - u32::from(self.prefix)).unwrap_or(0);
+                u128::from(n) & mask == u128::from(a) & mask
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Minutes since midnight of an `HH:MM` clock time.
+pub(crate) fn parse_clock(text: &str) -> Result<u32, ConditionError> {
+    let parsed = text.split_once(':').and_then(|(h, m)| {
+        let digits = |s: &str| s.len() == 2 && s.bytes().all(|b| b.is_ascii_digit());
+        if !digits(h) || !digits(m) {
+            return None;
+        }
+        let (h, m) = (h.parse::<u32>().ok()?, m.parse::<u32>().ok()?);
+        (h < 24 && m < 60).then_some(h * 60 + m)
+    });
+    parsed.ok_or_else(|| bad_value("horário (use HH:MM)", text))
+}
+
+/// Day of the week, 0 for Monday.
+pub(crate) fn parse_weekday(text: &str) -> Result<u8, ConditionError> {
+    const DAYS: [&str; 7] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+    DAYS.iter()
+        .position(|d| *d == text)
+        .and_then(|i| u8::try_from(i).ok())
+        .ok_or_else(|| bad_value("dia da semana (mon a sun)", text))
+}
+
+fn second_of_day(now: Option<u64>) -> Result<u32, ConditionError> {
+    let now = now.ok_or_else(|| ConditionError::MissingAttribute("now".to_string()))?;
+    u32::try_from(now % 86_400).map_err(|_| ConditionError::BadPath("now".to_string()))
+}
+
+fn weekday_of(now: Option<u64>) -> Result<u8, ConditionError> {
+    let now = now.ok_or_else(|| ConditionError::MissingAttribute("now".to_string()))?;
+    // Day 0 of the epoch, 1970-01-01, was a Thursday.
+    u8::try_from((now / 86_400 + 3) % 7).map_err(|_| ConditionError::BadPath("now".to_string()))
 }
 
 pub type ConditionFn = Arc<dyn Fn(&[Value]) -> Result<bool, ConditionError> + Send + Sync>;
@@ -366,5 +644,246 @@ mod tests {
         .unwrap();
         let s = Subject::user("bob");
         assert!(eval(&cond, &s, &Resource::new("doc", "d"), &Attributes::new()).unwrap());
+    }
+
+    // ---- string, set, network and time conditions ----
+
+    fn lit(v: impl Into<Value>) -> Operand {
+        Operand::lit(v)
+    }
+
+    fn holds(cond: &Condition) -> Result<bool, ConditionError> {
+        let (s, r) = (Subject::user("u"), Resource::new("doc", "d"));
+        cond.evaluate(
+            &EvalContext {
+                subject: &s,
+                resource: &r,
+                env: &Attributes::new(),
+            },
+            &ConditionRegistry::new(),
+        )
+    }
+
+    fn holds_at(cond: &Condition, now: u64) -> Result<bool, ConditionError> {
+        let (s, r) = (Subject::user("u"), Resource::new("doc", "d"));
+        cond.evaluate_at(
+            &EvalContext {
+                subject: &s,
+                resource: &r,
+                env: &Attributes::new(),
+            },
+            &ConditionRegistry::new(),
+            Some(now),
+        )
+    }
+
+    fn is_mismatch(r: Result<bool, ConditionError>) -> bool {
+        matches!(r, Err(ConditionError::TypeMismatch(_)))
+    }
+
+    #[test]
+    fn text_conditions_match_prefix_suffix_and_substring() {
+        assert_eq!(holds(&Condition::starts_with(lit("draft-1"), lit("draft"))), Ok(true));
+        assert_eq!(holds(&Condition::starts_with(lit("draft-1"), lit("final"))), Ok(false));
+        assert_eq!(holds(&Condition::ends_with(lit("a.pdf"), lit(".pdf"))), Ok(true));
+        assert_eq!(holds(&Condition::ends_with(lit("a.pdf"), lit(".txt"))), Ok(false));
+        assert_eq!(holds(&Condition::contains(lit("a-b-c"), lit("-b-"))), Ok(true));
+        assert_eq!(holds(&Condition::contains(lit("abc"), lit("x"))), Ok(false));
+    }
+
+    #[test]
+    fn text_conditions_treat_the_empty_text_as_prefix_suffix_and_substring_of_everything() {
+        assert_eq!(holds(&Condition::starts_with(lit("abc"), lit(""))), Ok(true));
+        assert_eq!(holds(&Condition::ends_with(lit("abc"), lit(""))), Ok(true));
+        assert_eq!(holds(&Condition::contains(lit("abc"), lit(""))), Ok(true));
+        assert_eq!(holds(&Condition::starts_with(lit(""), lit("a"))), Ok(false));
+        assert_eq!(holds(&Condition::contains(lit(""), lit(""))), Ok(true));
+    }
+
+    #[test]
+    fn text_conditions_reject_operands_that_are_not_text() {
+        assert!(is_mismatch(holds(&Condition::starts_with(lit(1), lit("a")))));
+        assert!(is_mismatch(holds(&Condition::ends_with(lit("a"), lit(true)))));
+        assert!(is_mismatch(holds(&Condition::contains(lit("a"), lit(1)))));
+        assert!(is_mismatch(holds(&Condition::contains(lit(1), lit(1)))));
+    }
+
+    #[test]
+    fn contains_on_a_list_is_membership_with_loose_numbers() {
+        let list = lit(Value::from(vec!["a", "b"]));
+        assert_eq!(holds(&Condition::contains(list.clone(), lit("b"))), Ok(true));
+        assert_eq!(holds(&Condition::contains(list, lit("c"))), Ok(false));
+        let nums = lit(Value::List(vec![Value::Int(1), Value::Int(2)]));
+        assert_eq!(holds(&Condition::contains(nums, lit(2.0))), Ok(true));
+        assert_eq!(holds(&Condition::contains(lit(Value::List(vec![])), lit("a"))), Ok(false));
+    }
+
+    #[test]
+    fn missing_attribute_in_a_new_condition_is_an_error() {
+        let cond = Condition::contains(Operand::attr("subject.tags"), lit("a"));
+        assert_eq!(holds(&cond), Err(ConditionError::MissingAttribute("subject.tags".to_string())));
+    }
+
+    #[test]
+    fn any_in_needs_one_common_element() {
+        let set = lit(Value::from(vec!["a", "b"]));
+        assert_eq!(holds(&Condition::any_in(lit(Value::from(vec!["x", "b"])), set.clone())), Ok(true));
+        assert_eq!(holds(&Condition::any_in(lit(Value::from(vec!["x", "y"])), set.clone())), Ok(false));
+        assert_eq!(holds(&Condition::any_in(lit(Value::List(vec![])), set.clone())), Ok(false));
+        assert_eq!(
+            holds(&Condition::any_in(lit(Value::from(vec!["a"])), lit(Value::List(vec![])))),
+            Ok(false)
+        );
+        assert!(is_mismatch(holds(&Condition::any_in(lit("a"), set))));
+    }
+
+    #[test]
+    fn all_in_needs_every_element_and_an_empty_list_holds() {
+        let set = lit(Value::from(vec!["a", "b"]));
+        assert_eq!(holds(&Condition::all_in(lit(Value::from(vec!["a", "b"])), set.clone())), Ok(true));
+        assert_eq!(holds(&Condition::all_in(lit(Value::from(vec!["a", "x"])), set.clone())), Ok(false));
+        assert_eq!(holds(&Condition::all_in(lit(Value::List(vec![])), set.clone())), Ok(true));
+        assert_eq!(
+            holds(&Condition::all_in(lit(Value::from(vec!["a"])), lit(Value::List(vec![])))),
+            Ok(false)
+        );
+        assert!(is_mismatch(holds(&Condition::all_in(set, lit("a")))));
+    }
+
+    #[test]
+    fn ip_in_matches_ipv4_and_ipv6_blocks() {
+        let v4 = |ip: &str, cidr: &str| holds(&Condition::ip_in(lit(ip), lit(cidr)));
+        assert_eq!(v4("10.1.2.3", "10.0.0.0/8"), Ok(true));
+        assert_eq!(v4("11.0.0.1", "10.0.0.0/8"), Ok(false));
+        assert_eq!(v4("10.0.0.1", "10.0.0.1"), Ok(true), "no prefix is a single host");
+        assert_eq!(v4("10.0.0.2", "10.0.0.1"), Ok(false));
+        assert_eq!(v4("1.2.3.4", "0.0.0.0/0"), Ok(true));
+        assert_eq!(v4("2001:db8::1", "2001:db8::/32"), Ok(true));
+        assert_eq!(v4("2001:db9::1", "2001:db8::/32"), Ok(false));
+        assert_eq!(v4("::1", "::1/128"), Ok(true));
+        assert_eq!(v4("2001:db8::1", "::/0"), Ok(true));
+        assert_eq!(v4("10.0.0.1", "2001:db8::/32"), Ok(false), "families do not mix");
+    }
+
+    #[test]
+    fn ip_in_reads_an_ipv4_mapped_ipv6_address_as_ipv4() {
+        let ip = |ip: &str, cidr: &str| holds(&Condition::ip_in(lit(ip), lit(cidr)));
+        assert_eq!(ip("::ffff:10.1.2.3", "10.0.0.0/8"), Ok(true));
+        assert_eq!(ip("::ffff:11.1.2.3", "10.0.0.0/8"), Ok(false));
+        assert_eq!(ip("10.1.2.3", "::ffff:10.0.0.0/104"), Ok(true));
+        assert_eq!(ip("10.1.2.3", "::ffff:11.0.0.0/104"), Ok(false));
+        assert_eq!(ip("::ffff:10.1.2.3", "::ffff:10.0.0.0/104"), Ok(true));
+    }
+
+    #[test]
+    fn ip_in_takes_a_list_of_blocks() {
+        let blocks = lit(Value::from(vec!["10.0.0.0/8", "192.168.0.0/16"]));
+        assert_eq!(holds(&Condition::ip_in(lit("192.168.1.1"), blocks.clone())), Ok(true));
+        assert_eq!(holds(&Condition::ip_in(lit("172.16.0.1"), blocks)), Ok(false));
+        assert_eq!(
+            holds(&Condition::ip_in(lit("10.0.0.1"), lit(Value::List(vec![])))),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn ip_in_rejects_invalid_addresses_and_blocks() {
+        for bad in ["10.0.0.0/33", "10.0.0.0/", "10.0.0.0/-1", "10.0.0/8", "nope", "", "::1/129", "10.0.0.0/8/8"] {
+            assert!(is_mismatch(holds(&Condition::ip_in(lit("10.0.0.1"), lit(bad)))), "{bad}");
+        }
+        assert!(is_mismatch(holds(&Condition::ip_in(lit("10.0.0.256"), lit("10.0.0.0/8")))));
+        assert!(is_mismatch(holds(&Condition::ip_in(lit(5), lit("10.0.0.0/8")))));
+        assert!(is_mismatch(holds(&Condition::ip_in(lit("10.0.0.1"), lit(5)))));
+        assert!(is_mismatch(holds(&Condition::ip_in(lit("10.0.0.1"), lit(Value::List(vec![Value::Int(1)]))))));
+        // a bad block after a match is not reached, one before it fails
+        let tail = lit(Value::from(vec!["10.0.0.0/8", "bad"]));
+        assert_eq!(holds(&Condition::ip_in(lit("10.0.0.1"), tail)), Ok(true));
+        let head = lit(Value::from(vec!["bad", "10.0.0.0/8"]));
+        assert!(is_mismatch(holds(&Condition::ip_in(lit("10.0.0.1"), head))));
+    }
+
+    const HOUR: u64 = 3600;
+    // 2024-01-01 was a Monday.
+    const MONDAY: u64 = 1_704_067_200;
+
+    #[test]
+    fn time_between_is_half_open_in_utc() {
+        let c = Condition::time_between("09:00", "17:30");
+        assert_eq!(holds_at(&c, MONDAY + 8 * HOUR + 59 * 60), Ok(false));
+        assert_eq!(holds_at(&c, MONDAY + 9 * HOUR), Ok(true));
+        assert_eq!(holds_at(&c, MONDAY + 17 * HOUR + 29 * 60 + 59), Ok(true));
+        assert_eq!(holds_at(&c, MONDAY + 17 * HOUR + 30 * 60), Ok(false));
+        assert_eq!(holds_at(&c, 0), Ok(false), "the epoch is midnight UTC");
+    }
+
+    #[test]
+    fn time_between_accepts_a_window_that_crosses_midnight() {
+        let c = Condition::time_between("22:00", "06:00");
+        assert_eq!(holds_at(&c, MONDAY + 21 * HOUR + 59 * 60), Ok(false));
+        assert_eq!(holds_at(&c, MONDAY + 22 * HOUR), Ok(true));
+        assert_eq!(holds_at(&c, MONDAY + 23 * HOUR + 59 * 60), Ok(true));
+        assert_eq!(holds_at(&c, MONDAY), Ok(true), "midnight");
+        assert_eq!(holds_at(&c, MONDAY + 5 * HOUR + 59 * 60), Ok(true));
+        assert_eq!(holds_at(&c, MONDAY + 6 * HOUR), Ok(false));
+        assert_eq!(holds_at(&c, MONDAY + 12 * HOUR), Ok(false));
+        let to_midnight = Condition::time_between("22:00", "00:00");
+        assert_eq!(holds_at(&to_midnight, MONDAY + 23 * HOUR), Ok(true));
+        assert_eq!(holds_at(&to_midnight, MONDAY), Ok(false));
+    }
+
+    #[test]
+    fn time_between_with_equal_bounds_is_an_empty_window() {
+        let c = Condition::time_between("09:00", "09:00");
+        assert_eq!(holds_at(&c, MONDAY + 9 * HOUR), Ok(false));
+        assert_eq!(holds_at(&c, MONDAY), Ok(false));
+    }
+
+    #[test]
+    fn time_between_rejects_malformed_clock_times() {
+        for bad in ["24:00", "9:00", "09:60", "09-00", "", "09:00:00", "ab:cd"] {
+            let c = Condition::time_between(bad, "10:00");
+            assert!(is_mismatch(holds_at(&c, MONDAY)), "{bad}");
+        }
+    }
+
+    #[test]
+    fn weekday_in_reads_the_utc_weekday() {
+        let c = Condition::weekday_in(["mon", "sun"]);
+        assert_eq!(holds_at(&c, MONDAY), Ok(true));
+        assert_eq!(holds_at(&c, MONDAY + 24 * HOUR - 1), Ok(true));
+        assert_eq!(holds_at(&c, MONDAY + 24 * HOUR), Ok(false), "tuesday");
+        assert_eq!(holds_at(&c, MONDAY + 6 * 24 * HOUR), Ok(true), "sunday");
+        assert_eq!(holds_at(&c, 0), Ok(false), "the epoch was a thursday");
+        assert_eq!(holds_at(&Condition::weekday_in(["thu"]), 0), Ok(true));
+        assert_eq!(holds_at(&Condition::weekday_in(Vec::<String>::new()), MONDAY), Ok(false));
+        assert!(is_mismatch(holds_at(&Condition::weekday_in(["monday"]), MONDAY)));
+    }
+
+    #[test]
+    fn time_conditions_without_an_instant_are_an_error_that_closes_access() {
+        let missing = Err(ConditionError::MissingAttribute("now".to_string()));
+        assert_eq!(holds(&Condition::time_between("00:00", "23:59")), missing);
+        assert_eq!(holds(&Condition::weekday_in(["mon"])), missing);
+        let nested = Condition::not(Condition::all([Condition::weekday_in(["mon"])]));
+        assert_eq!(holds(&nested), missing);
+        assert_eq!(holds_at(&nested, MONDAY), Ok(false), "the instant reaches nested conditions");
+    }
+
+    #[test]
+    fn new_conditions_have_their_own_json_shape() {
+        let cases = [
+            r#"{"op":"starts_with","left":{"attr":"resource.id"},"right":"draft"}"#,
+            r#"{"op":"ends_with","left":"a.pdf","right":".pdf"}"#,
+            r#"{"op":"contains","left":["a"],"right":"a"}"#,
+            r#"{"op":"any_in","left":["a"],"right":["a","b"]}"#,
+            r#"{"op":"all_in","left":["a"],"right":["a","b"]}"#,
+            r#"{"op":"ip_in","item":{"attr":"env.ip"},"set":["10.0.0.0/8"]}"#,
+            r#"{"op":"time_between","from":"22:00","until":"06:00"}"#,
+            r#"{"op":"weekday_in","days":["mon","tue"]}"#,
+        ];
+        for json in cases {
+            let cond: Condition = serde_json::from_str(json).unwrap();
+            assert_eq!(serde_json::to_string(&cond).unwrap(), json);
+        }
     }
 }

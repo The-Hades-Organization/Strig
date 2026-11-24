@@ -8,7 +8,7 @@ use crate::catalog::Catalog;
 use crate::condition::{ConditionRegistry, EvalContext};
 use crate::decision::{Decision, Reason, Request};
 use crate::explain::{
-    ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, PrerequisiteStep, Verdict, trace_condition,
+    ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, PrerequisiteStep, Verdict, trace_condition_at,
 };
 use crate::grant::{Effect, Grant, GrantIndex, GrantSource, SubjectMatcher};
 use crate::overrides::Override;
@@ -489,9 +489,9 @@ impl Engine {
         }
         if let Some(condition) = &grant.condition {
             if tracing {
-                judged.condition = Some(trace_condition(condition, eval_ctx, &self.conditions));
+                judged.condition = Some(trace_condition_at(condition, eval_ctx, &self.conditions, ctx.now));
             }
-            match condition.evaluate(eval_ctx, &self.conditions) {
+            match condition.evaluate_at(eval_ctx, &self.conditions, ctx.now) {
                 Ok(true) => {}
                 Ok(false) => {
                     judged.verdict = Verdict::ConditionFalse;
