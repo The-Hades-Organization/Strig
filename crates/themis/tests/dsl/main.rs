@@ -5,6 +5,7 @@ mod corpus;
 mod errors;
 mod format;
 mod handwritten;
+mod hints;
 mod hostile;
 mod notes;
 mod project;
