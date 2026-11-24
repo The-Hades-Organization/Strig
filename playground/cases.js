@@ -79,7 +79,7 @@ broad org
 permission project.view on project label "View project"
 // Reading a document follows from viewing its project.
 permission document.view on project, folder, document implied by project.view
-permission document.edit on project, folder, document needs document.view
+permission document.edit on project, folder, document depends_on document.view
   // never alone
 
 role editor inherits viewer
@@ -121,7 +121,7 @@ catalog
   project.view on project label "View project"
   // Reading a document follows from viewing its project.
   document.view on project, folder, document implied by project.view
-  document.edit on project, folder, document needs document.view
+  document.edit on project, folder, document depends_on document.view
     // never alone
 `,
     },
@@ -355,7 +355,7 @@ grant g-edit {
 kinds doc
 
 permission doc.read on doc
-permission doc.edit on doc needs doc.read
+permission doc.edit on doc depends_on doc.read
 
 role editor
 
@@ -378,7 +378,7 @@ subject user:bruno
 catalog
   kinds doc
   doc.read on doc
-  doc.edit on doc needs doc.read
+  doc.edit on doc depends_on doc.read
 `,
     },
     asks: [

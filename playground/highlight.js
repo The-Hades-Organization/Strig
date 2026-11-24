@@ -1,6 +1,6 @@
 // Syntax highlighting. The colour follows the role of a word in a decision, not its token class.
 const KW = new Set(['language', 'kinds', 'broad', 'strategy', 'depth', 'permission', 'role', 'subject', 'grant', 'catalog', 'engine', 'override', 'always', 'tuple', 'relation', 'relations', 'target_kinds', 'broad_targets', 'assign', 'attrs']);
-const REL = new Set(['inherits', 'implied', 'by', 'implied_by', 'depends_on', 'needs', 'when', 'and', 'or', 'not', 'on', 'in', 'to', 'has', 'as', 'attr', 'principal', 'principals', 'anyone', 'label', 'targets', 'effect', 'scope', 'target', 'user', 'blocks', 'rules', 'actors', 'deny_overrides', 'first_applicable']);
+const REL = new Set(['inherits', 'implied', 'by', 'implied_by', 'depends_on', 'when', 'and', 'or', 'not', 'on', 'in', 'to', 'has', 'as', 'attr', 'principal', 'principals', 'anyone', 'label', 'targets', 'effect', 'scope', 'target', 'user', 'blocks', 'rules', 'actors', 'deny_overrides', 'first_applicable']);
 const TOKEN = /(\/\/.*)|("[^"]*")|(\b(?:user|org|project|folder|document|doc|role|principal|group|team):[A-Za-z0-9_.-]+)|(\bg-[a-z0-9-]+)|(\b[a-z_]+\.[a-z_]+\b)|(\b[A-Za-z_][A-Za-z_0-9]*\b)|(\b\d+\b)|(==|>=|<=|!=|[<>])/g;
 
 export function span(cls, text) {

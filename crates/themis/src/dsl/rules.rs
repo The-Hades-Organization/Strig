@@ -48,7 +48,7 @@ const INVARIANT_WORDS: [&str; 9] = [
 ];
 const PERMISSION_CLAUSES: [&str; 9] = [
     "implied by",
-    "needs",
+    "depends_on",
     "label",
     "about",
     "meta",
@@ -280,7 +280,7 @@ pub(crate) fn permission(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
         let mut def = PermissionDef::new(key.v.clone());
         expect_word(cur, "on", "after the permission key, then the kinds it applies to")?;
         def.targets = marked_words(cur, b, &id, "targets", "a target kind")?;
-        let (mut implied, mut needs, mut label, mut about, mut meta) = (None, None, None, None, None);
+        let (mut implied, mut depends_on, mut label, mut about, mut meta) = (None, None, None, None, None);
         while !cur.at_eof() {
             let clause = cur.word("a clause")?;
             match clause.v.as_str() {
@@ -289,9 +289,12 @@ pub(crate) fn permission(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
                     let list = marked_words(cur, b, &id, "implied_by", "a permission")?;
                     twice(&mut implied, &clause, list)?;
                 }
-                "needs" => {
+                "depends_on" => {
                     let list = marked_words(cur, b, &id, "depends_on", "a permission")?;
-                    twice(&mut needs, &clause, list)?;
+                    twice(&mut depends_on, &clause, list)?;
+                }
+                "needs" => {
+                    return Err(Raw::new(clause.span, "`needs` is now `depends_on`").hint("write: depends_on <ids>"));
                 }
                 "label" => twice(&mut label, &clause, cur.string("the label")?.v)?,
                 "about" => twice(&mut about, &clause, cur.string("the description")?.v)?,
@@ -306,7 +309,7 @@ pub(crate) fn permission(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
             }
         }
         def.implied_by = implied.unwrap_or_default();
-        def.depends_on = needs.unwrap_or_default();
+        def.depends_on = depends_on.unwrap_or_default();
         def.label = label;
         def.description = about;
         def.meta = meta.unwrap_or_default();
@@ -854,7 +857,7 @@ fn wrap_clauses(head: &str, clauses: &[String]) -> String {
 }
 
 /// The pieces of a permission line: its id, what comes before the clauses, and the clauses in the
-/// order `implied by`, `needs`, `label`, `about`, `meta`, then the flags.
+/// order `implied by`, `depends_on`, `label`, `about`, `meta`, then the flags.
 fn permission_parts(def: &PermissionDef) -> Printed<(String, String, Vec<String>)> {
     let key = bp::word(&def.key, "permission key")?;
     let head = format!("{key} on {}", list(&def.targets, "kind")?);
@@ -863,7 +866,7 @@ fn permission_parts(def: &PermissionDef) -> Printed<(String, String, Vec<String>
         clauses.push(format!("implied by {}", list(&def.implied_by, "permission")?));
     }
     if !def.depends_on.is_empty() {
-        clauses.push(format!("needs {}", list(&def.depends_on, "permission")?));
+        clauses.push(format!("depends_on {}", list(&def.depends_on, "permission")?));
     }
     if let Some(label) = &def.label {
         clauses.push(format!("label {}", bp::quote(label)));

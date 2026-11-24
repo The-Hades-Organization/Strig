@@ -34,7 +34,7 @@ permission doc.read on doc
     label \"Read\"
     // between the continuation lines
     about \"Open the document\"
-permission doc.edit on doc needs doc.read  // inline on the first line
+permission doc.edit on doc depends_on doc.read  // inline on the first line
     label \"Edit\"  // inline on a continuation line
 
 role editor

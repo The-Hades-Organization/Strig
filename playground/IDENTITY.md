@@ -93,7 +93,7 @@ Colour follows the **role of the word in the decision**, not the token class.
 | Role | Example | Colour |
 |---|---|---|
 | Declares something | `permission`, `role`, `kinds`, `grant` | `jade`, 600 |
-| Relates things | `needs`, `inherits`, `when`, `on`, `in` | `mute` |
+| Relates things | `depends_on`, `inherits`, `when`, `on`, `in` | `mute` |
 | Who and where | `user:ana`, `org:acme` | `gold-ink` |
 | What is asked | `document.edit` | `ink` |
 | Grant id | `g-edit` | `ink`, 700 |

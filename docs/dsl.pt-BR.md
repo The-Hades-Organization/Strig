@@ -115,7 +115,7 @@ broad org
 permission project.view on project label "View project"
 // Reading a document follows from viewing its project.
 permission document.view on project, folder, document implied by project.view
-permission document.edit on project, folder, document needs document.view
+permission document.edit on project, folder, document depends_on document.view
   // never alone
 
 role editor inherits viewer
@@ -161,7 +161,7 @@ catalog
   project.view on project label "View project"
   // Reading a document follows from viewing its project.
   document.view on project, folder, document implied by project.view
-  document.edit on project, folder, document needs document.view
+  document.edit on project, folder, document depends_on document.view
     // never alone
 ```
 
@@ -424,7 +424,7 @@ Uma instrução por linha. Uma linha recuada mais que a de cima a continua.
 | `broad` | `broad org` |
 | `strategy` | `strategy <nome>` |
 | `depth` | `depth <n>` |
-| `permission` | `permission <id> on <tipos> [implied by <ids>] [needs <ids>] [label "..."] [about "..."] [non-delegable] [management-only] [override-only] [meta k = "v"]` |
+| `permission` | `permission <id> on <tipos> [implied by <ids>] [depends_on <ids>] [label "..."] [about "..."] [non-delegable] [management-only] [override-only] [meta k = "v"]` |
 | `role` | `role <nome> [inherits <nomes>]` |
 | `subject` | `subject team:ops` declara um sujeito; `user:ana has role <nome> [in <escopo>] [from <data>] [until <data>]`, `user:ana has principal <id>` e `user:ana has attr <chave> = <valor>` o preenchem |
 | `relations` | `relations none` declara que a política não usa relações |
