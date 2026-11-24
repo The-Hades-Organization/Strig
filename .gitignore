@@ -1,7 +1,7 @@
 /target
 /.handoff.md
-/crates/themis-node/js/native/
-/crates/themis-node/js/wasm/
-/crates/themis-node/js/node_modules/
-crates/themis-node/js/README.md
+/crates/strig-node/js/native/
+/crates/strig-node/js/wasm/
+/crates/strig-node/js/node_modules/
+crates/strig-node/js/README.md
 /playground/dist/

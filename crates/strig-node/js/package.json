@@ -1,0 +1,53 @@
+{
+  "name": "strig",
+  "version": "0.5.0",
+  "description": "Strig authorization engine (RBAC, ABAC, ReBAC) for Node, Bun and the browser, with real-time permissions.",
+  "license": "MIT",
+  "type": "module",
+  "repository": { "type": "git", "url": "git+https://github.com/The-Hades-Organization/Strig.git", "directory": "crates/strig-node/js" },
+  "files": ["*.js", "*.d.ts", "native/", "wasm/", "README.md"],
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "browser": "./browser.js",
+      "deno": "./browser.js",
+      "bun": "./node.js",
+      "node": "./node.js",
+      "default": "./browser.js"
+    },
+    "./client": { "types": "./client.d.ts", "default": "./client.js" },
+    "./server": { "types": "./server.d.ts", "default": "./server.js" },
+    "./protocol": { "types": "./protocol.d.ts", "default": "./protocol.js" },
+    "./remote": { "types": "./remote.d.ts", "default": "./remote.js" },
+    "./express": { "types": "./express.d.ts", "default": "./express.js" },
+    "./fastify": { "types": "./fastify.d.ts", "default": "./fastify.js" },
+    "./nestjs": { "types": "./nestjs.d.ts", "default": "./nestjs.js" }
+  },
+  "scripts": {
+    "build": "sh ../scripts/build.sh",
+    "test": "node test/run.mjs",
+    "test:bun": "bun test/run.mjs"
+  },
+  "peerDependencies": {
+    "@nestjs/common": ">=10",
+    "express": ">=4",
+    "fastify": ">=4"
+  },
+  "peerDependenciesMeta": {
+    "@nestjs/common": { "optional": true },
+    "express": { "optional": true },
+    "fastify": { "optional": true }
+  },
+  "devDependencies": {
+    "@nestjs/common": "11.0.1",
+    "express": "5.1.0",
+    "fastify": "5.2.1",
+    "pg": "^8.13.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.1"
+  },
+  "engines": {
+    "node": ">=18.17",
+    "bun": ">=1.1"
+  }
+}

@@ -1,0 +1,26 @@
+[package]
+name = "strig-macros"
+description = "Compile-time macros for the Strig policy language."
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+# Pinned with `=`: the expansion embeds the JSON of this exact version. Keep it equal to the
+# workspace version when releasing.
+strig = { path = "../strig", version = "=0.5.0", features = ["dsl"] }
+serde_json.workspace = true
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", default-features = false, features = ["parsing", "proc-macro", "printing"] }
+
+[dev-dependencies]
+trybuild = "=1.0.125"

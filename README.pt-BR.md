@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="Themis: quem pode fazer o quê, e por quê. RBAC, ABAC e ReBAC num motor de decisão para Rust." width="100%">
+  <img src="assets/banner.svg" alt="Strig: quem pode fazer o quê, e por quê. RBAC, ABAC e ReBAC num motor de decisão para Rust." width="100%">
 </p>
 
-# Themis
+# Strig
 
-[![CI](https://github.com/The-Hades-Organization/Themis/actions/workflows/ci.yml/badge.svg)](https://github.com/The-Hades-Organization/Themis/actions/workflows/ci.yml)
+[![CI](https://github.com/The-Hades-Organization/Strig/actions/workflows/ci.yml/badge.svg)](https://github.com/The-Hades-Organization/Strig/actions/workflows/ci.yml)
 [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-blue.svg)](LICENSE)
 ![Rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-orange.svg)
-[![crates.io](https://img.shields.io/crates/v/themis-auth.svg)](https://crates.io/crates/themis-auth)
-[![docs.rs](https://img.shields.io/docsrs/themis-auth)](https://docs.rs/themis-auth)
-[![npm](https://img.shields.io/npm/v/themis-auth.svg)](https://www.npmjs.com/package/themis-auth)
+[![crates.io](https://img.shields.io/crates/v/strig.svg)](https://crates.io/crates/strig)
+[![docs.rs](https://img.shields.io/docsrs/strig)](https://docs.rs/strig)
+[![npm](https://img.shields.io/npm/v/strig.svg)](https://www.npmjs.com/package/strig)
 
 [English](README.md) · **Português (Brasil)**
 
@@ -17,28 +17,28 @@ Biblioteca de autorização em Rust. Um catálogo de permissões validado e um m
 
 O núcleo não faz IO, não depende de runtime assíncrono e compila para WebAssembly. Tempo real, transportes e bindings ficam em crates separados, cada um opcional.
 
-> **Estado:** antes da 1.0. A API ainda pode mudar entre versões menores. As versões saem como `themis-auth` no [crates.io](https://crates.io/crates/themis-auth) (documentação da API no [docs.rs](https://docs.rs/themis-auth)) e no [npm](https://www.npmjs.com/package/themis-auth). A biblioteca mantém o nome `themis`: `use themis::...`.
+> **Estado:** antes da 1.0. A API ainda pode mudar entre versões menores. As versões saem como `strig` no [crates.io](https://crates.io/crates/strig) (documentação da API no [docs.rs](https://docs.rs/strig)) e no [npm](https://www.npmjs.com/package/strig). Antes chamada Themis (crate `themis-auth`, pacote npm `themis-auth`): o projeto foi renomeado para Strig, veja a [nota de migração](#migrando-do-themis).
 
 ## Crates
 
 | Crate | Para que serve | Dependências relevantes |
 |---|---|---|
-| `themis-auth` | Catálogo, motor de decisão, governança, auditoria (feature `audit`, ligada por padrão), spec em JSON | `serde`, `thiserror`; `sha2` e `serde_json` com `audit` |
-| `themis-sync` | Hub de mudanças, trait `Transport`, sessões SSE/WebSocket independentes de framework, cache de capacidades | `tokio` |
-| `themis-redis` | `Transport` sobre Redis pub/sub | `redis` |
-| `themis-postgres` | `Transport` sobre Postgres `LISTEN/NOTIFY`, com aviso dentro da transação | `tokio-postgres` |
-| `themis-axum` | Rotas SSE e WebSocket do axum sobre as sessões do `themis-sync` | `axum` |
-| `themis-inspect` | Visualizador: rastro de cada decisão, simulação de grants, matriz de acesso e leitura da auditoria. Janela gpui opcional (feature `gui`) e comandos de terminal | `gpui-pre`, `gpui-component` |
-| `themis-server` | Servidor HTTP de decisão sobre um `Engine` e uma fonte de grants, e cliente Rust com timeout e circuit breaker que nega quando não recebe resposta | `axum`, `hyper-util` (cliente) |
-| `themis-macros` | `policy!` e `include_policy!`: a política escrita na DSL é validada enquanto o crate compila | `themis-auth` |
-| `themis-node` | Bindings JS: módulo nativo (N-API) para Node e Bun, WebAssembly para navegador, cliente e servidor de tempo real em JS | `napi` ou `wasm-bindgen` |
+| `strig` | Catálogo, motor de decisão, governança, auditoria (feature `audit`, ligada por padrão), spec em JSON | `serde`, `thiserror`; `sha2` e `serde_json` com `audit` |
+| `strig-sync` | Hub de mudanças, trait `Transport`, sessões SSE/WebSocket independentes de framework, cache de capacidades | `tokio` |
+| `strig-redis` | `Transport` sobre Redis pub/sub | `redis` |
+| `strig-postgres` | `Transport` sobre Postgres `LISTEN/NOTIFY`, com aviso dentro da transação | `tokio-postgres` |
+| `strig-axum` | Rotas SSE e WebSocket do axum sobre as sessões do `strig-sync` | `axum` |
+| `strig-inspect` | Visualizador: rastro de cada decisão, simulação de grants, matriz de acesso e leitura da auditoria. Janela gpui opcional (feature `gui`) e comandos de terminal | `gpui-pre`, `gpui-component` |
+| `strig-server` | Servidor HTTP de decisão sobre um `Engine` e uma fonte de grants, e cliente Rust com timeout e circuit breaker que nega quando não recebe resposta | `axum`, `hyper-util` (cliente) |
+| `strig-macros` | `policy!` e `include_policy!`: a política escrita na DSL é validada enquanto o crate compila | `strig` |
+| `strig-node` | Bindings JS: módulo nativo (N-API) para Node e Bun, WebAssembly para navegador, cliente e servidor de tempo real em JS | `napi` ou `wasm-bindgen` |
 
 Dependência a partir de outro crate:
 
 ```toml
 [dependencies]
-themis = { package = "themis-auth", version = "0.5" }
-themis-sync = "0.5"
+strig = "0.5"
+strig-sync = "0.5"
 ```
 
 ## Conceitos
@@ -55,7 +55,7 @@ themis-sync = "0.5"
 ## Uso
 
 ```rust
-use themis::*;
+use strig::*;
 
 let catalog = Catalog::builder()
     .target_kinds(["project", "doc_type", "document"])
@@ -90,7 +90,7 @@ assert!(!decision.is_allowed()); // g2 está num degrau mais específico que g1
 
 A mesma configuração pode vir de JSON, TOML ou YAML por `EngineSpec` (catálogo, herança de papéis, relações, estratégia, overrides). `EngineSpec::builder()` devolve o `EngineBuilder` para acrescentar em código o que não serializa, como funções de condição.
 
-Exemplos: `cargo run -p themis-auth --example documents` (os três modelos juntos) e `cargo run -p themis-axum --example server` (servidor de tempo real).
+Exemplos: `cargo run -p strig --example documents` (os três modelos juntos) e `cargo run -p strig-axum --example server` (servidor de tempo real).
 
 ## Como a decisão sai
 
@@ -190,7 +190,7 @@ Destinos prontos: `MemoryAuditLog` e `JsonLinesAudit` (qualquer `io::Write`). Ba
 
 ### Níveis e armazenamento
 
-Cada nível inclui tudo do anterior. Os tamanhos são do registro de referência (`audit::reference_record`): grant com escopo e condição de duas cláusulas, ids UUID, ator com dois papéis e três metadados de requisição. São bytes de JSON compacto em JSON Lines, sem compressão e sem índice. O teste `estimates_match_reference_records` falha se o tamanho medido se afastar mais de 10% do documentado, e `cargo run -p themis-auth --example audit_storage` mede de novo.
+Cada nível inclui tudo do anterior. Os tamanhos são do registro de referência (`audit::reference_record`): grant com escopo e condição de duas cláusulas, ids UUID, ator com dois papéis e três metadados de requisição. São bytes de JSON compacto em JSON Lines, sem compressão e sem índice. O teste `estimates_match_reference_records` falha se o tamanho medido se afastar mais de 10% do documentado, e `cargo run -p strig --example audit_storage` mede de novo.
 
 | Nível | O que guarda | Bytes por registro | Por 1 milhão de registros |
 |---|---|---|---|
@@ -276,28 +276,28 @@ O aviso (`Change`) diz o tipo da mudança e o degrau afetado, sem os grants. Que
 
 ```rust
 let hub = Hub::builder()
-    .transport(RedisTransport::new("redis://127.0.0.1/", "themis:changes")?)
+    .transport(RedisTransport::new("redis://127.0.0.1/", "strig:changes")?)
     .build();
 let _relay = hub.spawn_relay();
 
 let cache = Arc::new(CapabilityCache::new(Duration::from_secs(30), 10_000));
 hub.on_change(cache.clone());
 let provider = EngineProvider::new(engine, my_grant_loader).with_cache(cache);
-let realtime = themis_axum::Realtime::new(hub).with_provider(Arc::new(provider));
+let realtime = strig_axum::Realtime::new(hub).with_provider(Arc::new(provider));
 // nas rotas: realtime.sse(subject, scopes) ou realtime.websocket(upgrade, subject, scopes)
 ```
 
 Transportes:
 
-- **Redis** (`themis-redis`): pub/sub, publicação com reconexão automática.
-- **Postgres** (`themis-postgres`): `LISTEN/NOTIFY`. `themis_postgres::notify(&tx, canal, &change)` dentro da transação que grava o grant faz o aviso sair só no commit. TLS por `PgTransport::with_tls`.
+- **Redis** (`strig-redis`): pub/sub, publicação com reconexão automática.
+- **Postgres** (`strig-postgres`): `LISTEN/NOTIFY`. `strig_postgres::notify(&tx, canal, &change)` dentro da transação que grava o grant faz o aviso sair só no commit. TLS por `PgTransport::with_tls`.
 - **Próprio**: NATS, Kafka ou outro broker implementam `Transport` (`publish` e `subscribe`).
 
 Protocolo com o cliente (JSON, igual em SSE e WebSocket): o servidor manda `hello`, `capabilities`, `change`, `resync`, `error` e `ping`; o cliente manda `watch`, `unwatch` e `refresh` (só WebSocket). Para usar outro framework HTTP, passe o stream de `Session::open` adiante e escreva cada mensagem com `ServerMessage::to_sse` ou `to_json`.
 
 ## Servidor de decisão e cliente remoto
 
-O `themis-server` responde decisões por HTTP, para serviços que não embutem o engine. `DecisionServer::router()` devolve um `Router` do axum com `POST /v1/check`, `/v1/check/batch`, `/v1/list`, `/v1/who` e `/v1/access`, mais `GET /health/live` e `/health/ready`. O servidor lê os grants por uma `DecisionSource`; a `MemorySource` guarda um `Snapshot` que você pode trocar com `replace`. O instante de uma decisão é o relógio do servidor. O contrato está em [`crates/themis-server/API.md`](crates/themis-server/API.md).
+O `strig-server` responde decisões por HTTP, para serviços que não embutem o engine. `DecisionServer::router()` devolve um `Router` do axum com `POST /v1/check`, `/v1/check/batch`, `/v1/list`, `/v1/who` e `/v1/access`, mais `GET /health/live` e `/health/ready`. O servidor lê os grants por uma `DecisionSource`; a `MemorySource` guarda um `Snapshot` que você pode trocar com `replace`. O instante de uma decisão é o relógio do servidor. O contrato está em [`crates/strig-server/API.md`](crates/strig-server/API.md).
 
 ```rust
 let source = Arc::new(MemorySource::new(Snapshot::new(Arc::new(engine), grants)));
@@ -322,10 +322,10 @@ if client.check(&request).await.is_allowed() {
 
 ## JavaScript: Node, Bun e navegador
 
-Instale com `npm install themis-auth`. O pacote fica em `crates/themis-node/js`. `scripts/build.sh` gera o módulo nativo (`js/native/themis.<plataforma>-<arch>.node`) e o WebAssembly (`js/wasm/`).
+Instale com `npm install strig`. O pacote fica em `crates/strig-node/js`. `scripts/build.sh` gera o módulo nativo (`js/native/strig.<plataforma>-<arch>.node`) e o WebAssembly (`js/wasm/`).
 
 ```js
-import { load } from 'themis-auth';
+import { load } from 'strig';
 const { Engine, Context } = await load(); // nativo em Node/Bun, wasm no navegador
 
 const engine = new Engine(spec); // a mesma EngineSpec do servidor
@@ -334,24 +334,24 @@ engine.check(ctx, { subject, permission: 'document.view', resource });
 engine.apply({ actor, current, mutation: { add: grant }, invariants, audit: { level: 'standard' } });
 ```
 
-Em Node e Bun, `load()` tenta o módulo nativo e cai para o wasm. `THEMIS_BACKEND=native|wasm` força um dos dois.
+Em Node e Bun, `load()` tenta o módulo nativo e cai para o wasm. `STRIG_BACKEND=native|wasm` força um dos dois.
 
 **Frontend.** `PermissionClient` (`/client`) conecta por SSE ou WebSocket, guarda as capacidades de cada escopo e decide localmente com o mesmo motor. A decisão no cliente serve para a interface; o servidor continua decidindo em toda operação.
 
 ```js
-import { PermissionClient } from 'themis-auth/client';
-const client = new PermissionClient({ url: '/permissions/events', scopes, themis, engine }).connect();
+import { PermissionClient } from 'strig/client';
+const client = new PermissionClient({ url: '/permissions/events', scopes, strig, engine }).connect();
 client.on('capabilities', () => render());
 client.can('document.edit', resource);
 ```
 
-**Backend em JS** (`/server`). `Hub`, `openSession`, `sseResponse` (Fetch API: Bun.serve, Hono, Deno), `pipeSse` (`http` do Node) e os transportes `redisTransport` (node-redis e o `RedisClient` do Bun), `ioredisTransport` e `pgTransport` (pacote `pg`). Os avisos têm o mesmo formato do `themis-sync`, então instâncias em Rust e em JS trocam mudanças pelo mesmo canal.
+**Backend em JS** (`/server`). `Hub`, `openSession`, `sseResponse` (Fetch API: Bun.serve, Hono, Deno), `pipeSse` (`http` do Node) e os transportes `redisTransport` (node-redis e o `RedisClient` do Bun), `ioredisTransport` e `pgTransport` (pacote `pg`). Os avisos têm o mesmo formato do `strig-sync`, então instâncias em Rust e em JS trocam mudanças pelo mesmo canal.
 
 **Frameworks web.** Express, Fastify e NestJS decidem em cada rota com as mesmas opções. `subject(req)` devolve o sujeito (nada significa `401`), `resource(req)` o recurso, e exatamente um entre `local: { engine, context, now }` e `remote: RemoteClient` diz de onde vem a decisão. Negar é `403`, não conseguir decidir é `503`, e um erro no seu extrator é `500` sem detalhe, nunca uma passagem. `denyStatus`, `failureStatus`, `unauthenticatedStatus`, `errorStatus` e `onError` mudam isso.
 
 ```js
-import { load, scopeFromString } from 'themis-auth';
-import { authorize } from 'themis-auth/express';
+import { load, scopeFromString } from 'strig';
+import { authorize } from 'strig/express';
 
 const { Engine, Context } = await load();
 const options = {
@@ -363,12 +363,12 @@ const options = {
 app.get('/doc/:id', authorize({ ...options, permission: 'document.view' }), handler);
 ```
 
-- **Fastify** (`themis-auth/fastify`): o mesmo `authorize`, e o `plugin`, que acrescenta `fastify.themisCan`.
-- **NestJS** (`themis-auth/nestjs`): `@Can('document.view')` em um handler ou controller, e `new ThemisGuard(options)` como guarda. Express, Fastify e NestJS são dependências peer opcionais; a integração que você não importa não custa nada, e um peer ausente lança `MissingPeerError`.
-- **Remoto** (`themis-auth/remote`): o `RemoteClient` fala com um servidor de decisão, com timeout e breaker, e nega quando não há resposta. Passe-o como `remote` no lugar de `local`.
+- **Fastify** (`strig/fastify`): o mesmo `authorize`, e o `plugin`, que acrescenta `fastify.strigCan`.
+- **NestJS** (`strig/nestjs`): `@Can('document.view')` em um handler ou controller, e `new StrigGuard(options)` como guarda. Express, Fastify e NestJS são dependências peer opcionais; a integração que você não importa não custa nada, e um peer ausente lança `MissingPeerError`.
+- **Remoto** (`strig/remote`): o `RemoteClient` fala com um servidor de decisão, com timeout e breaker, e nega quando não há resposta. Passe-o como `remote` no lugar de `local`.
 
 ```js
-import { RemoteClient } from 'themis-auth/remote';
+import { RemoteClient } from 'strig/remote';
 const remote = new RemoteClient({ url: 'http://127.0.0.1:8080', timeoutMs: 250 });
 const { allowed } = await remote.check({ subject, permission: 'document.view', resource });
 ```
@@ -377,10 +377,10 @@ Limites dos bindings: funções de condição próprias (`call`) e overrides pr�
 
 ## Linguagem de políticas
 
-Uma política pode ser escrita como texto em vez de JSON, na feature `dsl` do `themis-auth`. São três sintaxes para a mesma política: Blocks, Rules e Actors, e o `convert` passa de uma para outra. Todo erro traz posição e dica, e o JSON validado continua sendo a fonte da verdade. O guia completo, com as três sintaxes lado a lado e a gramática, está em [docs/dsl.pt-BR.md](docs/dsl.pt-BR.md).
+Uma política pode ser escrita como texto em vez de JSON, na feature `dsl` do `strig`. São três sintaxes para a mesma política: Blocks, Rules e Actors, e o `convert` passa de uma para outra. Todo erro traz posição e dica, e o JSON validado continua sendo a fonte da verdade. O guia completo, com as três sintaxes lado a lado e a gramática, está em [docs/dsl.pt-BR.md](docs/dsl.pt-BR.md).
 
 ```rust
-use themis::dsl::{self, Language};
+use strig::dsl::{self, Language};
 
 const SOURCE: &str = "language blocks
 
@@ -391,16 +391,16 @@ permission org.read {
 }
 ";
 
-let parsed = dsl::parse("policy.themis", SOURCE)?;
+let parsed = dsl::parse("policy.strig", SOURCE)?;
 let json = parsed.policy.to_json()?;
 let as_rules = dsl::convert(SOURCE, Language::Rules)?;
 ```
 
 As condições do `when` se escrevem nas três sintaxes como `a starts_with b`, `env.ip ip_in "10.0.0.0/8"`, `time_between "09:00" "17:30"` e `weekday_in ["mon", "tue"]`; o validador recusa um CIDR, um horário ou um dia da semana que não consiga ler. Quando um nome está a um deslize de um declarado (permissão, papel, pai), a dica acrescenta ``did you mean `x`?``.
 
-**Quebra na 0.5.0:** nas sintaxes Rules e Actors, a linha `permission` escreve `depends_on <ids>` onde escrevia `needs <ids>`, a mesma palavra do campo do JSON. `needs` agora é erro, com a dica `write: depends_on <ids>`; troque nos `.themis` existentes, na mesma posição da linha. O JSON não muda.
+**Quebra na 0.5.0:** nas sintaxes Rules e Actors, a linha `permission` escreve `depends_on <ids>` onde escrevia `needs <ids>`, a mesma palavra do campo do JSON. `needs` agora é erro, com a dica `write: depends_on <ids>`; troque nos `.strig` existentes, na mesma posição da linha. O JSON não muda.
 
-`themis::dsl::format` e `is_formatted` reescrevem um texto no layout canônico da sua sintaxe, mantendo os comentários, e `themis-inspect fmt [--check] <arquivo|dir>` faz isso nos arquivos `.themis` (`--check` lista os que mudariam e sai com 1).
+`strig::dsl::format` e `is_formatted` reescrevem um texto no layout canônico da sua sintaxe, mantendo os comentários, e `strig-inspect fmt [--check] <arquivo|dir>` faz isso nos arquivos `.strig` (`--check` lista os que mudariam e sai com 1).
 
 Para experimentar a linguagem sem instalar nada, rode o [playground](playground/README.md): ele roda o motor no navegador. Não há cópia hospedada; gere e sirva localmente:
 
@@ -409,15 +409,15 @@ sh playground/build.sh        # gera o motor WebAssembly e monta playground/dist
 node playground/serve.mjs     # serve em http://127.0.0.1:8080
 ```
 
-Com `dsl-fs`, `themis::dsl::fs::read_dir` lê todos os arquivos `*.themis` de um diretório para um `Project`, e `write_file` grava uma política de volta.
+Com `dsl-fs`, `strig::dsl::fs::read_dir` lê todos os arquivos `*.strig` de um diretório para um `Project`, e `write_file` grava uma política de volta.
 
 ### Linguagem de políticas no Node
 
 A mesma linguagem está no binding JavaScript, nativo e WebAssembly, atrás do `load()`. A política é o JSON canônico, com os comentários em `notes`, e é a mesma para as três sintaxes.
 
 ```js
-import { load } from 'themis-auth';
-const themis = await load();
+import { load } from 'strig';
+const strig = await load();
 
 const source = `language blocks
 
@@ -428,38 +428,38 @@ permission org.read {
 }
 `;
 
-const policy = themis.compile(source, { file: 'policy.themis' }); // JSON canônico
-const rules = themis.print(policy, 'rules'); // 'blocks' | 'rules' | 'actors'
-const actors = themis.convert(source, 'actors'); // texto para texto
-const merged = themis.loadProject([
-  { path: 'org.themis', text: source },
-  { path: 'team.themis', text: themis.convert(source.replaceAll('org', 'team'), 'actors') },
+const policy = strig.compile(source, { file: 'policy.strig' }); // JSON canônico
+const rules = strig.print(policy, 'rules'); // 'blocks' | 'rules' | 'actors'
+const actors = strig.convert(source, 'actors'); // texto para texto
+const merged = strig.loadProject([
+  { path: 'org.strig', text: source },
+  { path: 'team.strig', text: strig.convert(source.replaceAll('org', 'team'), 'actors') },
 ]);
-const fromDisk = themis.loadProjectDir?.('./policy'); // só o módulo nativo
+const fromDisk = strig.loadProjectDir?.('./policy'); // só o módulo nativo
 ```
 
 - `format(source)` devolve o texto no layout canônico da sua sintaxe e `isFormatted(source)` diz se ele já está assim.
-- `loadProjectDir(dir)` existe só no módulo nativo, porque o build WebAssembly não acessa arquivos. Ele lê os arquivos `*.themis` do diretório e recusa um arquivo de política que seja link simbólico. O próprio `dir` deve vir de fonte confiável.
+- `loadProjectDir(dir)` existe só no módulo nativo, porque o build WebAssembly não acessa arquivos. Ele lê os arquivos `*.strig` do diretório e recusa um arquivo de política que seja link simbólico. O próprio `dir` deve vir de fonte confiável.
 - Toda falha é um `Error` com um `code` igual nos dois alvos: `DSL_PARSE`, `DSL_VALIDATE`, `DSL_CONFLICT` (duas fontes declaram a mesma coisa; as duas posições são informadas), `DSL_UNREPRESENTABLE` (a sintaxe não consegue dizer isso), `DSL_UNSUPPORTED`, `DSL_LIMIT` (limite de tamanho ou de quantidade), `DSL_DUPLICATE_SOURCE` (o mesmo `path` duas vezes no `loadProject`) e `DSL_IO` (um arquivo ou um link no `loadProjectDir`; a mensagem traz o caminho, então não a repasse a um cliente remoto).
 - `error.diagnostics` é uma lista de `{ file, line, column, message, hint, related? }`, no máximo 100, com uma última entrada dizendo "and N more" quando sobrou algo. `file`, `line` e `column` são `null` numa política que não veio de texto, e `related` (um `{ file, line, column }`) aparece num `DSL_CONFLICT`.
 
 ```js
 try {
-  themis.compile('language blocks\n\npermission {', { file: 'a.themis' });
+  strig.compile('language blocks\n\npermission {', { file: 'a.strig' });
 } catch (error) {
   error.code; // 'DSL_PARSE'
-  const [first] = error.diagnostics; // first.file === 'a.themis', first.line === 3
+  const [first] = error.diagnostics; // first.file === 'a.strig', first.line === 3
 }
 ```
 
 ## Macros
 
-`policy!` e `include_policy!` (crate `themis-macros`) conferem a política enquanto o crate compila: uma política que não valida não compila. Elas não ficam atrás de uma feature do `themis-auth`; o guia explica [o motivo](docs/dsl.pt-BR.md#macros).
+`policy!` e `include_policy!` (crate `strig-macros`) conferem a política enquanto o crate compila: uma política que não valida não compila. Elas não ficam atrás de uma feature do `strig`; o guia explica [o motivo](docs/dsl.pt-BR.md#macros).
 
 ```rust
-use themis_macros::{include_policy, policy};
+use strig_macros::{include_policy, policy};
 
-let inline: themis::dsl::Policy = policy!(r#"
+let inline: strig::dsl::Policy = policy!(r#"
 language blocks
 
 target_kinds = [org]
@@ -468,27 +468,27 @@ permission org.read {
   targets = [org]
 }
 "#);
-let from_file: themis::dsl::Policy = include_policy!("policies/main.themis");
+let from_file: strig::dsl::Policy = include_policy!("policies/main.strig");
 ```
 
-## Visualizador (`themis-inspect`)
+## Visualizador (`strig-inspect`)
 
-Crate opcional, fora dos `default-members`: `cargo build -p themis-inspect`. A janela usa gpui (`gpui-pre =0.3.11` e `gpui-component =0.9.0`); sem a feature `gui` (`--no-default-features`) sobram a biblioteca e os comandos de terminal.
+Crate opcional, fora dos `default-members`: `cargo build -p strig-inspect`. A janela usa gpui (`gpui-pre =0.3.11` e `gpui-component =0.9.0`); sem a feature `gui` (`--no-default-features`) sobram a biblioteca e os comandos de terminal.
 
 ```sh
-themis-inspect --scenario scenario.json --audit trail.jsonl     # janela
-themis-inspect --scenario scenario.json --subject beto --permission document.export --resource fatura-7 \
+strig-inspect --scenario scenario.json --audit trail.jsonl     # janela
+strig-inspect --scenario scenario.json --subject beto --permission document.export --resource fatura-7 \
                --disable pro-export --tab matriz                 # janela já numa seleção e aba
-themis-inspect explain --scenario scenario.json --subject beto --permission document.view --resource secret
-themis-inspect matrix  --scenario scenario.json --resource secret --disable no-secret --add grant.json
-themis-inspect audit   --audit trail.jsonl --scenario scenario.json
+strig-inspect explain --scenario scenario.json --subject beto --permission document.view --resource secret
+strig-inspect matrix  --scenario scenario.json --resource secret --disable no-secret --add grant.json
+strig-inspect audit   --audit trail.jsonl --scenario scenario.json
 ```
 
-O cenário é um JSON com a política (`spec`, a mesma `EngineSpec`), os dados (`grants`, `tuples`, `env`) e os sujeitos e recursos a examinar, por nome. Exemplo em `crates/themis-inspect/examples/sscenario.json`, com uma trilha forensic de seis decisões em `examples/audit.jsonl`, gerada por:
+O cenário é um JSON com a política (`spec`, a mesma `EngineSpec`), os dados (`grants`, `tuples`, `env`) e os sujeitos e recursos a examinar, por nome. Exemplo em `crates/strig-inspect/examples/sscenario.json`, com uma trilha forensic de seis decisões em `examples/audit.jsonl`, gerada por:
 
 ```sh
-cargo run -p themis-inspect --no-default-features --example trail -- \
-    crates/themis-inspect/examples/sscenario.json > crates/themis-inspect/examples/audit.jsonl
+cargo run -p strig-inspect --no-default-features --example trail -- \
+    crates/strig-inspect/examples/sscenario.json > crates/strig-inspect/examples/audit.jsonl
 ```
 
 - **Avaliação**: escolha sujeito, permissão e recurso e veja a decisão, o motivo, o caminho do recurso com o degrau decisivo, os papéis efetivos, cada override e o destino de cada grant (candidato, permissão não relacionada, fora do escopo, alvo fora do caminho, sujeito não casa, condição falsa ou não avaliável), com a árvore da condição e os valores resolvidos. A base é `Engine::explain`, disponível também em Rust e JS.
@@ -496,7 +496,7 @@ cargo run -p themis-inspect --no-default-features --example trail -- \
 - **Matriz**: cada permissão do catálogo para cada sujeito sobre um recurso, com as células que a simulação mudou marcadas. Clicar numa célula abre o rastro.
 - **Auditoria**: lê a trilha em JSON Lines, confere a cadeia de hashes dos registros `forensic`, mostra o rastro gravado e reavalia decisões `detailed` ou `forensic` contra a política atual, apontando as que mudariam.
 
-`themis-inspect fmt [--check] <arquivo|dir>` formata arquivos `.themis` sem abrir a janela. Os arquivos são relidos sozinhos quando mudam no disco. A janela acompanha a aparência clara ou escura do sistema, com a paleta do playground: jade para estrutura e permissão, argila para negação, ouro para quem, onde e números. A janela embute as fontes Noto Sans e JetBrains Mono (licença OFL, em `crates/themis-inspect/assets/fonts`) e os próprios ícones, então tem a mesma aparência em qualquer máquina.
+`strig-inspect fmt [--check] <arquivo|dir>` formata arquivos `.strig` sem abrir a janela. Os arquivos são relidos sozinhos quando mudam no disco. A janela acompanha a aparência clara ou escura do sistema, com a paleta do playground: jade para estrutura e permissão, argila para negação, ouro para quem, onde e números. A janela embute as fontes Noto Sans e JetBrains Mono (licença OFL, em `crates/strig-inspect/assets/fonts`) e os próprios ícones, então tem a mesma aparência em qualquer máquina.
 
 ## Pontos de extensão
 
@@ -518,24 +518,39 @@ cargo run -p themis-inspect --no-default-features --example trail -- \
 ```sh
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo clippy -p themis-node --features napi -- -D warnings
-cargo clippy -p themis-node --features wasm --target wasm32-unknown-unknown -- -D warnings
+cargo clippy -p strig-node --features napi -- -D warnings
+cargo clippy -p strig-node --features wasm --target wasm32-unknown-unknown -- -D warnings
 cargo fmt --all --check
 
 # transportes contra servidores reais (pulados sem as variáveis)
-THEMIS_REDIS_URL=redis://127.0.0.1:6379/ THEMIS_PG_URL=postgres://postgres:pw@127.0.0.1/postgres cargo test --workspace
+STRIG_REDIS_URL=redis://127.0.0.1:6379/ STRIG_PG_URL=postgres://postgres:pw@127.0.0.1/postgres cargo test --workspace
 
 # JS: build e testes em Node e Bun
-crates/themis-node/scripts/build.sh
-cd crates/themis-node/js && npm install && node test/run.mjs && bun test/run.mjs
+crates/strig-node/scripts/build.sh
+cd crates/strig-node/js && npm install && node test/run.mjs && bun test/run.mjs
 ```
 
-Os testes JS também aceitam `THEMIS_RUST_SERVER` (URL do example `server` do `themis-axum`) para testar o cliente contra o servidor Rust.
+Os testes JS também aceitam `STRIG_RUST_SERVER` (URL do example `server` do `strig-axum`) para testar o cliente contra o servidor Rust.
 
-No Linux, a janela gpui do `themis-inspect` precisa das bibliotecas de desenvolvimento de Wayland e X11 (por exemplo `libxkbcommon-dev`, `libwayland-dev`, `libxcb1-dev`, `libvulkan-dev`).
+No Linux, a janela gpui do `strig-inspect` precisa das bibliotecas de desenvolvimento de Wayland e X11 (por exemplo `libxkbcommon-dev`, `libwayland-dev`, `libxcb1-dev`, `libvulkan-dev`).
 
 Issues e pull requests são bem-vindos em português ou inglês. Veja [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Migrando do Themis
+
+O Strig se chamou Themis até a 0.5.0. O código é o mesmo; só os nomes mudaram.
+
+| Antes | Agora |
+|---|---|
+| crate `themis-auth` (biblioteca `themis`) | crate `strig` (biblioteca `strig`) |
+| `themis-sync`, `themis-redis`, `themis-postgres`, `themis-axum`, `themis-macros`, `themis-server` | `strig-sync`, `strig-redis`, `strig-postgres`, `strig-axum`, `strig-macros`, `strig-server` |
+| pacote npm `themis-auth` | pacote npm `strig` |
+| `themis-inspect` | `strig-inspect` |
+| arquivos de política `.themis` | arquivos de política `.strig` |
+| variáveis de ambiente `THEMIS_*` | variáveis de ambiente `STRIG_*` |
+
+Troque `use themis::` por `use strig::` e renomeie os arquivos e variáveis acima. O repositório foi para [The-Hades-Organization/Strig](https://github.com/The-Hades-Organization/Strig).
+
 ## Licença
 
-[MIT](LICENSE). As fontes embutidas no `themis-inspect` estão sob a SIL Open Font License 1.1 (veja `crates/themis-inspect/assets/fonts`).
+[MIT](LICENSE). As fontes embutidas no `strig-inspect` estão sob a SIL Open Font License 1.1 (veja `crates/strig-inspect/assets/fonts`).
