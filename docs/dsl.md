@@ -361,7 +361,10 @@ Common to the three types:
 - Subject matchers: `anyone`, `role <name>`, `user <id>`, `principal <id>`, `relation <name>`.
 - Conditions use `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `and` (or `&&`), `or` (or `||`), `not` (or `!`),
   `exists <attribute>`, `all(...)`, `any(...)` and `@function(arguments)`. Attributes start with `subject.`,
-  `resource.` or `env.`.
+  `resource.` or `env.`. The text, set and network operators `starts_with`, `ends_with`, `contains`, `any_in`,
+  `all_in` and `ip_in` are written between two operands (`a starts_with "x"`), and the time conditions are
+  `time_between "HH:MM" "HH:MM"` and `weekday_in [mon, ...]` with the days as strings; see
+  [Text, set, network and time conditions](#text-set-network-and-time-conditions).
 - Relation rewrites: `this`, a union `a | b`, an intersection `a & b`, a difference `a - b`, a walk `parent->relation`,
   and the function forms `union(...)`, `intersection(...)` and `exclusion(a, b)`. Do not mix `|`, `&` and `-` without
   parentheses.
@@ -616,6 +619,43 @@ grant g-principal {
   target = project
 }
 ```
+
+### Text, set, network and time conditions
+
+Besides the comparisons, a condition can test text, lists, network addresses and the time of the decision. The three
+syntaxes write them the same way, and the JSON `op` is the operator name.
+
+| Condition | Holds when |
+| --- | --- |
+| `a starts_with b`, `a ends_with b` | the text `a` begins or ends with the text `b` |
+| `a contains b` | the text `a` has `b` as a substring, or the list `a` has `b` as an element |
+| `a any_in b` | the list `a` has at least one element that is in the list `b` |
+| `a all_in b` | every element of the list `a` is in the list `b` (an empty `a` holds) |
+| `a ip_in b` | the IPv4 or IPv6 address `a` is inside the CIDR `b`, or inside one CIDR of the list `b` |
+| `time_between "09:00" "17:30"` | the UTC time of day is in `[from, until)`; a window with `from` after `until` crosses midnight, and equal bounds make an empty window |
+| `weekday_in ["mon", "tue"]` | the UTC weekday is one of the days (`mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`) |
+
+```themis
+when = resource.name ends_with ".md" and subject.tags any_in ["docs", "ops"]
+when = env.ip ip_in ["10.0.0.0/8", "2001:db8::/32"]
+when = time_between "22:00" "06:00" and weekday_in ["mon", "tue", "wed", "thu", "fri"]
+```
+
+- An address without a prefix length stands for one host, and an IPv4 address written as IPv4-mapped IPv6
+  (`::ffff:10.1.2.3`) is matched against IPv4 CIDRs.
+- There is no regular-expression condition.
+- The validator rejects a CIDR, a time of day or a weekday that cannot be read, with the position and a hint. The same
+  checks run on JSON.
+- A wrong operand type or an unreadable operand is an error, like in the comparisons: an `allow` with it does not apply
+  and a `deny` with it does.
+- The time conditions read the decision instant, `Context::at` (`setNow` in the Node binding), always in UTC. Without
+  an instant they cannot be resolved, so a grant that uses them never allows.
+- A condition that reads a `resource.` attribute is not translated to SQL: a listing keeps it as a residue to check
+  row by row, and `themis-postgres` never turns it into an allow.
+- `DSL_SCHEMA` goes from 1 to 2. A policy that uses one of these conditions is refused by a reader of schema 1, and a
+  policy without them reads the same as before.
+
+### Relations
 
 Relations rewrite one relation in terms of others, and tuples state the facts:
 
