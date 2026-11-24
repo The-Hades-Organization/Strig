@@ -19,6 +19,7 @@ Open `http://127.0.0.1:8080`. The page needs HTTP, not `file://`, to load the wa
 ## Files
 
 - `index.html`, `style.css`: the page and its tokens, see [IDENTITY.md](IDENTITY.md).
+- `favicon.svg`, `favicon-32.png`: the Strig mark as the tab icon (the SVG follows the light and dark schemes).
 - `app.ts`: the interface and the state kept in the URL hash (`#case=&syn=&tab=&ask=&fix=&theme=`).
 - `engine.ts`: the bridge to the wasm binding (compile, convert, evaluate, canonical JSON).
 - `cases.ts`: the example policies, in the three syntaxes, with the questions asked of each.
