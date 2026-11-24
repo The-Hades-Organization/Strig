@@ -16,7 +16,7 @@ proc-macro = true
 [dependencies]
 # Pinned with `=`: the expansion embeds the JSON of this exact version. Keep it equal to the
 # workspace version when releasing.
-themis = { path = "../themis", version = "=0.4.0", package = "themis-auth", features = ["dsl"] }
+themis = { path = "../themis", version = "=0.5.0", package = "themis-auth", features = ["dsl"] }
 serde_json.workspace = true
 proc-macro2 = "1"
 quote = "1"
