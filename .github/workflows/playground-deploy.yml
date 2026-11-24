@@ -1,0 +1,64 @@
+name: Playground (Vercel)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - playground/**
+      - crates/**
+      - .github/workflows/playground-deploy.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: playground-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VERCEL_CLI: vercel@66.5.0
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Cache wasm-bindgen-cli
+        id: wasm-bindgen
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/wasm-bindgen
+          key: wasm-bindgen-cli-0.2.130
+      - name: Install wasm-bindgen-cli (same version as the crate dependency)
+        if: steps.wasm-bindgen.outputs.cache-hit != 'true'
+        run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
+      - name: Install the TypeScript toolchain (package and playground)
+        run: |
+          npm ci --prefix crates/strig-node/js
+          npm ci --prefix playground
+      - name: Build the playground
+        run: sh playground/build.sh
+      - name: Assemble the Vercel Build Output
+        run: |
+          mkdir -p .vercel/output
+          cp -R playground/dist .vercel/output/static
+          cp playground/vercel-output-config.json .vercel/output/config.json
+      - name: Deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then echo "VERCEL_TOKEN is not available here (fork PR?); skipping deploy"; exit 0; fi
+          if [ "${{ github.event_name }}" = "pull_request" ]; then PROD=""; else PROD="--prod"; fi
+          npx --yes "$VERCEL_CLI" deploy --prebuilt $PROD --token "$VERCEL_TOKEN"
