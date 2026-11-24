@@ -82,9 +82,9 @@ jobs:
       - name: Install the JavaScript dependencies
         working-directory: crates/strig-node/js
         run: npm ci
-      - name: Run the JavaScript tests
+      - name: Type-check, compile and run the JavaScript tests
         working-directory: crates/strig-node/js
-        run: node test/run.mjs
+        run: npm test
 
   playground:
     name: playground build
@@ -108,7 +108,11 @@ jobs:
       - name: Install wasm-bindgen-cli (same version as the crate dependency)
         if: steps.wasm-bindgen.outputs.cache-hit != 'true'
         run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
+      - name: Install the TypeScript toolchain (package and playground)
+        run: |
+          npm ci --prefix crates/strig-node/js
+          npm ci --prefix playground
       - name: Build the playground
         run: sh playground/build.sh
       - name: Run the playground smoke test
-        run: node --test playground/test/smoke.mjs
+        run: npm test --prefix playground

@@ -5,28 +5,32 @@
   "license": "MIT",
   "type": "module",
   "repository": { "type": "git", "url": "git+https://github.com/The-Hades-Organization/Strig.git", "directory": "crates/strig-node/js" },
-  "files": ["*.js", "*.d.ts", "native/", "wasm/", "README.md"],
+  "files": ["dist/", "native/", "wasm/", "README.md"],
   "exports": {
     ".": {
-      "types": "./index.d.ts",
-      "browser": "./browser.js",
-      "deno": "./browser.js",
-      "bun": "./node.js",
-      "node": "./node.js",
-      "default": "./browser.js"
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/browser.js",
+      "deno": "./dist/browser.js",
+      "bun": "./dist/node.js",
+      "node": "./dist/node.js",
+      "default": "./dist/browser.js"
     },
-    "./client": { "types": "./client.d.ts", "default": "./client.js" },
-    "./server": { "types": "./server.d.ts", "default": "./server.js" },
-    "./protocol": { "types": "./protocol.d.ts", "default": "./protocol.js" },
-    "./remote": { "types": "./remote.d.ts", "default": "./remote.js" },
-    "./express": { "types": "./express.d.ts", "default": "./express.js" },
-    "./fastify": { "types": "./fastify.d.ts", "default": "./fastify.js" },
-    "./nestjs": { "types": "./nestjs.d.ts", "default": "./nestjs.js" }
+    "./client": { "types": "./dist/client.d.ts", "default": "./dist/client.js" },
+    "./server": { "types": "./dist/server.d.ts", "default": "./dist/server.js" },
+    "./protocol": { "types": "./dist/protocol.d.ts", "default": "./dist/protocol.js" },
+    "./remote": { "types": "./dist/remote.d.ts", "default": "./dist/remote.js" },
+    "./express": { "types": "./dist/express.d.ts", "default": "./dist/express.js" },
+    "./fastify": { "types": "./dist/fastify.d.ts", "default": "./dist/fastify.js" },
+    "./nestjs": { "types": "./dist/nestjs.d.ts", "default": "./dist/nestjs.js" }
   },
   "scripts": {
+    "build:ts": "tsc -p tsconfig.json && node scripts/copy-types.mjs",
     "build": "sh ../scripts/build.sh",
-    "test": "node test/run.mjs",
-    "test:bun": "bun test/run.mjs"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit",
+    "pretest": "npm run build:ts && tsc -p test/tsconfig.json",
+    "test": "node dist-test/run.js",
+    "pretest:bun": "npm run pretest",
+    "test:bun": "bun dist-test/run.js"
   },
   "peerDependencies": {
     "@nestjs/common": ">=10",
@@ -40,11 +44,15 @@
   },
   "devDependencies": {
     "@nestjs/common": "11.0.1",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.0",
     "express": "5.1.0",
     "fastify": "5.2.1",
     "pg": "^8.13.0",
     "reflect-metadata": "0.2.2",
-    "rxjs": "7.8.1"
+    "rxjs": "7.8.1",
+    "typescript": "~5.9.3"
   },
   "engines": {
     "node": ">=18.17",

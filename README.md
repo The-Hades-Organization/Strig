@@ -406,7 +406,7 @@ To try the language without installing anything, run the [playground](playground
 
 ```sh
 sh playground/build.sh        # builds the WebAssembly engine and assembles playground/dist/
-node playground/serve.mjs     # serves it on http://127.0.0.1:8080
+node playground/dist-node/serve.js     # serves it on http://127.0.0.1:8080
 ```
 
 With `dsl-fs`, `strig::dsl::fs::read_dir` reads every `*.strig` file of a directory into a `Project`, and `write_file` writes a policy back.

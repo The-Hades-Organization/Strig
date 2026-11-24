@@ -5,3 +5,7 @@
 /crates/strig-node/js/node_modules/
 crates/strig-node/js/README.md
 /playground/dist/
+/crates/strig-node/js/dist/
+/crates/strig-node/js/dist-test/
+/playground/dist-node/
+/playground/node_modules/
