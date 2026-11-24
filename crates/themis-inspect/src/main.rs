@@ -10,6 +10,7 @@ uso:
   themis-inspect explain --scenario F --subject S --permission P --resource R
   themis-inspect matrix  --scenario F --resource R [--disable ID]... [--add GRANT.json]...
   themis-inspect audit   --audit F [--scenario F]                     lista, confere a cadeia e reavalia
+  themis-inspect fmt [--check] ARQUIVO|DIRETORIO                      formata os .themis; --check só lista e sai com 1
 
 O cenário é um JSON com spec, grants, tuples, env, subjects e resources (ver README).";
 
@@ -24,6 +25,8 @@ struct Args {
     disable: Vec<String>,
     add: Vec<PathBuf>,
     tab: Option<String>,
+    check: bool,
+    path: Option<PathBuf>,
 }
 
 fn parse() -> Result<Args, String> {
@@ -40,8 +43,12 @@ fn parse() -> Result<Args, String> {
             "--disable" => args.disable.push(value()?),
             "--add" => args.add.push(value()?.into()),
             "--tab" => args.tab = Some(value()?),
+            "--check" => args.check = true,
             "-h" | "--help" => return Err(String::new()),
             command if args.command.is_none() && !command.starts_with('-') => args.command = Some(command.into()),
+            path if args.command.as_deref() == Some("fmt") && args.path.is_none() && !path.starts_with('-') => {
+                args.path = Some(path.into());
+            }
             other => return Err(format!("argumento desconhecido: {other}")),
         }
     }
@@ -65,7 +72,14 @@ fn need<'a>(value: &'a Option<String>, flag: &str) -> Result<&'a str, String> {
     value.as_deref().ok_or_else(|| format!("falta {flag}"))
 }
 
-fn run(args: Args) -> Result<(), String> {
+fn run(args: Args) -> Result<ExitCode, String> {
+    if args.command.as_deref() == Some("fmt") {
+        return format_files(&args);
+    }
+    run_inspect(args).map(|()| ExitCode::SUCCESS)
+}
+
+fn run_inspect(args: Args) -> Result<(), String> {
     match args.command.as_deref() {
         Some("explain") => {
             let inspector = inspector(&args)?;
@@ -104,6 +118,22 @@ fn run(args: Args) -> Result<(), String> {
     }
 }
 
+fn format_files(args: &Args) -> Result<ExitCode, String> {
+    let path = args.path.as_ref().ok_or("fmt precisa de um arquivo ou diretório")?;
+    let report = themis_inspect::fmt::run(path, args.check)?;
+    for file in &report.changed {
+        println!("{}{}", if args.check { "" } else { "formatado: " }, file.display());
+    }
+    for error in &report.errors {
+        eprintln!("{error}");
+    }
+    if !args.check {
+        println!("{} formatados, {} já estavam certos", report.changed.len(), report.unchanged);
+    }
+    let failed = !report.errors.is_empty() || (args.check && !report.changed.is_empty());
+    Ok(if failed { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
 #[cfg(feature = "gui")]
 fn open_window(args: Args) -> Result<(), String> {
     let tab = match args.tab.as_deref() {
@@ -134,7 +164,7 @@ fn open_window(_: Args) -> Result<(), String> {
 
 fn main() -> ExitCode {
     match parse().and_then(run) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(message) => {
             if !message.is_empty() {
                 eprintln!("themis-inspect: {message}");
