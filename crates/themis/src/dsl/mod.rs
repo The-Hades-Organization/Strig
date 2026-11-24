@@ -23,6 +23,7 @@ mod blocks_print;
 mod build;
 mod convert;
 mod error;
+mod format;
 #[cfg(feature = "dsl-fs")]
 pub mod fs;
 mod grammar;
@@ -40,6 +41,7 @@ use grammar::Cursor;
 
 pub use convert::{ConvertError, convert};
 pub use error::{Diagnostic, Diagnostics, Location, PrintError};
+pub use format::{FormatError, format, is_formatted};
 pub use policy::{Language, Note, NoteAnchor, NoteOrigin, Origins, Placement, Policy};
 pub use project::{Built, MAX_PROJECT_BYTES, MAX_SOURCES, Project};
 
@@ -53,7 +55,11 @@ pub mod __macro_support {
     /// the JSON it wrote and asserts, in the caller's build, that this is the number it was
     /// built against. Bump it with any change to that JSON that an older reader cannot take, and
     /// bump the same number in `themis-macros`.
-    pub const DSL_SCHEMA: u32 = 1;
+    ///
+    /// 2: the conditions `starts_with`, `ends_with`, `contains`, `any_in`, `all_in`, `ip_in`,
+    /// `time_between` and `weekday_in`. A reader of schema 1 does not know those `op` values
+    /// and fails on a policy that uses one.
+    pub const DSL_SCHEMA: u32 = 2;
 }
 
 /// One source read and validated.

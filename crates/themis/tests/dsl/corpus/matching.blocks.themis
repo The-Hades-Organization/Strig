@@ -1,0 +1,54 @@
+language blocks
+
+target_kinds = [document]
+
+permission document.view {
+  targets = [document]
+}
+
+permission document.edit {
+  targets = [document]
+}
+
+subject user:ana {
+  attrs {
+    team = "docs"
+    tags = ["a", "b"]
+    ip = "10.1.2.3"
+  }
+  principals = [ana]
+}
+
+// Names, tags and addresses.
+grant g-names {
+  effect = allow
+  subject = principal ana
+  permission = document.view
+  target = document
+  when = resource.name starts_with "draft-" and resource.name ends_with ".md" and resource.name contains "-v"
+}
+
+grant g-sets {
+  effect = allow
+  subject = principal ana
+  permission = document.edit
+  target = document
+  when = subject.tags any_in ["a", "z"] and subject.tags all_in ["a", "b", "c"] and subject.tags contains "b"
+}
+
+grant g-night {
+  effect = allow
+  subject = principal ana
+  permission = document.view
+  target = document:runbook
+  when = time_between "22:00" "06:00" or env.ip ip_in "192.168.0.0/16"
+}
+
+// Office network, working hours, weekdays only.
+grant g-network {
+  effect = deny
+  subject = anyone
+  permission = document.edit
+  target = document:ledger
+  when = not (env.ip ip_in ["10.0.0.0/8", "2001:db8::/32"]) or not (time_between "09:00" "17:30" and weekday_in ["mon", "tue", "wed", "thu", "fri"])
+}
