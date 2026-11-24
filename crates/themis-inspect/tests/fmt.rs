@@ -4,7 +4,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
-const MESSY: &str = "language blocks\n\n\ntarget_kinds = [org]   // kinds\n\npermission org.read {\n      targets = [org]\n}\n";
+const MESSY: &str =
+    "language blocks\n\n\ntarget_kinds = [org]   // kinds\n\npermission org.read {\n      targets = [org]\n}\n";
 const TIDY: &str = "language blocks\n\ntarget_kinds = [org]  // kinds\n\npermission org.read {\n  targets = [org]\n}\n";
 
 fn scratch(name: &str) -> PathBuf {

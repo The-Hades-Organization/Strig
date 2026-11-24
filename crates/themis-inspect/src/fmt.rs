@@ -39,7 +39,11 @@ fn files_of(path: &Path) -> Result<Vec<PathBuf>, String> {
     }
     files.sort();
     if files.len() > policy_fs::MAX_FILES {
-        return Err(format!("{}: mais de {} arquivos .themis", path.display(), policy_fs::MAX_FILES));
+        return Err(format!(
+            "{}: mais de {} arquivos .themis",
+            path.display(),
+            policy_fs::MAX_FILES
+        ));
     }
     Ok(files)
 }
