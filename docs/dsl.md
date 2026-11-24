@@ -1,18 +1,18 @@
 # The policy language
 
-Themis policies are data: a catalog of permissions, roles, assignments, grants and rules. You can build one in Rust
+Strig policies are data: a catalog of permissions, roles, assignments, grants and rules. You can build one in Rust
 or load it from JSON, and you can also write it as text. This guide covers the text form, called the policy language
-or DSL. It needs the `dsl` feature of `themis-auth`; reading and writing files needs `dsl-fs` as well.
+or DSL. It needs the `dsl` feature of `strig`; reading and writing files needs `dsl-fs` as well.
 
 ```toml
-themis-auth = { version = "0.5", features = ["dsl", "dsl-fs"] }
+strig = { version = "0.5", features = ["dsl", "dsl-fs"] }
 ```
 
 Parsing the text produces a `Policy`, the same value you would build in code.
 
 The smallest policy declares one kind and one permission:
 
-```themis
+```strig
 language blocks
 
 target_kinds = [org]
@@ -38,7 +38,7 @@ inherit from editors, and two people have roles in one project.
 
 Blocks:
 
-```themis
+```strig
 // Documents of an organization: who may read, edit and manage them.
 language blocks
 
@@ -104,7 +104,7 @@ grant g-edit {
 
 Rules:
 
-```themis
+```strig
 // Documents of an organization: who may read, edit and manage them.
 language rules
 
@@ -131,7 +131,7 @@ g-edit: allow role editor to document.edit on project in org:acme
 
 Actors:
 
-```themis
+```strig
 // Documents of an organization: who may read, edit and manage them.
 language actors
 
@@ -180,9 +180,9 @@ language actors
 Without it the parser stops at line 1 and tells you how to fix it. An unknown name lists the three valid ones:
 
 ```text
-c.themis:1:1: a source starts by declaring its language
+c.strig:1:1: a source starts by declaring its language
   hint: write on the first line: language blocks
-d.themis:1:10: unknown language `prose`
+d.strig:1:10: unknown language `prose`
   hint: expected one of: blocks, rules, actors
 ```
 
@@ -194,11 +194,11 @@ names the same type, so a file cannot switch syntax half way.
 A policy can still span several files and several types. Add each source to a `Project`, then build it:
 
 ```rust
-use themis::dsl::Project;
+use strig::dsl::Project;
 
 let mut project = Project::new();
-project.add_source("catalog.themis", "language rules\n\nkinds doc\npermission doc.read on doc\n")?;
-project.add_source("people.themis", "language blocks\n\ntarget_kinds = [org]\nrole viewer {\n}\n")?;
+project.add_source("catalog.strig", "language rules\n\nkinds doc\npermission doc.read on doc\n")?;
+project.add_source("people.strig", "language blocks\n\ntarget_kinds = [org]\nrole viewer {\n}\n")?;
 let built = project.build()?;
 let policy = built.policy;
 ```
@@ -209,26 +209,26 @@ says which file each element came from.
 The merge refuses a repeated declaration. The error shows both places, so you can remove one:
 
 ```text
-two.themis:3:1: the kind `doc` is listed in target_kinds twice (also at one.themis:3:1)
+two.strig:3:1: the kind `doc` is listed in target_kinds twice (also at one.strig:3:1)
   hint: list each kind in one source only
-two.themis:4:6: the role `viewer` is declared twice (also at one.themis:4:6)
+two.strig:4:6: the role `viewer` is declared twice (also at one.strig:4:6)
   hint: declare each role in one source only
 ```
 
 ## Reading and writing files
 
-With `dsl-fs`, `themis::dsl::fs` reads and writes policy files:
+With `dsl-fs`, `strig::dsl::fs` reads and writes policy files:
 
 ```rust
-use themis::dsl::{Language, fs};
+use strig::dsl::{Language, fs};
 
-let policy = fs::read_file("policies/main.themis")?.policy;
-let project = fs::read_dir("policies")?;      // every *.themis in the directory
-fs::write_file("policies/out.themis", &policy, Language::Rules)?;
+let policy = fs::read_file("policies/main.strig")?.policy;
+let project = fs::read_dir("policies")?;      // every *.strig in the directory
+fs::write_file("policies/out.strig", &policy, Language::Rules)?;
 ```
 
 - `read_file` parses one file.
-- `read_dir` builds a `Project` from the `*.themis` files directly inside a directory. It does not descend into
+- `read_dir` builds a `Project` from the `*.strig` files directly inside a directory. It does not descend into
   subdirectories and it refuses a policy file that is a symbolic link. A directory with more than 1024 policy files, or
   more than 64 MiB of them together, is an error.
 - `write_file` writes to a file beside the target and renames it over the target, so a reader never sees a half-written
@@ -241,7 +241,7 @@ These functions are not available on `wasm`.
 `convert` takes source text and returns the same policy written in another type:
 
 ```rust
-use themis::dsl::{Language, convert};
+use strig::dsl::{Language, convert};
 
 let actors = convert("language rules\n\nkinds doc\n// hi\nrole viewer\n", Language::Actors)?;
 assert_eq!(actors, "language actors\n\n// hi\nrole viewer\n\ncatalog\n  kinds doc\n");
@@ -258,17 +258,17 @@ lines and the order that `print` writes, with the comments kept. Formatting the 
 in error positions.
 
 ```rust
-use themis::dsl::{format, is_formatted};
+use strig::dsl::{format, is_formatted};
 
 let messy = "language rules\n\n\n\nkinds doc   // kinds\n";
-assert!(!is_formatted("a.themis", messy)?);
-assert_eq!(format("a.themis", messy)?, "language rules\n\nkinds doc  // kinds\n");
+assert!(!is_formatted("a.strig", messy)?);
+assert_eq!(format("a.strig", messy)?, "language rules\n\nkinds doc  // kinds\n");
 ```
 
 A source that does not compile is a `FormatError::Parse` with `file:line:column`. From a terminal,
-`themis-inspect fmt <file|dir>` rewrites the `.themis` files in place, and `themis-inspect fmt --check <file|dir>`
-writes nothing, lists the files that would change and exits with 1 (for CI). In Node, `themis.format(text)` and
-`themis.isFormatted(text)` do the same on text.
+`strig-inspect fmt <file|dir>` rewrites the `.strig` files in place, and `strig-inspect fmt --check <file|dir>`
+writes nothing, lists the files that would change and exits with 1 (for CI). In Node, `strig.format(text)` and
+`strig.isFormatted(text)` do the same on text.
 
 ## Notes and reconstruction
 
@@ -285,11 +285,11 @@ The text is validated when it is parsed, with the same checks as `Policy::valida
 the JSON of the validated policy:
 
 ```rust
-use themis::dsl::parse;
+use strig::dsl::parse;
 
-let parsed = parse("main.themis", source)?;
+let parsed = parse("main.strig", source)?;
 let json = parsed.policy.to_json()?;
-let again = themis::dsl::Policy::from_json(&json)?;
+let again = strig::dsl::Policy::from_json(&json)?;
 assert!(parsed.policy.equivalent(&again));
 ```
 
@@ -299,19 +299,19 @@ specification an engine is built from.
 
 ## Macros
 
-The `themis-macros` crate checks a policy while your program compiles, so a policy that does not validate does not
+The `strig-macros` crate checks a policy while your program compiles, so a policy that does not validate does not
 build.
 
 ```toml
 [dependencies]
-themis-auth = { version = "0.5", features = ["dsl"] }
-themis-macros = "0.5"
+strig = { version = "0.5", features = ["dsl"] }
+strig-macros = "0.5"
 ```
 
 ```rust
-use themis_macros::{include_policy, policy};
+use strig_macros::{include_policy, policy};
 
-let inline: themis::dsl::Policy = policy!(r#"
+let inline: strig::dsl::Policy = policy!(r#"
 language blocks
 
 target_kinds = [org]
@@ -321,7 +321,7 @@ permission org.read {
 }
 "#);
 
-let from_file: themis::dsl::Policy = include_policy!("policies/main.themis");
+let from_file: strig::dsl::Policy = include_policy!("policies/main.strig");
 ```
 
 - `policy!` takes a text literal. Prefer a raw string for several lines; an error points at the literal, with
@@ -332,20 +332,20 @@ let from_file: themis::dsl::Policy = include_policy!("policies/main.themis");
 - The expansion embeds the canonical JSON of the validated policy. The text is never parsed at run time, but the JSON
   is read back each time the expansion runs, so keep a frequently used policy in a `LazyLock` static.
 
-There is no `macros` feature on `themis-auth`. The macros run the parser while compiling, so `themis-macros` depends
-on `themis-auth`; a re-export behind a feature would make a package cycle, which Cargo refuses. Depend on
-`themis-macros` directly, as above. The two crates are pinned to the same version.
+There is no `macros` feature on `strig`. The macros run the parser while compiling, so `strig-macros` depends
+on `strig`; a re-export behind a feature would make a package cycle, which Cargo refuses. Depend on
+`strig-macros` directly, as above. The two crates are pinned to the same version.
 
 ## Errors
 
 Every error carries `file:line:column`, a message and, when there is a likely fix, a hint:
 
 ```text
-a.themis:6:26: unknown permission `doc.write`
+a.strig:6:26: unknown permission `doc.write`
   hint: declare it as a permission block
-b.themis:3:1: unknown statement `frobnicate`
+b.strig:3:1: unknown statement `frobnicate`
   hint: expected one of: kinds, broad, strategy, depth, permission, role, subject, tuple, relation, relations, override, always
-e.themis:5:3: unknown field `target` in permission
+e.strig:5:3: unknown field `target` in permission
   hint: did you mean `targets`?
 ```
 
@@ -452,7 +452,7 @@ Headings start in the first column and the lines under them are indented.
 | `engine` | `strategy`, `depth` and `override ...` |
 | `governance` | the invariant words, as in rules without `always` |
 
-When a form here is unclear, the corpus in `crates/themis/tests/dsl/corpus` has a working file for each topic in all
+When a form here is unclear, the corpus in `crates/strig/tests/dsl/corpus` has a working file for each topic in all
 three types: roles, governance, validity, conditions, relations, members, overrides.
 
 ## Catalog governance in the language
@@ -460,7 +460,7 @@ three types: roles, governance, validity, conditions, relations, members, overri
 Governance flags and invariants are part of the language, so a catalog can state its own rules. This source, from the
 corpus, uses `non_delegable`, `management_only`, `override_only`, the two overrides and every invariant kind:
 
-```themis
+```strig
 language blocks
 
 target_kinds = [org, doc]
@@ -536,7 +536,7 @@ invariant forbid {
 
 `valid_from` and `valid_until` limit an assignment or a grant to a window, in UTC:
 
-```themis
+```strig
 language blocks
 
 target_kinds = [project]
@@ -579,7 +579,7 @@ grant g-open {
 
 Conditions read subject and resource attributes:
 
-```themis
+```strig
 language blocks
 
 target_kinds = [project, document]
@@ -655,7 +655,7 @@ syntaxes write them the same way, and the JSON `op` is the operator name.
 | `time_between "09:00" "17:30"` | the UTC time of day is in `[from, until)`; a window with `from` after `until` crosses midnight, and equal bounds make an empty window |
 | `weekday_in ["mon", "tue"]` | the UTC weekday is one of the days (`mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`) |
 
-```themis
+```strig
 when = resource.name ends_with ".md" and subject.tags any_in ["docs", "ops"]
 when = env.ip ip_in ["10.0.0.0/8", "2001:db8::/32"]
 when = time_between "22:00" "06:00" and weekday_in ["mon", "tue", "wed", "thu", "fri"]
@@ -671,7 +671,7 @@ when = time_between "22:00" "06:00" and weekday_in ["mon", "tue", "wed", "thu", 
 - The time conditions read the decision instant, `Context::at` (`setNow` in the Node binding), always in UTC. Without
   an instant they cannot be resolved, so a grant that uses them never allows.
 - A condition that reads a `resource.` attribute is not translated to SQL: a listing keeps it as a residue to check
-  row by row, and `themis-postgres` never turns it into an allow.
+  row by row, and `strig-postgres` never turns it into an allow.
 - `DSL_SCHEMA` goes from 1 to 2. A policy that uses one of these conditions is refused by a reader of schema 1, and a
   policy without them reads the same as before.
 
@@ -679,7 +679,7 @@ when = time_between "22:00" "06:00" and weekday_in ["mon", "tue", "wed", "thu", 
 
 Relations rewrite one relation in terms of others, and tuples state the facts:
 
-```themis
+```strig
 language blocks
 
 target_kinds = [org, doc]

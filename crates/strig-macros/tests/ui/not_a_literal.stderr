@@ -1,0 +1,5 @@
+error: expected string literal
+ --> tests/ui/not_a_literal.rs:2:35
+  |
+2 |     let _ = strig_macros::policy!(42);
+  |                                   ^^

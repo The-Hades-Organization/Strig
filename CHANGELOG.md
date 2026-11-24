@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- The project is renamed from Themis to Strig. Code and behaviour are the same; names change: the `themis-auth` crate (library `themis`) becomes `strig` (library `strig`), `themis-sync`, `themis-redis`, `themis-postgres`, `themis-axum`, `themis-macros`, `themis-server` and `themis-inspect` become `strig-sync`, `strig-redis`, `strig-postgres`, `strig-axum`, `strig-macros`, `strig-server` and `strig-inspect`, and the npm package `themis-auth` becomes `strig`. Themis Inspect is now Strig Inspect, and the repository is at `The-Hades-Organization/Strig`. Nothing was published under the new names yet. See "Migrating from Themis" in the README.
+
+### Breaking
+
+- Rename: replace `use themis::` with `use strig::` and the dependencies above in `Cargo.toml` and `package.json`. Policy files change extension from `.themis` to `.strig`, and the environment variables `THEMIS_*` become `STRIG_*`.
+
 ## [0.5.0] - 2026-11-24
 
 ### Added

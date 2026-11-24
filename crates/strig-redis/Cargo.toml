@@ -1,0 +1,24 @@
+[package]
+name = "strig-redis"
+description = "Redis pub/sub transport for the Strig change hub."
+keywords = ["authorization", "redis", "pubsub", "realtime"]
+categories = ["authentication"]
+readme = "../../README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[dependencies]
+strig-sync.workspace = true
+async-trait.workspace = true
+futures-util.workspace = true
+redis = { version = "1.8", default-features = false, features = ["aio", "tokio-comp", "connection-manager"] }
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+strig.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

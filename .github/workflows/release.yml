@@ -20,7 +20,7 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME#v}"
           crate="$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' Cargo.toml)"
-          npm="$(node -p "require('./crates/themis-node/js/package.json').version")"
+          npm="$(node -p "require('./crates/strig-node/js/package.json').version")"
           echo "tag=$tag workspace=$crate npm=$npm"
           test "$tag" = "$crate"
           test "$tag" = "$npm"
@@ -36,7 +36,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Publish in dependency order
         run: |
-          for crate in themis-auth themis-macros themis-sync themis-redis themis-postgres themis-axum themis-server; do
+          for crate in strig strig-macros strig-sync strig-redis strig-postgres strig-axum strig-server; do
             cargo publish -p "$crate" --locked
             # The index takes a moment to list the new version for its dependents.
             sleep 30
@@ -52,23 +52,23 @@ jobs:
           - platform: linux-x64
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            lib: libthemis_node.so
+            lib: libstrig_node.so
           - platform: linux-arm64
             os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-            lib: libthemis_node.so
+            lib: libstrig_node.so
           - platform: darwin-x64
             os: macos-15-intel
             target: x86_64-apple-darwin
-            lib: libthemis_node.dylib
+            lib: libstrig_node.dylib
           - platform: darwin-arm64
             os: macos-latest
             target: aarch64-apple-darwin
-            lib: libthemis_node.dylib
+            lib: libstrig_node.dylib
           - platform: win32-x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-            lib: themis_node.dll
+            lib: strig_node.dll
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -79,15 +79,15 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - name: Build the N-API module
-        run: cargo build -p themis-node --features napi --release --locked --target ${{ matrix.target }}
-      - name: Name the binary as js/node.js expects (themis.<platform>-<arch>.node)
+        run: cargo build -p strig-node --features napi --release --locked --target ${{ matrix.target }}
+      - name: Name the binary as js/node.js expects (strig.<platform>-<arch>.node)
         run: |
           mkdir -p native
-          cp "target/${{ matrix.target }}/release/${{ matrix.lib }}" "native/themis.${{ matrix.platform }}.node"
+          cp "target/${{ matrix.target }}/release/${{ matrix.lib }}" "native/strig.${{ matrix.platform }}.node"
       - uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.platform }}
-          path: native/themis.${{ matrix.platform }}.node
+          path: native/strig.${{ matrix.platform }}.node
           if-no-files-found: error
 
   wasm:
@@ -102,12 +102,12 @@ jobs:
       - name: Install wasm-bindgen-cli (same version as the crate dependency)
         run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
       - name: Build the WebAssembly package
-        working-directory: crates/themis-node
+        working-directory: crates/strig-node
         run: sh scripts/build.sh wasm
       - uses: actions/upload-artifact@v7
         with:
           name: wasm
-          path: crates/themis-node/js/wasm/
+          path: crates/strig-node/js/wasm/
           if-no-files-found: error
 
   github-release:
@@ -134,11 +134,11 @@ jobs:
         run: |
           version="${TAG#v}"
           mkdir dist
-          for f in native/themis.*.node; do
+          for f in native/strig.*.node; do
             platform="$(basename "$f" .node)"
-            cp "$f" "dist/themis-auth-$version-${platform#themis.}.node"
+            cp "$f" "dist/strig-$version-${platform#strig.}.node"
           done
-          tar czf "dist/themis-auth-$version-wasm.tar.gz" wasm
+          tar czf "dist/strig-$version-wasm.tar.gz" wasm
           test "$(ls dist/*.node | wc -l)" -eq 5
           (cd dist && sha256sum * > SHA256SUMS)
           ls -l dist
@@ -152,16 +152,16 @@ jobs:
           ## Install
 
           \`\`\`toml
-          themis = { package = "themis-auth", version = "$version" }
+          strig = { version = "$version" }
           \`\`\`
 
           \`\`\`sh
-          npm install themis-auth@$version
+          npm install strig@$version
           \`\`\`
 
           The \`.node\` files are the N-API modules shipped in the npm package; \`SHA256SUMS\` lists their hashes.
 
-          [crates.io](https://crates.io/crates/themis-auth/$version) · [docs.rs](https://docs.rs/themis-auth/$version) · [npm](https://www.npmjs.com/package/themis-auth/v/$version)
+          [crates.io](https://crates.io/crates/strig/$version) · [docs.rs](https://docs.rs/strig/$version) · [npm](https://www.npmjs.com/package/strig/v/$version)
           EOF
           cat notes.md
       - name: Create the release or refresh its assets
@@ -188,12 +188,12 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           pattern: native-*
-          path: crates/themis-node/js/native
+          path: crates/strig-node/js/native
           merge-multiple: true
       - uses: actions/download-artifact@v8
         with:
           name: wasm
-          path: crates/themis-node/js/wasm
+          path: crates/strig-node/js/wasm
       - name: Add the README
         run: |
           blob="https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}"
@@ -202,9 +202,9 @@ jobs:
               -e "s#](LICENSE)#]($blob/LICENSE)#g" \
               -e "s#](README.pt-BR.md)#]($blob/README.pt-BR.md)#g" \
               -e "s#](CONTRIBUTING.md)#]($blob/CONTRIBUTING.md)#g" \
-              README.md > crates/themis-node/js/README.md
+              README.md > crates/strig-node/js/README.md
       - name: Check the package contents
-        working-directory: crates/themis-node/js
+        working-directory: crates/strig-node/js
         run: |
           ls -l native wasm
           test "$(ls native | wc -l)" -eq 5
@@ -212,7 +212,7 @@ jobs:
           if grep -nE '\]\((LICENSE|README\.pt-BR\.md|CONTRIBUTING\.md)\)|src="assets/' README.md; then exit 1; fi
           npm pack --dry-run
       - name: Publish
-        working-directory: crates/themis-node/js
+        working-directory: crates/strig-node/js
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

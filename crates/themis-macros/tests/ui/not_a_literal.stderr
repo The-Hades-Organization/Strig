@@ -1,5 +1,0 @@
-error: expected string literal
- --> tests/ui/not_a_literal.rs:2:36
-  |
-2 |     let _ = themis_macros::policy!(42);
-  |                                    ^^
