@@ -466,8 +466,8 @@ fn mtime(path: &Option<PathBuf>) -> Option<SystemTime> {
 
 fn effect_text(effect: Effect) -> &'static str {
     match effect {
-        Effect::Allow => "permitido",
-        Effect::Deny => "negado",
+        Effect::Allow => "allowed",
+        Effect::Deny => "denied",
     }
 }
 
@@ -738,10 +738,10 @@ fn action_text(action: &AuditAction) -> &'static str {
 
 fn outcome_label(t: Tokens, outcome: &AuditOutcome) -> Div {
     match outcome {
-        AuditOutcome::Applied => label(Some("check"), "aplicada", t.effect(Effect::Allow)),
-        AuditOutcome::Rejected => label(Some("x"), "recusada", t.effect(Effect::Deny)),
-        AuditOutcome::Allowed => label(Some("check"), "permitido", t.effect(Effect::Allow)),
-        AuditOutcome::Denied => label(Some("x"), "negado", t.effect(Effect::Deny)),
+        AuditOutcome::Applied => label(Some("check"), "applied", t.effect(Effect::Allow)),
+        AuditOutcome::Rejected => label(Some("x"), "refused", t.effect(Effect::Deny)),
+        AuditOutcome::Allowed => label(Some("check"), "allowed", t.effect(Effect::Allow)),
+        AuditOutcome::Denied => label(Some("x"), "denied", t.effect(Effect::Deny)),
     }
 }
 
@@ -1209,7 +1209,7 @@ impl InspectView {
                 .gap(px(6.0))
                 .py(px(5.0))
                 .px(px(8.0))
-                .child(label(None, "simulado", t.caution()))
+                .child(label(None, "simulated", t.caution()))
                 .child(text(grant.id.clone()))
                 .child(mono(grant.permission.clone()).text_color(t.mute))
         });
@@ -1265,7 +1265,7 @@ impl InspectView {
                 });
                 explanation_panel(t, &now, sim)
             }
-            _ => empty(t, self.no_scenario("avaliar")),
+            _ => empty(t, self.no_scenario("evaluate")),
         };
         div().flex().flex_1().min_h(px(0.0)).child(sidebar).child(
             div()
@@ -1949,7 +1949,7 @@ fn timeline_item(t: Tokens, n: String, trace: &GrantTrace, outcome: Effect, deci
     };
     let hot = is_decisive || explains || trace.verdict.is_candidate();
     let destination = if is_decisive {
-        label(Some("check"), "decisivo", t.effect(trace.grant.effect))
+        label(Some("check"), "decisive", t.effect(trace.grant.effect))
     } else {
         match &trace.verdict {
             Verdict::Candidate | Verdict::CandidateFailSafe { .. } => label(
@@ -2209,8 +2209,8 @@ fn replay_box(t: Tokens, replay: &Replay) -> Div {
 
 fn effect_now(t: Tokens, effect: Effect) -> Div {
     match effect {
-        Effect::Allow => label(Some("check"), "permitido", t.effect(effect)),
-        Effect::Deny => label(Some("x"), "negado", t.effect(effect)),
+        Effect::Allow => label(Some("check"), "allowed", t.effect(effect)),
+        Effect::Deny => label(Some("x"), "denied", t.effect(effect)),
     }
 }
 
