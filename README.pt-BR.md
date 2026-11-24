@@ -37,8 +37,8 @@ Dependência a partir de outro crate:
 
 ```toml
 [dependencies]
-strig = "0.5"
-strig-sync = "0.5"
+strig = "0.6"
+strig-sync = "0.6"
 ```
 
 ## Conceitos

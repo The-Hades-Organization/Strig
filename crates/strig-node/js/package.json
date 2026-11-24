@@ -1,6 +1,6 @@
 {
   "name": "strig",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Strig authorization engine (RBAC, ABAC, ReBAC) for Node, Bun and the browser, with real-time permissions.",
   "license": "MIT",
   "type": "module",
