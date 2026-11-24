@@ -110,3 +110,5 @@ jobs:
         run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
       - name: Build the playground
         run: sh playground/build.sh
+      - name: Run the playground smoke test
+        run: node --test playground/test/smoke.mjs

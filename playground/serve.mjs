@@ -10,16 +10,20 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
 const port = Number(process.argv[2] ?? 8080);
 
 createServer(async (req, res) => {
-  const path = normalize(decodeURIComponent(new URL(req.url, 'http://localhost').pathname));
-  const file = join(ROOT, path.endsWith(sep) || path === '/' ? 'index.html' : path);
-  if (!file.startsWith(ROOT)) {
-    res.writeHead(403).end();
-    return;
-  }
   try {
+    const path = normalize(decodeURIComponent(new URL(req.url, 'http://localhost').pathname));
+    const file = join(ROOT, path.endsWith(sep) || path === '/' ? 'index.html' : path);
+    if (!file.startsWith(ROOT)) {
+      res.writeHead(403).end();
+      return;
+    }
     const body = await readFile(file);
     res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' }).end(body);
-  } catch {
+  } catch (error) {
+    if (error instanceof URIError) {
+      res.writeHead(400).end('bad request');
+      return;
+    }
     res.writeHead(404).end('not found');
   }
 }).listen(port, '127.0.0.1', () => console.log(`http://127.0.0.1:${port}/`));
