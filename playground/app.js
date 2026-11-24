@@ -6,6 +6,7 @@ import { canonicalJson, compileSource, convertSource, rule, summarize } from './
 import { highlightLine, span } from './highlight.js';
 
 const SYNTAXES = ['blocks', 'rules', 'actors'];
+const GRANT_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
 const TABS = ['evaluate', 'json', 'about'];
 const LINE_HEIGHT = 22; // px, the editor's line height in style.css
 
@@ -84,11 +85,12 @@ function renderEditor() {
   const lines = text.split('\n');
   const wrap = document.createElement('span');
   wrap.className = 'wrap';
+  const citePattern = state.cite ? wordPattern(state.cite) : null;
   const g = document.createDocumentFragment();
   lines.forEach((ln, i) => {
     const row = document.createElement('span');
     const lineErrs = problems.filter((e) => e.line === i + 1);
-    const cited = state.cite && new RegExp('(^|[^\\w-])' + state.cite.replace(/[-]/g, '\\-') + '($|[^\\w-])').test(ln);
+    const cited = citePattern && citePattern.test(ln);
     row.className = 'l' + (cited ? ' cite' : '');
     row.appendChild(highlightLine(ln, lineErrs));
     wrap.appendChild(row);
@@ -132,6 +134,11 @@ function syncScroll() {
   el.gutter.style.transform = 'translateY(' + (-el.src.scrollTop) + 'px)';
 }
 
+// Matches a grant id as a whole word. The id is escaped in full: it can come from the URL hash.
+function wordPattern(id) {
+  return new RegExp('(^|[^\\w-])' + id.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&') + '($|[^\\w-])');
+}
+
 function jump(p) {
   const lines = el.src.value.split('\n');
   let off = 0;
@@ -144,7 +151,7 @@ function jump(p) {
 
 function jumpToGrant(id) {
   const lines = el.src.value.split('\n');
-  const re = new RegExp('(^|[^\\w-])' + id.replace(/[-]/g, '\\-') + '($|[^\\w-])');
+  const re = wordPattern(id);
   const i = lines.findIndex((l) => re.test(l));
   if (i < 0) return;
   jump({ line: i + 1, column: lines[i].indexOf(id) + 1, length: id.length });
@@ -355,6 +362,7 @@ function switchSyntax(next) {
     ? `The source has problems, so it could not be converted to ${next}. This is the last ${next} text.`
     : null;
   if (converted !== null) state.texts[`${state.sc}:${next}`] = converted;
+  else if (!edited) delete state.texts[`${state.sc}:${next}`];
   state.syn = next;
   state.cite = null;
 }
@@ -411,10 +419,8 @@ async function start() {
   const q = new URLSearchParams(location.hash.slice(1));
   if (q.has('case')) state.sc = Math.min(CASES.length - 1, Math.max(0, Number(q.get('case')) || 0));
   if (SYNTAXES.includes(q.get('syn'))) { state.syn = q.get('syn'); el.seg.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.syn === state.syn))); }
-  if (q.has('ask')) state.ask = Math.max(0, Number(q.get('ask')) || 0);
+  if (q.has('ask')) state.ask = Math.min(CASES[state.sc].asks.length - 1, Math.max(0, Number(q.get('ask')) || 0));
   setTheme(q.get('theme') === 'dark' || q.get('theme') === 'light' ? q.get('theme') : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
-  wire();
-  renderCases();
   renderAbout();
   setTab(TABS.includes(q.get('tab')) ? q.get('tab') : 'evaluate');
   placeThumb();
@@ -424,9 +430,11 @@ async function start() {
     failed(error);
     return;
   }
+  wire();
+  renderCases();
   loadText();
-  if (q.has('fix')) { state.cite = q.get('fix'); renderEditor(); }
+  if (GRANT_ID.test(q.get('fix') ?? '')) { state.cite = q.get('fix'); renderEditor(); }
   document.documentElement.dataset.ready = 'true';
 }
 
-start();
+start().catch(failed);
