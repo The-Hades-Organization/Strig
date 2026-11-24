@@ -28,6 +28,8 @@ use crate::trail::{ChainStatus, Replay, Trail};
 
 const SANS: &str = "Noto Sans";
 const MONO: &str = "JetBrains Mono";
+/// Serifa romana de capitais clássicas (OFL), só para o veredito e os rótulos.
+const SERIF: &str = "Cinzel";
 const KEY_CONTEXT: &str = "ThemisInspect";
 
 actions!(
@@ -98,6 +100,7 @@ fn load_fonts(cx: &mut App) {
         Cow::Borrowed(include_bytes!("../assets/fonts/NotoSans-Medium.ttf").as_slice()),
         Cow::Borrowed(include_bytes!("../assets/fonts/NotoSans-SemiBold.ttf").as_slice()),
         Cow::Borrowed(include_bytes!("../assets/fonts/NotoSans-Italic.ttf").as_slice()),
+        Cow::Borrowed(include_bytes!("../assets/fonts/Cinzel-Variable.ttf").as_slice()),
         Cow::Borrowed(include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf").as_slice()),
         Cow::Borrowed(include_bytes!("../assets/fonts/JetBrainsMono-SemiBold.ttf").as_slice()),
     ];
@@ -170,6 +173,7 @@ impl AssetSource for Assets {
             "icons/link.svg" => include_bytes!("../assets/icons/link.svg"),
             "icons/list.svg" => include_bytes!("../assets/icons/list.svg"),
             "icons/refresh.svg" => include_bytes!("../assets/icons/refresh.svg"),
+            "icons/seal-band.svg" => include_bytes!("../assets/icons/seal-band.svg"),
             "icons/seal-allow.svg" => include_bytes!("../assets/icons/seal-allow.svg"),
             "icons/seal-cross.svg" => include_bytes!("../assets/icons/seal-cross.svg"),
             "icons/seal-deny.svg" => include_bytes!("../assets/icons/seal-deny.svg"),
@@ -507,6 +511,23 @@ fn seal(t: Tokens, effect: Effect, size: f32) -> Div {
         })
 }
 
+/// A faixa a −9° atrás do veredito, no tom tingido do efeito. É um retângulo girado: o contêiner
+/// (relativo, com overflow escondido) recorta o que sai.
+fn band(t: Tokens, effect: Effect) -> Svg {
+    let tint = t.effect(effect).1;
+    svg()
+        .path("icons/seal-band.svg")
+        .absolute()
+        .left(gpui::relative(0.5))
+        .ml(px(-1500.0))
+        .top(gpui::relative(0.5))
+        .mt(px(-14.0))
+        .w(px(3000.0))
+        .h(px(28.0))
+        .text_color(tint)
+        .with_transformation(gpui::Transformation::rotate(gpui::radians(-9.0_f32.to_radians())))
+}
+
 fn effect_label(t: Tokens, effect: Effect) -> Div {
     match effect {
         Effect::Allow => label(Some("check"), "allow", t.effect(effect)),
@@ -546,7 +567,8 @@ fn box_title(t: Tokens, title: &str, sub: Option<&str>) -> Div {
         .gap(px(8.0))
         .child(
             div()
-                .text_size(px(11.0))
+                .font_family(SERIF)
+                .text_size(px(12.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(t.ink)
                 .child(caps(title)),
@@ -1005,7 +1027,8 @@ impl InspectView {
                         .py(px(4.0))
                         .rounded(px(R2))
                         .text_color(if on { t.jade } else { t.mute })
-                        .text_size(px(11.0))
+                        .font_family(SERIF)
+                        .text_size(px(12.0))
                         .font_weight(FontWeight::SEMIBOLD)
                         .hover(move |s| s.bg(t.sunk))
                         .child(caps(caption)),
@@ -1063,7 +1086,8 @@ impl InspectView {
                     )
                     .child(
                         div()
-                            .text_size(px(13.0))
+                            .font_family(SERIF)
+                            .text_size(px(14.0))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(t.ink)
                             .child(caps("Themis Inspect")),
@@ -1530,7 +1554,8 @@ fn section_heading(t: Tokens, title: &str, sub: Option<&str>) -> Div {
         .mt(px(4.0))
         .child(
             div()
-                .text_size(px(11.0))
+                .font_family(SERIF)
+                .text_size(px(12.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(t.jade)
                 .child(caps(title)),
@@ -1598,7 +1623,8 @@ fn explanation_panel(t: Tokens, e: &Explanation, sim: Option<Sim>) -> Div {
         .child(seal(t, effect, 48.0))
         .child(
             div()
-                .text_size(px(20.0))
+                .font_family(SERIF)
+                .text_size(px(26.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(state_fg)
                 .child(caps(state_caption)),
@@ -1711,15 +1737,18 @@ fn explanation_panel(t: Tokens, e: &Explanation, sim: Option<Sim>) -> Div {
         .overflow_hidden()
         .child(
             div()
+                .relative()
+                .overflow_hidden()
                 .flex()
                 .items_center()
                 .gap(px(12.0))
                 .min_h(px(60.0))
                 .py(px(10.0))
                 .px(px(16.0))
-                .bg(t.effect(effect).1)
+                .bg(t.panel)
                 .border_b_1()
                 .border_color(t.line)
+                .child(band(t, effect))
                 .child(state)
                 .child(ask),
         )
