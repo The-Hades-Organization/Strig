@@ -28,7 +28,8 @@ permission org.read {
 fn formatting_the_corpus_twice_gives_the_same_text() {
     for scenario in SCENARIOS {
         for language in LANGUAGES {
-            let once = format("c", &source(scenario, language)).unwrap_or_else(|e| panic!("{scenario} {language}: {e}"));
+            let once =
+                format("c", &source(scenario, language)).unwrap_or_else(|e| panic!("{scenario} {language}: {e}"));
             assert_eq!(
                 format("c", &once).unwrap(),
                 once,
@@ -47,7 +48,11 @@ fn formatting_the_corpus_keeps_the_policy_and_its_comments() {
             let before = parse("a", &text).unwrap();
             let after = parse("b", &format("c", &text).unwrap()).unwrap();
             assert_eq!(after.language, language);
-            assert_eq!(canonical(&before.policy), canonical(&after.policy), "{scenario} {language}");
+            assert_eq!(
+                canonical(&before.policy),
+                canonical(&after.policy),
+                "{scenario} {language}"
+            );
         }
     }
 }
@@ -83,4 +88,14 @@ fn a_source_that_does_not_compile_is_an_error_with_a_position() {
 #[test]
 fn an_empty_source_is_an_error_not_a_blank_file() {
     assert!(matches!(format("e", ""), Err(FormatError::Parse(_))));
+}
+
+#[test]
+fn the_guide_example_in_rules_formats_as_documented() {
+    let messy = "language rules\n\n\n\nkinds doc   // kinds\n";
+    assert!(!is_formatted("a.themis", messy).unwrap());
+    assert_eq!(
+        format("a.themis", messy).unwrap(),
+        "language rules\n\nkinds doc  // kinds\n"
+    );
 }

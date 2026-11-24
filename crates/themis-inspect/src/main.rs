@@ -128,7 +128,11 @@ fn format_files(args: &Args) -> Result<ExitCode, String> {
         eprintln!("{error}");
     }
     if !args.check {
-        println!("{} formatados, {} já estavam certos", report.changed.len(), report.unchanged);
+        println!(
+            "{} formatados, {} já estavam certos",
+            report.changed.len(),
+            report.unchanged
+        );
     }
     let failed = !report.errors.is_empty() || (args.check && !report.changed.is_empty());
     Ok(if failed { ExitCode::from(1) } else { ExitCode::SUCCESS })

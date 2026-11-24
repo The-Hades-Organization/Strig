@@ -250,6 +250,26 @@ assert_eq!(actors, "language actors\n\n// hi\nrole viewer\n\ncatalog\n  kinds do
 `print(&policy, language)` does the same from a `Policy` you already hold. A conversion fails with a `ConvertError`
 when the source does not parse, or when the policy cannot be written in the target type.
 
+## Formatting
+
+`format` rewrites a source in the canonical layout of the type its `language` line declares: the spacing, the blank
+lines and the order that `print` writes, with the comments kept. Formatting the result again changes nothing.
+`is_formatted` says whether a source is already canonical without keeping the new text. `file` only names the source
+in error positions.
+
+```rust
+use themis::dsl::{format, is_formatted};
+
+let messy = "language rules\n\n\n\nkinds doc   // kinds\n";
+assert!(!is_formatted("a.themis", messy)?);
+assert_eq!(format("a.themis", messy)?, "language rules\n\nkinds doc  // kinds\n");
+```
+
+A source that does not compile is a `FormatError::Parse` with `file:line:column`. From a terminal,
+`themis-inspect fmt <file|dir>` rewrites the `.themis` files in place, and `themis-inspect fmt --check <file|dir>`
+writes nothing, lists the files that would change and exits with 1 (for CI). In Node, `themis.format(text)` and
+`themis.isFormatted(text)` do the same on text.
+
 ## Notes and reconstruction
 
 Comments are not thrown away. Every `//` comment becomes a note with its text, the element it is anchored to, and its
