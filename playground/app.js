@@ -294,7 +294,7 @@ function renderAbout() {
   });
   const legend = document.createElement('dl');
   legend.className = 'legend';
-  [['t-kw', 'permission', 'declares something'], ['t-rel', 'needs  inherits  when', 'relates things'], ['t-ref', 'user:ana  org:acme', 'who, and where'],
+  [['t-kw', 'permission', 'declares something'], ['t-rel', 'depends_on  inherits  when', 'relates things'], ['t-ref', 'user:ana  org:acme', 'who, and where'],
    ['t-perm', 'document.edit', 'what is asked'], ['t-allow', 'allow', 'an allow'], ['t-deny', 'deny', 'a deny'], ['t-err', 'doc.write', 'a problem']].forEach(([c, s, d]) => {
     const dt = document.createElement('dt');
     dt.appendChild(span(c, s));

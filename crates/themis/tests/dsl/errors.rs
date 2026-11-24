@@ -76,6 +76,18 @@ fn an_unknown_permission_in_a_grant_points_into_the_file() {
     }
 }
 
+#[test]
+fn the_old_needs_word_is_refused_with_the_new_one_in_rules_and_actors() {
+    let rules = "language rules\n\nkinds doc\npermission doc.read on doc\npermission doc.edit on doc needs doc.read\n";
+    let actors = "language actors\n\ncatalog\n  kinds doc\n  doc.read on doc\n  doc.edit on doc needs doc.read\n";
+    for (text, line) in [(rules, 5), (actors, 6)] {
+        let errors = parse("bad.themis", text).expect_err("`needs` is not a clause any more");
+        let first = errors.into_iter().next().unwrap();
+        assert_eq!(first.hint.as_deref(), Some("write: depends_on <ids>"), "{text}");
+        assert_eq!(first.location.map(|l| l.line), Some(line), "{text}");
+    }
+}
+
 /// The matching scenario with one piece of a condition swapped for a bad one.
 fn matching_with(language: Language, good: &str, bad: &str) -> String {
     let text = crate::source("matching", language);
