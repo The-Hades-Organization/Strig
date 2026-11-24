@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Formatter for the policy language. `themis::dsl::format` and `is_formatted` (`dsl` feature) rewrite a source in the canonical layout of its syntax, comments kept and idempotent; `themis-inspect fmt [--check] <file|dir>` formats `.themis` files, and `--check` lists the ones that would change and exits with 1; `themis-node` has `format` and `isFormatted`.
+
 ### Changed
 
 - Release: the crates job also publishes `themis-macros` and `themis-server`, in dependency order.
