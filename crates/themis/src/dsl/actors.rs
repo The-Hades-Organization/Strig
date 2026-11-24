@@ -8,7 +8,7 @@ use crate::dsl::blocks::{duplicate, scoped};
 use crate::dsl::blocks_print::{self as bp, Printer};
 use crate::dsl::build::Builder;
 use crate::dsl::error::{PResult, PrintError, Raw, Span};
-use crate::dsl::grammar::{Cursor, anchor, assignment, condition, describe, matcher, pairs, suggest, target};
+use crate::dsl::grammar::{Cursor, anchor, assignment, closest, condition, describe, matcher, pairs, suggest, target};
 use crate::dsl::lex::Tok;
 use crate::dsl::policy::{Policy, ids};
 use crate::dsl::rules;
@@ -258,10 +258,7 @@ fn role_heading(cur: &mut Cursor, b: &mut Builder, at: Span) -> PResult<Ctx> {
 
 /// The name of a declared role that `name` is a slip away from, if there is one.
 fn close_role<'a>(known: &[&'a str], name: &str) -> Option<&'a str> {
-    let hint = suggest(name, known);
-    let hint = hint.strip_prefix("did you mean `")?;
-    let close = hint.strip_suffix("`?")?;
-    known.iter().copied().find(|k| *k == close)
+    closest(name, known)
 }
 
 /// A heading that would declare a role whose name is close to a declared one is read as a typo,
