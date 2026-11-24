@@ -16,6 +16,8 @@ export function makeDsl(raw) {
     compile: (text, options) => open(raw.dslCompile(text, options)),
     print: (policy, language) => open(raw.dslPrint(policy, language)),
     convert: (text, language) => open(raw.dslConvert(text, language)),
+    format: (text, options) => open(raw.dslFormat(text, options)),
+    isFormatted: (text, options) => open(raw.dslIsFormatted(text, options)),
     loadProject: (sources) => open(raw.dslLoadProject(sources)),
   };
   // Só o módulo nativo lê um diretório: o wasm não tem IO.
