@@ -176,10 +176,22 @@ fn condition_table(subject: &Subject) {
         .collect();
     let lit = |text: &str| Operand::lit(text);
     let cases = [
-        ("eq", Condition::eq(Operand::attr("resource.name"), lit("invoice-2024-v2.md"))),
-        ("starts_with", Condition::starts_with(Operand::attr("resource.name"), lit("invoice"))),
-        ("ends_with", Condition::ends_with(Operand::attr("resource.name"), lit(".md"))),
-        ("contains", Condition::contains(Operand::attr("resource.name"), lit("-v2"))),
+        (
+            "eq",
+            Condition::eq(Operand::attr("resource.name"), lit("invoice-2024-v2.md")),
+        ),
+        (
+            "starts_with",
+            Condition::starts_with(Operand::attr("resource.name"), lit("invoice")),
+        ),
+        (
+            "ends_with",
+            Condition::ends_with(Operand::attr("resource.name"), lit(".md")),
+        ),
+        (
+            "contains",
+            Condition::contains(Operand::attr("resource.name"), lit("-v2")),
+        ),
         (
             "any_in",
             Condition::any_in(Operand::attr("resource.tags"), Operand::lit(vec!["ops", "dev"])),
@@ -188,7 +200,10 @@ fn condition_table(subject: &Subject) {
             "all_in",
             Condition::all_in(Operand::attr("resource.tags"), Operand::lit(vec!["docs", "ops", "dev"])),
         ),
-        ("ip_in", Condition::ip_in(Operand::attr("resource.ip"), lit("10.0.0.0/8"))),
+        (
+            "ip_in",
+            Condition::ip_in(Operand::attr("resource.ip"), lit("10.0.0.0/8")),
+        ),
         (
             "ip_in (4 cidrs)",
             Condition::ip_in(

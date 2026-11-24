@@ -4,7 +4,9 @@
 mod support;
 
 use support::*;
-use themis::{Attributes, Condition, Context, Decision, FilterResidual, Operand, QueryContext, Request, Subject, Value};
+use themis::{
+    Attributes, Condition, Context, Decision, FilterResidual, Operand, QueryContext, Request, Subject, Value,
+};
 
 const MINUTE: u64 = 60_000;
 const HOUR: u64 = 60 * MINUTE;
@@ -35,7 +37,10 @@ fn decide(ctx: &Context<'_>, key: &str, doc: &themis::Resource) -> Decision {
 #[test]
 fn an_allow_over_the_network_and_the_clock_holds_only_inside_both() {
     let office = Condition::all([
-        Condition::ip_in(Operand::attr("env.ip"), lit(Value::from(vec!["10.0.0.0/8", "2001:db8::/32"]))),
+        Condition::ip_in(
+            Operand::attr("env.ip"),
+            lit(Value::from(vec!["10.0.0.0/8", "2001:db8::/32"])),
+        ),
         Condition::time_between("09:00", "17:00"),
         Condition::weekday_in(["mon", "tue", "wed", "thu", "fri"]),
     ]);
@@ -57,7 +62,9 @@ fn an_allow_over_the_network_and_the_clock_holds_only_inside_both() {
 
 #[test]
 fn an_allow_that_reads_the_clock_does_not_apply_without_an_instant() {
-    let grants = vec![role_grant("g", "member", "document.edit", true, at_org()).when(Condition::time_between("00:00", "23:59"))];
+    let grants = vec![
+        role_grant("g", "member", "document.edit", true, at_org()).when(Condition::time_between("00:00", "23:59")),
+    ];
     let doc = document("d1", "invoice");
     let ctx = Context::new(&grants);
     assert!(!allows(&grants, &ctx, "document.edit", &doc));
@@ -77,12 +84,27 @@ fn a_deny_that_cannot_be_evaluated_still_applies() {
     // no instant: the weekday cannot be read, the deny holds
     assert!(!allows(&grants, &Context::new(&grants), "document.edit", &doc));
     // a weekday: the deny does not apply
-    assert!(allows(&grants, &Context::new(&grants).at(MONDAY), "document.edit", &doc));
+    assert!(allows(
+        &grants,
+        &Context::new(&grants).at(MONDAY),
+        "document.edit",
+        &doc
+    ));
     // saturday: it does
-    assert!(!allows(&grants, &Context::new(&grants).at(MONDAY + 5 * 24 * HOUR), "document.edit", &doc));
+    assert!(!allows(
+        &grants,
+        &Context::new(&grants).at(MONDAY + 5 * 24 * HOUR),
+        "document.edit",
+        &doc
+    ));
     // an invalid CIDR is an error, and an error under a deny keeps the deny
     let env = env("10.0.0.1");
-    assert!(!allows(&grants, &Context::new(&grants).with_env(&env).at(MONDAY), "document.view", &doc));
+    assert!(!allows(
+        &grants,
+        &Context::new(&grants).with_env(&env).at(MONDAY),
+        "document.view",
+        &doc
+    ));
 }
 
 #[test]
@@ -114,7 +136,9 @@ fn a_type_error_in_a_new_condition_never_opens_access() {
 
 #[test]
 fn listing_settles_a_time_condition_at_the_instant_of_the_query() {
-    let grants = vec![role_grant("g", "member", "document.edit", true, at_org()).when(Condition::time_between("09:00", "17:00"))];
+    let grants = vec![
+        role_grant("g", "member", "document.edit", true, at_org()).when(Condition::time_between("09:00", "17:00")),
+    ];
     let engine = engine();
     let doc = document("d1", "invoice");
     let listed = |now: Option<u64>| {
@@ -123,7 +147,10 @@ fn listing_settles_a_time_condition_at_the_instant_of_the_query() {
             None => QueryContext::new(&grants),
         };
         let filter = engine.list(&qctx, &member(), "document.edit", "document");
-        (filter.resolve_with(&engine, &qctx.context(), std::slice::from_ref(&doc)), filter)
+        (
+            filter.resolve_with(&engine, &qctx.context(), std::slice::from_ref(&doc)),
+            filter,
+        )
     };
     assert_eq!(listed(Some(MONDAY + 10 * HOUR)).0, vec!["d1".to_string()]);
     assert!(listed(Some(MONDAY + 20 * HOUR)).0.is_empty());
@@ -155,6 +182,11 @@ fn listing_leaves_a_new_condition_over_a_resource_attribute_as_a_residue() {
     assert_eq!(settled, vec!["d1".to_string()]);
     for doc in [&md, &txt, &bare] {
         let expected = engine.check(&ctx, &Request::new(&member(), "document.edit", doc));
-        assert_eq!(settled.iter().any(|id| doc.primary().and_then(|a| a.id.as_ref()) == Some(id)), expected);
+        assert_eq!(
+            settled
+                .iter()
+                .any(|id| doc.primary().and_then(|a| a.id.as_ref()) == Some(id)),
+            expected
+        );
     }
 }

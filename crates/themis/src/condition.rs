@@ -426,14 +426,18 @@ impl EvalContext<'_> {
     ) -> Result<bool, ConditionError> {
         match (self.operand(left)?, self.operand(right)?) {
             (Value::Str(l), Value::Str(r)) => Ok(test(&l, &r)),
-            (l, r) => Err(ConditionError::TypeMismatch(format!("{op}: {l:?} e {r:?} precisam ser texto"))),
+            (l, r) => Err(ConditionError::TypeMismatch(format!(
+                "{op}: {l:?} e {r:?} precisam ser texto"
+            ))),
         }
     }
 
     fn lists(&self, op: &str, left: &Operand, right: &Operand) -> Result<(Vec<Value>, Vec<Value>), ConditionError> {
         match (self.operand(left)?, self.operand(right)?) {
             (Value::List(l), Value::List(r)) => Ok((l, r)),
-            (l, r) => Err(ConditionError::TypeMismatch(format!("{op}: {l:?} e {r:?} precisam ser listas"))),
+            (l, r) => Err(ConditionError::TypeMismatch(format!(
+                "{op}: {l:?} e {r:?} precisam ser listas"
+            ))),
         }
     }
 
@@ -724,23 +728,41 @@ mod tests {
         assert_eq!(holds(&Condition::contains(list, lit("c"))), Ok(false));
         let nums = lit(Value::List(vec![Value::Int(1), Value::Int(2)]));
         assert_eq!(holds(&Condition::contains(nums, lit(2.0))), Ok(true));
-        assert_eq!(holds(&Condition::contains(lit(Value::List(vec![])), lit("a"))), Ok(false));
+        assert_eq!(
+            holds(&Condition::contains(lit(Value::List(vec![])), lit("a"))),
+            Ok(false)
+        );
     }
 
     #[test]
     fn missing_attribute_in_a_new_condition_is_an_error() {
         let cond = Condition::contains(Operand::attr("subject.tags"), lit("a"));
-        assert_eq!(holds(&cond), Err(ConditionError::MissingAttribute("subject.tags".to_string())));
+        assert_eq!(
+            holds(&cond),
+            Err(ConditionError::MissingAttribute("subject.tags".to_string()))
+        );
     }
 
     #[test]
     fn any_in_needs_one_common_element() {
         let set = lit(Value::from(vec!["a", "b"]));
-        assert_eq!(holds(&Condition::any_in(lit(Value::from(vec!["x", "b"])), set.clone())), Ok(true));
-        assert_eq!(holds(&Condition::any_in(lit(Value::from(vec!["x", "y"])), set.clone())), Ok(false));
-        assert_eq!(holds(&Condition::any_in(lit(Value::List(vec![])), set.clone())), Ok(false));
         assert_eq!(
-            holds(&Condition::any_in(lit(Value::from(vec!["a"])), lit(Value::List(vec![])))),
+            holds(&Condition::any_in(lit(Value::from(vec!["x", "b"])), set.clone())),
+            Ok(true)
+        );
+        assert_eq!(
+            holds(&Condition::any_in(lit(Value::from(vec!["x", "y"])), set.clone())),
+            Ok(false)
+        );
+        assert_eq!(
+            holds(&Condition::any_in(lit(Value::List(vec![])), set.clone())),
+            Ok(false)
+        );
+        assert_eq!(
+            holds(&Condition::any_in(
+                lit(Value::from(vec!["a"])),
+                lit(Value::List(vec![]))
+            )),
             Ok(false)
         );
         assert!(is_mismatch(holds(&Condition::any_in(lit("a"), set))));
@@ -749,11 +771,23 @@ mod tests {
     #[test]
     fn all_in_needs_every_element_and_an_empty_list_holds() {
         let set = lit(Value::from(vec!["a", "b"]));
-        assert_eq!(holds(&Condition::all_in(lit(Value::from(vec!["a", "b"])), set.clone())), Ok(true));
-        assert_eq!(holds(&Condition::all_in(lit(Value::from(vec!["a", "x"])), set.clone())), Ok(false));
-        assert_eq!(holds(&Condition::all_in(lit(Value::List(vec![])), set.clone())), Ok(true));
         assert_eq!(
-            holds(&Condition::all_in(lit(Value::from(vec!["a"])), lit(Value::List(vec![])))),
+            holds(&Condition::all_in(lit(Value::from(vec!["a", "b"])), set.clone())),
+            Ok(true)
+        );
+        assert_eq!(
+            holds(&Condition::all_in(lit(Value::from(vec!["a", "x"])), set.clone())),
+            Ok(false)
+        );
+        assert_eq!(
+            holds(&Condition::all_in(lit(Value::List(vec![])), set.clone())),
+            Ok(true)
+        );
+        assert_eq!(
+            holds(&Condition::all_in(
+                lit(Value::from(vec!["a"])),
+                lit(Value::List(vec![]))
+            )),
             Ok(false)
         );
         assert!(is_mismatch(holds(&Condition::all_in(set, lit("a")))));
@@ -797,13 +831,31 @@ mod tests {
 
     #[test]
     fn ip_in_rejects_invalid_addresses_and_blocks() {
-        for bad in ["10.0.0.0/33", "10.0.0.0/", "10.0.0.0/-1", "10.0.0/8", "nope", "", "::1/129", "10.0.0.0/8/8"] {
-            assert!(is_mismatch(holds(&Condition::ip_in(lit("10.0.0.1"), lit(bad)))), "{bad}");
+        for bad in [
+            "10.0.0.0/33",
+            "10.0.0.0/",
+            "10.0.0.0/-1",
+            "10.0.0/8",
+            "nope",
+            "",
+            "::1/129",
+            "10.0.0.0/8/8",
+        ] {
+            assert!(
+                is_mismatch(holds(&Condition::ip_in(lit("10.0.0.1"), lit(bad)))),
+                "{bad}"
+            );
         }
-        assert!(is_mismatch(holds(&Condition::ip_in(lit("10.0.0.256"), lit("10.0.0.0/8")))));
+        assert!(is_mismatch(holds(&Condition::ip_in(
+            lit("10.0.0.256"),
+            lit("10.0.0.0/8")
+        ))));
         assert!(is_mismatch(holds(&Condition::ip_in(lit(5), lit("10.0.0.0/8")))));
         assert!(is_mismatch(holds(&Condition::ip_in(lit("10.0.0.1"), lit(5)))));
-        assert!(is_mismatch(holds(&Condition::ip_in(lit("10.0.0.1"), lit(Value::List(vec![Value::Int(1)]))))));
+        assert!(is_mismatch(holds(&Condition::ip_in(
+            lit("10.0.0.1"),
+            lit(Value::List(vec![Value::Int(1)]))
+        ))));
         // a bad block after a match is not reached, one before it fails
         let tail = lit(Value::from(vec!["10.0.0.0/8", "bad"]));
         assert_eq!(holds(&Condition::ip_in(lit("10.0.0.1"), tail)), Ok(true));
@@ -866,7 +918,10 @@ mod tests {
         assert_eq!(holds_at(&c, MONDAY + 6 * DAY), Ok(true), "sunday");
         assert_eq!(holds_at(&c, 0), Ok(false), "the epoch was a thursday");
         assert_eq!(holds_at(&Condition::weekday_in(["thu"]), 0), Ok(true));
-        assert_eq!(holds_at(&Condition::weekday_in(Vec::<String>::new()), MONDAY), Ok(false));
+        assert_eq!(
+            holds_at(&Condition::weekday_in(Vec::<String>::new()), MONDAY),
+            Ok(false)
+        );
         assert!(is_mismatch(holds_at(&Condition::weekday_in(["monday"]), MONDAY)));
     }
 
@@ -877,7 +932,11 @@ mod tests {
         assert_eq!(holds(&Condition::weekday_in(["mon"])), missing);
         let nested = Condition::not(Condition::all([Condition::weekday_in(["mon"])]));
         assert_eq!(holds(&nested), missing);
-        assert_eq!(holds_at(&nested, MONDAY), Ok(false), "the instant reaches nested conditions");
+        assert_eq!(
+            holds_at(&nested, MONDAY),
+            Ok(false),
+            "the instant reaches nested conditions"
+        );
     }
 
     #[test]

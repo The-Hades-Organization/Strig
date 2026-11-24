@@ -8,7 +8,8 @@ use crate::catalog::Catalog;
 use crate::condition::{ConditionRegistry, EvalContext};
 use crate::decision::{Decision, Reason, Request};
 use crate::explain::{
-    ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, PrerequisiteStep, Verdict, trace_condition_at,
+    ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, PrerequisiteStep, Verdict,
+    trace_condition_at,
 };
 use crate::grant::{Effect, Grant, GrantIndex, GrantSource, SubjectMatcher};
 use crate::overrides::Override;
