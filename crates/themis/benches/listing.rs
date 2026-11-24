@@ -5,6 +5,9 @@
 //! memory, to run `Engine::check` on each of them, and to answer `who_can_on` and `access_of`.
 //! The last ratio compares the per-row `check` loop with plan plus resolve: both decide row by
 //! row in memory, so it shows the cost of the shared work done once, not a table read.
+//!
+//! A second table gives the cost of one `Engine::check` for a single grant guarded by each kind of
+//! condition, to show what the text, set, network and time conditions add over `eq`.
 
 use std::hint::black_box;
 use std::time::{Duration, Instant};
@@ -137,6 +140,87 @@ fn engine(first_applicable: bool) -> Engine {
     builder.build().expect("engine")
 }
 
+const CONDITION_ROWS: usize = 100_000;
+
+/// Median time of `check` per decision with one allow guarded by `condition`.
+fn condition_cost(condition: Condition, docs: &[Resource], subject: &Subject) -> Duration {
+    let engine = Engine::builder(catalog()).build().expect("engine");
+    let grants = vec![
+        Grant::allow(
+            "g",
+            SubjectMatcher::role("member"),
+            "document.edit",
+            TargetSelector::exact("org", "o1"),
+        )
+        .scoped(Anchor::new("org", "o1"))
+        .when(condition),
+    ];
+    // 2024-01-01 12:00 UTC, a Monday.
+    let ctx = themis::Context::new(&grants).at(1_704_110_400_000);
+    let total = time(|| {
+        docs.iter()
+            .filter(|doc| engine.check(&ctx, &Request::new(subject, "document.edit", doc)))
+            .count()
+    });
+    total / u32::try_from(docs.len()).expect("row count fits")
+}
+
+fn condition_table(subject: &Subject) {
+    let docs: Vec<Resource> = resources(CONDITION_ROWS)
+        .into_iter()
+        .map(|doc| {
+            doc.with_attr("name", "invoice-2024-v2.md")
+                .with_attr("tags", vec!["docs", "ops"])
+                .with_attr("ip", "10.20.30.40")
+        })
+        .collect();
+    let lit = |text: &str| Operand::lit(text);
+    let cases = [
+        (
+            "eq",
+            Condition::eq(Operand::attr("resource.name"), lit("invoice-2024-v2.md")),
+        ),
+        (
+            "starts_with",
+            Condition::starts_with(Operand::attr("resource.name"), lit("invoice")),
+        ),
+        (
+            "ends_with",
+            Condition::ends_with(Operand::attr("resource.name"), lit(".md")),
+        ),
+        (
+            "contains",
+            Condition::contains(Operand::attr("resource.name"), lit("-v2")),
+        ),
+        (
+            "any_in",
+            Condition::any_in(Operand::attr("resource.tags"), Operand::lit(vec!["ops", "dev"])),
+        ),
+        (
+            "all_in",
+            Condition::all_in(Operand::attr("resource.tags"), Operand::lit(vec!["docs", "ops", "dev"])),
+        ),
+        (
+            "ip_in",
+            Condition::ip_in(Operand::attr("resource.ip"), lit("10.0.0.0/8")),
+        ),
+        (
+            "ip_in (4 cidrs)",
+            Condition::ip_in(
+                Operand::attr("resource.ip"),
+                Operand::lit(vec!["192.168.0.0/16", "172.16.0.0/12", "2001:db8::/32", "10.0.0.0/8"]),
+            ),
+        ),
+        ("time_between", Condition::time_between("09:00", "17:30")),
+        ("weekday_in", Condition::weekday_in(["mon", "tue", "wed", "thu", "fri"])),
+    ];
+    println!("\n{:>16} {:>12}", "condition", "check/decision");
+    for (name, condition) in cases {
+        let cost = condition_cost(condition, &docs, subject);
+        println!("{name:>16} {cost:>12.2?}");
+    }
+}
+
 fn main() {
     let subject = Subject::user("u1").with_role_in("member", Anchor::new("org", "o1"));
     let layout = PathLayout::new("document").within("project").within("org");
@@ -186,4 +270,5 @@ fn main() {
             }
         }
     }
+    condition_table(&subject);
 }

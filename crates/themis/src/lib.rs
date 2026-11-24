@@ -70,7 +70,7 @@ pub use exclusive::{
 };
 pub use explain::{
     ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, PrerequisiteStep, TraceResult, Verdict,
-    trace_condition,
+    trace_condition, trace_condition_at,
 };
 pub use governance::{
     Bypass, CatalogConformance, Forbid, Governance, GovernanceAt, Invariant, ManagementOnly, Mutation, NoEscalation,
