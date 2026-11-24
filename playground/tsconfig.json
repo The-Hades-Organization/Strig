@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "rootDirs": [".", "./types"],
+    "types": [],
+    "outDir": "dist"
+  },
+  "files": ["app.ts", "cases.ts", "engine.ts", "highlight.ts"]
+}
