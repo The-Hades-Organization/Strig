@@ -20,7 +20,7 @@ The core does no IO, needs no async runtime and compiles to WebAssembly. Real ti
 [Documentation](https://strig.vercel.app/docs) · [Playground](https://strig-playground.vercel.app) · [API on docs.rs](https://docs.rs/strig) · [Changelog](CHANGELOG.md)
 
 > [!NOTE]
-> Strig is pre-1.0: the API can change between minor versions. Versions up to 0.5.0 were published as Themis; see [Upgrading from Themis](#upgrading-from-themis).
+> Strig is pre-1.0: the API can change between minor versions. Versions up to 0.5.0 were published as Themis.
 
 ## Install
 
@@ -702,23 +702,6 @@ To run the playground locally, see [`playground/README.md`](playground/README.md
 Building the `strig-inspect` window on Linux needs the Wayland and X11 development libraries, for example `libxkbcommon-dev`, `libwayland-dev`, `libxcb1-dev` and `libvulkan-dev`.
 
 Source comments are in Brazilian Portuguese. Issues and pull requests are welcome in English or Portuguese; see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Upgrading from Themis
-
-Strig 0.6.0 is Themis 0.5.0 renamed. The code is the same; the names changed.
-
-| Before | Now |
-|---|---|
-| crate `themis-auth` (library `themis`) | crate `strig` (library `strig`) |
-| `themis-sync`, `themis-redis`, `themis-postgres`, `themis-axum`, `themis-macros`, `themis-server` | `strig-sync`, `strig-redis`, `strig-postgres`, `strig-axum`, `strig-macros`, `strig-server` |
-| npm package `themis-auth` | npm package `@the-hades-organization/strig` |
-| `themis-inspect` | `strig-inspect` |
-| `.themis` policy files | `.strig` policy files |
-| `THEMIS_*` environment variables | `STRIG_*` environment variables |
-
-Replace `use themis::` with `use strig::` and rename the files and variables above. The repository moved to [The-Hades-Organization/Strig](https://github.com/The-Hades-Organization/Strig).
-
-Coming from Themis 0.4 or earlier, there is also one keyword change from 0.5.0. In the Rules and Actors syntaxes, a `permission` line writes `depends_on <ids>` instead of `needs <ids>`, matching the JSON field. `needs` is now an error with the hint `write: depends_on <ids>`; replace it in place in your policy files. The JSON did not change.
 
 ## License
 
