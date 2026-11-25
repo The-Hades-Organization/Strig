@@ -13,27 +13,105 @@
 
 **English** · [Português (Brasil)](README.pt-BR.md)
 
-An authorization library for Rust. A validated permission catalog and a decision engine that combines RBAC, ABAC and ReBAC over the same grants, with governance and auditing of changes, and real-time propagation of those changes all the way to the client.
+Strig is an authorization library for Rust. You declare a permission catalog, hand the engine your grants, and ask whether a subject may do something to a resource. RBAC, ABAC and ReBAC are evaluated over the same grants. Changes to grants go through governance rules, are audited, and can be pushed in real time to other instances and to the browser.
 
-The core does no IO, does not depend on an async runtime and compiles to WebAssembly. Real time, transports and bindings live in separate crates, each one optional.
+The core does no IO, needs no async runtime and compiles to WebAssembly. Real time, transports and the JavaScript bindings are separate, optional crates.
 
-> **Status:** pre-1.0. The API can still change between minor versions. Releases are published as `strig` on [crates.io](https://crates.io/crates/strig) (API docs on [docs.rs](https://docs.rs/strig)) and as `@the-hades-organization/strig` on [npm](https://www.npmjs.com/package/@the-hades-organization/strig). Formerly Themis (crate `themis-auth`, npm package `themis-auth`): the project was renamed to Strig, see the [migration note](#migrating-from-themis).
+[Documentation](https://strig.vercel.app/docs) · [Playground](https://strig-playground.vercel.app) · [API on docs.rs](https://docs.rs/strig) · [Changelog](CHANGELOG.md)
+
+> [!NOTE]
+> Strig is pre-1.0: the API can change between minor versions. Versions up to 0.5.0 were published as Themis; see [Upgrading from Themis](#upgrading-from-themis).
+
+## Install
+
+```sh
+cargo add strig                             # Rust
+cargo add strig --features dsl              # Rust, with the policy language
+npm install @the-hades-organization/strig   # Node, Bun and the browser
+```
+
+Features of the `strig` crate:
+
+| Feature | Default | Adds |
+|---|---|---|
+| `audit` | yes | Audit trail for grant changes and decisions, with a hash chain |
+| `exclusive` | no | One holder per resource, with priority and preemption |
+| `dsl` | no | The policy language: parse, validate, convert, format. No IO, works in wasm |
+| `dsl-fs` | no | `dsl` plus reading and writing `.strig` files and directories |
+
+## Quick start
+
+```rust
+use strig::*;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let catalog = Catalog::builder()
+        .target_kinds(["project", "doc_type", "document"])
+        .broad_target("org")
+        .permission(PermissionDef::new("document.export").targets(["project", "document"]))
+        .permission(
+            PermissionDef::new("document.invoice.export")
+                .targets(["doc_type", "document"])
+                .implied_by(["document.export"]),
+        )
+        .build()?;
+
+    let engine = Engine::builder(catalog).build()?;
+
+    let grants = vec![
+        Grant::allow("g1", SubjectMatcher::role("member"), "document.export", TargetSelector::kind("org"))
+            .scoped(Anchor::new("org", "acme")),
+        Grant::deny("g2", SubjectMatcher::Any, "document.invoice.export", TargetSelector::exact("doc_type", "invoice")),
+    ];
+
+    let dave = Subject::user("dave").with_role_in("member", Anchor::new("org", "acme"));
+    let invoice = Resource::new("document", "d1")
+        .within("doc_type", "invoice")
+        .within("project", "p1")
+        .within("org", "acme");
+
+    let ctx = Context::new(&grants);
+    let export_invoice = engine.decide(&ctx, &Request::new(&dave, "document.invoice.export", &invoice));
+    let export = engine.decide(&ctx, &Request::new(&dave, "document.export", &invoice));
+    println!("{:?} {:?}", export_invoice.effect, export_invoice.reason);
+    println!("{:?} {:?}", export.effect, export.reason);
+    Ok(())
+}
+```
+
+```text
+Deny Grant { grant_id: "g2", permission: "document.invoice.export", rank: 1, strategy: "most_specific" }
+Allow Grant { grant_id: "g1", permission: "document.export", rank: 3, strategy: "most_specific" }
+```
+
+Dave may export documents anywhere in `acme` (`g1`), but not invoices: `g2` sits on `doc_type:invoice`, one step from the document (`rank: 1`), while `g1` sits on `org:acme`, three steps away (`rank: 3`). The rank counts steps from the resource itself (rank 0), and the default strategy lets the lowest rank decide.
+
+The same engine runs in Node, Bun and the browser; see [JavaScript](#javascript-node-bun-and-the-browser).
+
+The same engine can be configured from JSON, TOML or YAML through `EngineSpec`, or from a `.strig` file in the [policy language](#policy-language). `EngineSpec::builder()` returns the `EngineBuilder`, so you can add in code what does not serialize, such as condition functions.
+
+More to run:
+
+```sh
+cargo run -p strig --example documents        # RBAC, ABAC and ReBAC in one domain
+cargo run -p strig-axum --example server      # real-time server over SSE and WebSocket
+```
 
 ## Crates
 
-| Crate | What it is for | Notable dependencies |
-|---|---|---|
-| `strig` | Catalog, decision engine, governance, auditing (`audit` feature, on by default), JSON spec | `serde`, `thiserror`; `sha2` and `serde_json` with `audit` |
-| `strig-sync` | Change hub, `Transport` trait, framework-independent SSE/WebSocket sessions, capability cache | `tokio` |
-| `strig-redis` | `Transport` over Redis pub/sub | `redis` |
-| `strig-postgres` | `Transport` over Postgres `LISTEN/NOTIFY`, with the notice sent inside the transaction | `tokio-postgres` |
-| `strig-axum` | axum SSE and WebSocket routes over the `strig-sync` sessions | `axum` |
-| `strig-inspect` | Inspector: the trace of each decision, grant simulation, access matrix and audit trail reading. Optional gpui window (`gui` feature) and terminal commands | `gpui-pre`, `gpui-component` |
-| `strig-server` | HTTP decision server over an `Engine` and a grant source, and a Rust client with timeout and circuit breaker that denies when it gets no answer | `axum`, `hyper-util` (client) |
-| `strig-macros` | `policy!` and `include_policy!`: a policy written in the DSL is validated while the crate compiles | `strig` |
-| `strig-node` | JS bindings: native module (N-API) for Node and Bun, WebAssembly for the browser, real-time client and server in JS | `napi` or `wasm-bindgen` |
+All crates except `strig-inspect` and `strig-node` are on crates.io at the same version.
 
-Depend on it from another crate:
+| Crate | Use it for | Main dependencies |
+|---|---|---|
+| `strig` | Catalog, decision engine, governance, auditing, JSON spec, policy language | `serde`, `thiserror`; `sha2` with `audit` |
+| `strig-sync` | Change hub, `Transport` trait, SSE/WebSocket sessions independent of any web framework, capability cache | `tokio` |
+| `strig-redis` | `Transport` over Redis pub/sub | `redis` |
+| `strig-postgres` | `Transport` over Postgres `LISTEN/NOTIFY`, sent inside your transaction | `tokio-postgres` |
+| `strig-axum` | axum SSE and WebSocket routes over `strig-sync` sessions | `axum` |
+| `strig-server` | HTTP decision server, and a Rust client that denies when it gets no answer | `axum`, `hyper-util` (client) |
+| `strig-macros` | `policy!` and `include_policy!`: the policy is validated at compile time | `strig` |
+| `strig-node` | The npm package: native module (N-API) for Node and Bun, WebAssembly for the browser | `napi` or `wasm-bindgen` |
+| `strig-inspect` | Inspector: decision traces, grant simulation, access matrix, audit trail. Desktop window and terminal commands | `gpui-pre`, `gpui-component` |
 
 ```toml
 [dependencies]
@@ -43,63 +121,30 @@ strig-sync = "0.6"
 
 ## Concepts
 
-| Concept | Type | Role |
+| Concept | Type | What it holds |
 |---|---|---|
-| Catalog | `Catalog`, `PermissionDef` | Dotted keys (`document.invoice.export`), accepted targets, `implied_by`, free-form metadata (`meta`). Validated on construction: malformed key, duplicate, unregistered target, missing parent, cycle, and the application's own rules (`CatalogRule`). Exports and imports JSON. |
-| Resource | `Resource`, `Anchor` | Path from the most specific to the broadest (`document:7 → doc_type:invoice → project:42 → org:9`), with an implicit `global` at the end, plus attributes. |
+| Catalog | `Catalog`, `PermissionDef` | Dotted permission keys (`document.invoice.export`), the targets each accepts, `implied_by`, free-form `meta`. Exports and imports JSON. |
+| Resource | `Resource`, `Anchor` | A path of steps (anchors) from the most specific to the broadest (`document:7 → doc_type:invoice → project:42 → org:9`), with an implicit `global` at the end, plus attributes. |
 | Subject | `Subject` | Id, roles (optionally scoped), principals (`authenticated`, `anonymous` or your own), attributes. |
-| Grant | `Grant` | Subject (`User`, `Role`, `Principal`, `Relation`, `Any`), permission, target, effect, optional scope and condition. |
-| Engine | `Engine` | Overrides, collection of the applicable grants, combination by strategy. Returns a `Decision` with the reason, the matched grants and warnings. |
-| Governance | `Governance`, `Invariant` | Applies a grant change only if every invariant passes, and records the outcome in the audit trail. |
+| Grant | `Grant` | Who (`User`, `Role`, `Principal`, `Relation`, `Any`), which permission, on which target (a kind or an exact step), allow or deny, with an optional scope (an anchor the resource path must pass through) and condition. |
+| Engine | `Engine` | Decides. Returns a `Decision` with the effect, the reason, the matched grants and warnings. |
+| Governance | `Governance`, `Invariant` | Applies a grant change only if every invariant passes, and audits the outcome. |
 
-## Usage
-
-```rust
-use strig::*;
-
-let catalog = Catalog::builder()
-    .target_kinds(["project", "doc_type", "document"])
-    .broad_target("org")
-    .permission(PermissionDef::new("document.export").targets(["project", "document"]))
-    .permission(
-        PermissionDef::new("document.invoice.export")
-            .targets(["doc_type", "document"])
-            .implied_by(["document.export"]),
-    )
-    .build()?;
-
-let engine = Engine::builder(catalog)
-    .override_with(ResourceOwner::new("owner"))
-    .build()?;
-
-let grants = vec![
-    Grant::allow("g1", SubjectMatcher::role("member"), "document.export", TargetSelector::kind("org"))
-        .scoped(Anchor::new("org", "acme")),
-    Grant::deny("g2", SubjectMatcher::Any, "document.invoice.export", TargetSelector::exact("doc_type", "invoice")),
-];
-
-let dave = Subject::user("dave").with_role_in("member", Anchor::new("org", "acme"));
-let invoice = Resource::new("document", "d1")
-    .within("doc_type", "invoice")
-    .within("project", "p1")
-    .within("org", "acme");
-
-let decision = engine.decide(&Context::new(&grants), &Request::new(&dave, "document.invoice.export", &invoice));
-assert!(!decision.is_allowed()); // g2 sits on a more specific step than g1
-```
-
-The same configuration can come from JSON, TOML or YAML through `EngineSpec` (catalog, role inheritance, relations, strategy, overrides). `EngineSpec::builder()` returns the `EngineBuilder` so you can add in code what does not serialize, such as condition functions.
-
-Examples: `cargo run -p strig --example documents` (the three models together) and `cargo run -p strig-axum --example server` (real-time server).
+The catalog is validated when it is built. It refuses a malformed key, a duplicate, an unregistered target, a missing parent, a cycle, and anything your own `CatalogRule` rejects.
 
 ## How a decision is made
 
-1. Permission not in the catalog: deny (`Reason::UnknownPermission`).
-2. Overrides, in order. The first one that answers decides. `override_except` takes permissions (and the ones they imply) out of an override's reach.
-3. Collection: a grant is a candidate when its permission is the requested one or one that implies it, its scope is on the resource path, its target matches a step of the path, its subject matches and its condition is true.
-4. The strategy picks the deciding grant. With no candidate, deny.
+1. **Unknown permission.** Deny with `Reason::UnknownPermission`.
+2. **Overrides.** They run in order, and the first one that answers decides. `override_except` takes permissions, and the ones they imply, out of an override's reach.
+3. **Collection.** A grant is a candidate when all of these hold:
+   - its permission is the requested one, or one that implies it;
+   - its scope is on the resource path;
+   - its target matches a step of the path;
+   - its subject matches;
+   - its condition is true.
+4. **Strategy.** The strategy picks the deciding grant. With no candidate, deny.
 
-A condition or relation that cannot be evaluated (missing attribute, engine without a `TupleStore`) never opens access: the `allow` is dropped and the `deny` is applied. The reason goes into `Decision::warnings`.
+A condition or relation that cannot be evaluated (missing attribute, engine without a `TupleStore`) never opens access: the `allow` is dropped, the `deny` still applies, and the reason goes into `Decision::warnings`.
 
 | Strategy | Rule |
 |---|---|
@@ -110,13 +155,37 @@ A condition or relation that cannot be evaluated (missing attribute, engine with
 
 ## The three models
 
-**RBAC.** `RoleGraph::builder().inherit("maintainer", "member")` gives `maintainer` the grants of `member`. `Subject::with_role_in(role, anchor)` limits the role to the resources under that step.
+### RBAC
 
-**ABAC.** `Grant::when(condition)` with a serializable `Condition`: `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `is_in`, `exists`, `all`, `any`, `not` and `call`, plus `starts_with`, `ends_with` and `contains` on text (`contains` also tests list membership), `any_in` and `all_in` on lists, `ip_in` for an address in a CIDR or a list of CIDRs, and `time_between` and `weekday_in` on the decision instant, always in UTC. The time conditions read the instant of `Context::at`; without one they cannot be resolved, so the `allow` does not apply. There is no regular-expression condition. Operands read `subject.*`, `resource.*` and `env.*`. Your own functions are added with `ConditionRegistry::register` and checked by `Engine::validate_grant`.
+`RoleGraph::builder().inherit("maintainer", "member")` gives `maintainer` the grants of `member`. `Subject::with_role_in(role, anchor)` limits a role to the resources under that step.
 
-**ReBAC.** `object#relation@subject` tuples in a `TupleStore` and per-type rules in a `RelationSchema` (`This`, `Computed`, `TupleToUserset`, `Union`, `Intersection`, `Exclusion`), inspired by relationship-based access control. `user:*` stands for every user. A grant with `SubjectMatcher::relation("editor")` applies to whoever holds `editor` on the step matched by the target. The search has a maximum depth (`max_relation_depth`, 32 by default) and cuts cycles.
+### ABAC
+
+`Grant::when(condition)` attaches a serializable `Condition`. Operands read `subject.*`, `resource.*` and `env.*`.
+
+| Operators | On |
+|---|---|
+| `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `is_in`, `exists` | Any value |
+| `starts_with`, `ends_with`, `contains` | Text (`contains` also tests list membership) |
+| `any_in`, `all_in` | Lists |
+| `ip_in` | An address in a CIDR or a list of CIDRs |
+| `time_between`, `weekday_in` | The decision instant, in UTC |
+| `all`, `any`, `not` | Other conditions |
+| `call` | Your own function, registered with `ConditionRegistry::register` |
+
+The time conditions read the instant given by `Context::at`; without it they cannot be resolved, so the `allow` does not apply. There is no regular-expression condition. `Engine::validate_grant` checks that every `call` names a registered function.
+
+### ReBAC
+
+Store `object#relation@subject` tuples in a `TupleStore` and describe each type in a `RelationSchema` with `This`, `Computed`, `TupleToUserset`, `Union`, `Intersection` and `Exclusion`. `user:*` stands for every user.
+
+A grant with `SubjectMatcher::relation("editor")` applies to whoever holds `editor` on the step its target matched. The search stops at `max_relation_depth` (32 by default) and cuts cycles.
 
 ## Governance
+
+`Governance` runs a grant change through a list of invariants and returns the new grant set only if all of them pass. Persist the result on `Ok`; on `Err` you get the violations.
+
+From here on, snippets reuse the `engine`, `grants` and subjects of earlier examples; names such as `actor`, `current` (the grants you hold today) and `request_meta` stand for your own values. The `None` argument is an optional `TupleStore` for ReBAC, and `apply_with` is `apply` plus request metadata for the audit trail.
 
 ```rust
 let governance = Governance::new()
@@ -128,33 +197,31 @@ let governance = Governance::new()
     .audited(auditor);
 
 let next = governance.apply_with(&engine, &actor, &current, &Mutation::Add(grant), None, &request_meta)?;
-// persist `next` only on Ok
+// persist `next`
 ```
 
-Assigning or revoking a role goes through the same invariants and is audited as `role_assign`/`role_revoke`; the grant set comes back unchanged and the subject to persist comes from `Mutation::subject_after`.
+Assigning or revoking a role goes through the same invariants and is audited as `role_assign` or `role_revoke`. The grant set comes back unchanged; the subject to persist comes from `Mutation::subject_after`.
 
 ```rust
-let change = Mutation::AssignRole { subject: bob, role: RoleAssignment { role: "editor".into(), scope: Some(org) } };
+let change = Mutation::AssignRole { subject: bob, role: RoleAssignment::in_scope("editor", org) };
 governance.apply_with(&engine, &actor, &current, &change, None, &request_meta)?;
 let bob = change.subject_after().expect("role change"); // persist bob's roles
 ```
 
-`Forbid` applies to a role assignment only when it targets a user, and it ignores scope. `NoEscalation` keeps an actor from handing out what they do not hold: an `allow` grant or a role assignment is refused unless the actor holds every permission it confers, and each one it implies, where it would apply. See [Catalog governance](#catalog-governance).
+`Forbid` applies to a role assignment only when the assignment targets a user, and it ignores scope. Write your own rule by implementing `Invariant`. The invariant list can also come from JSON (`InvariantSpec`).
 
-Add your own rule by implementing `Invariant`. The list can also come from JSON (`InvariantSpec`).
+### Rules declared in the catalog
 
-## Catalog governance
+Some rules belong to a permission, so they are declared on its `PermissionDef`:
 
-The catalog carries the rules that governance enforces, so they live next to the permission they protect:
-
-| Flag on `PermissionDef` | Effect |
+| Flag | Effect |
 |---|---|
-| `depends_on` | Holding the permission requires holding each listed one on the same resource (`Prerequisites`). |
-| `non_delegable` | Not delegable by whoever merely holds it: only a manager hands it out. |
+| `depends_on` | Holding the permission requires holding each listed one on the same resource (checked by `Prerequisites`). |
+| `non_delegable` | Only a manager hands it out, not whoever merely holds it. |
 | `management_only` | Grantable only to management roles. |
-| `override_only` | Valid only through an override: a plain grant of it does not count. |
+| `override_only` | Valid only through an override; a plain grant of it does not count. |
 
-`NoEscalation` completes the set: an actor hands out only what they hold, so holding `org.roles.edit` is not a way to give someone a stronger role than your own. `NoLockout` can carry a reserve (`with_reserve`): when a change would leave a critical permission without a holder, the `Violation` brings a `Suggestion` with the role assignment that fixes it. Nothing is applied; the suggestion is also in the audit record. `RoleTemplate::materialize` turns a template of grants into ordinary grants, with the template id and version in the change metadata and no live link back.
+`NoEscalation` keeps an actor from handing out what they do not hold: an `allow` grant or a role assignment is refused unless the actor holds every permission it confers, and every permission those imply, wherever it would apply. Holding `org.roles.edit` is therefore not a way to give someone a stronger role than your own.
 
 ```rust
 let catalog = Catalog::builder()
@@ -178,45 +245,56 @@ let refused = governance.apply(&engine, &Subject::user("lead"), &current, &hando
 assert_eq!(refused[0].invariant, "no_escalation");
 ```
 
+Two more tools:
+
+- **Lockout reserve.** `NoLockout::with_reserve` names who should take over a critical permission. When a change would leave that permission with no holder, the `Violation` carries a `Suggestion` with the role assignment that fixes it. Nothing is applied; the suggestion is also written to the audit record.
+- **Role templates.** `RoleTemplate::materialize` turns a template into ordinary grants. The template id and version go into the change metadata; the grants keep no link to the template.
+
 ## Auditing
 
-With the `audit` feature, every change that goes through governance becomes an `AuditRecord`, whether applied or refused. ReBAC tuples and role assignments are recorded with `Auditor::tuple_change` and `Auditor::role_change`. If the sink fails to write, governance refuses the change with the `audit` violation: no record, no change.
+With the `audit` feature, every change that goes through governance becomes an `AuditRecord`, applied or refused. Record ReBAC tuples and role assignments with `Auditor::tuple_change` and `Auditor::role_change`. If the sink fails to write, governance refuses the change with the `audit` violation: no record, no change.
 
 ```rust
 let auditor = Arc::new(Auditor::new(AuditLevel::Standard, Arc::new(JsonLinesAudit::new(file))));
 ```
 
-Built-in sinks: `MemoryAuditLog` and `JsonLinesAudit` (any `io::Write`). A database, queue or SIEM plugs in by implementing `AuditSink`.
+Built-in sinks are `MemoryAuditLog` and `JsonLinesAudit`, which writes to any `io::Write`. To send records to a database, a queue or a SIEM, implement `AuditSink`.
 
-### Levels and storage
+### What each level keeps
 
-Each level includes everything from the previous one. Sizes come from the reference record (`audit::reference_record`): a grant with a scope and a two-clause condition, UUID ids, an actor with two roles and three request metadata entries. They are compact JSON bytes in JSON Lines, without compression or indexes. The `estimates_match_reference_records` test fails if the measured size drifts more than 10% from the documented one, and `cargo run -p strig --example audit_storage` measures again.
+Each level keeps everything from the one above it. Sizes are compact JSON bytes per line of JSON Lines, without compression or indexes, measured on a reference record (`audit::reference_record`): a grant with a scope and a two-clause condition, UUID ids, an actor with two roles and three request metadata entries.
 
-| Level | What it keeps | Bytes per record | Per 1 million records |
-|---|---|---|---|
-| `minimal` | When, who, action, object id, outcome | 175 | 175 MB (167 MiB) |
-| `standard` | Plus the grant summary (permission, subject, target, effect, scope, whether it has a condition) and the names of the invariants that refused | 388 | 388 MB (370 MiB) |
-| `detailed` | Plus the whole grant with its condition, the full actor, the violation messages and the request metadata | 1,097 | 1.10 GB (1,046 MiB) |
-| `forensic` | Plus the SHA-256 digest of the grant set before and after, and the hash chain between records | 1,415 | 1.42 GB (1,349 MiB) |
+| Level | Change records keep | Bytes | Per 1M records |
+|---|---|---:|---:|
+| `minimal` | When, who, action, object id, outcome | 175 | 175 MB |
+| `standard` | + grant summary (permission, subject, target, effect, scope, has a condition) and the names of the invariants that refused | 388 | 388 MB |
+| `detailed` | + the whole grant with its condition, the full actor, the violation messages, the request metadata | 1,097 | 1.10 GB |
+| `forensic` | + SHA-256 digest of the grant set before and after, and the hash chain | 1,415 | 1.42 GB |
 
-Access decisions can be audited too: `Auditor::decide(&engine, &ctx, &request, &meta)` decides and records, and at the `forensic` level it uses `Engine::explain` and keeps the full trace. Reference record: three grants in the source (one with a condition), a resource with three steps, UUID ids and three metadata entries (`audit::reference_decision_record`, test `decision_estimates_match_reference_records`).
+Decisions can be audited too: `Auditor::decide(&engine, &ctx, &request, &meta)` decides and records. The reference decision (`audit::reference_decision_record`) has three grants in the source, one with a condition, a resource with three steps, UUID ids and three metadata entries.
 
-| Level | What it keeps from a decision | Bytes per record | Per 1 million records |
-|---|---|---|---|
-| `minimal` | When, subject, `permission@resource`, allowed or denied | 285 | 285 MB (272 MiB) |
-| `standard` | Plus the reason (override, deciding grant and step, or no grant) and the grants that matched | 669 | 669 MB (638 MiB) |
-| `detailed` | Plus the full subject and resource, the warnings and the request metadata; enough to re-evaluate the decision later | 1,239 | 1.24 GB (1,182 MiB) |
-| `forensic` | Plus the full trace (`Explanation`) and the hash chain | 3,582 | 3.58 GB (3,416 MiB) |
+| Level | Decision records keep | Bytes | Per 1M records |
+|---|---|---:|---:|
+| `minimal` | When, subject, `permission@resource`, allowed or denied | 285 | 285 MB |
+| `standard` | + the reason (override, deciding grant and step, or no grant) and the matched grants | 669 | 669 MB |
+| `detailed` | + the full subject and resource, the warnings, the request metadata. Enough to re-evaluate the decision later | 1,239 | 1.24 GB |
+| `forensic` | + the full trace from `Engine::explain`, and the hash chain | 3,582 | 3.58 GB |
 
-The forensic trace grows with the number of grants the source returns per decision. `AuditLevel::estimate_decision_bytes(n)` gives the projection in code.
+To project your own volume, call `AuditLevel::estimate_bytes(n)` for changes and `AuditLevel::estimate_decision_bytes(n)` for decisions; the forensic decision size grows with the number of grants the source returns. In a database, add the row overhead (about 28 bytes per row in Postgres) and your indexes.
 
-`AuditLevel::estimate_bytes(n)` returns the same projection for changes. In a database, add the row overhead (in Postgres, about 28 bytes between the tuple header and the item pointer) and the indexes you create. Long conditions or large metadata grow `detailed` and `forensic` proportionally.
+The numbers are checked: the `estimates_match_reference_records` and `decision_estimates_match_reference_records` tests fail if a measured size drifts more than 10% from the table, and `cargo run -p strig --example audit_storage` measures again.
 
-At the `forensic` level, each record carries the hash of the previous one. `audit::verify_chain` detects an edited or removed record. `Auditor::resume_chain` continues the chain after a restart.
+### Hash chain
+
+At the `forensic` level each record carries the hash of the previous one. `audit::verify_chain` detects an edited or removed record, and `Auditor::resume_chain` continues the chain after a restart.
 
 ## Validity windows
 
-`Grant::valid_between(from, until)` (or `valid_from` and `valid_until`) limits a grant in time, in milliseconds since the Unix epoch. The window is closed at the start and open at the end. The instant comes from the caller: `Context::at(now)` for decisions and `Governance::at(now)` for changes. Without an instant, a grant with a window does not apply, so a missing clock fails closed. `CapabilityCache` cuts its entries at the next boundary, and a job removes the expired grants.
+`Grant::valid_between(from, until)` limits a grant in time; `valid_from` and `valid_until` set one end.
+
+- Times are milliseconds since the Unix epoch. The window includes `from` and excludes `until`.
+- The caller supplies the instant: `Context::at(now)` for decisions, `Governance::at(now)` for changes.
+- Without an instant, a grant with a window does not apply, so a missing clock denies.
 
 ```rust
 let grant = Grant::allow("w", SubjectMatcher::user("ana"), "project.view", TargetSelector::kind("project"))
@@ -231,17 +309,11 @@ assert!(!engine.check(&Context::new(&grants).at(2_000), &request));
 assert!(!engine.check(&Context::new(&grants), &request));
 ```
 
+`CapabilityCache` expires its entries at the next window boundary. Removing expired grants from storage is left to a job of yours.
+
 ## Reverse queries and filtered listing
 
-Instead of asking "may this subject do this?", ask who can, or what a subject can reach. `QueryContext` carries the grants (and `.at(now)`); `QueryLimits` bounds the work and `PgTables` maps the same questions to SQL.
-
-| Call | Answers |
-|---|---|
-| `engine.list(&qctx, &subject, permission, kind)` | An `AccessFilter` for the resources of that kind the subject can reach, to turn into a `WHERE`. |
-| `engine.who_can(&qctx, permission)` | The parties named by an allow grant of the permission, anywhere. A deny, an override or a condition is not evaluated; `who_can_on` settles that for one resource. |
-| `engine.who_can_on(..)` | The same, on one resource. |
-| `engine.access_of(..)` | Every party with access to a resource, with the permissions of each. |
-| `engine.check_for(..)` | A check for a subject reference: a `SubjectResolver` loads the subject and the answer names the path that decided. |
+Ask who can do something, or what a subject can reach, instead of checking one request. `QueryContext` carries the grants (and `.at(now)`), `QueryLimits` bounds the work, and `PgTables` turns the answers into SQL.
 
 ```rust
 let qctx = QueryContext::new(&grants).at(1_500);
@@ -250,9 +322,17 @@ let who = engine.who_can(&qctx, "project.view");
 assert_eq!(who, vec![SubjectRef::User { id: "ana".into() }]);
 ```
 
+| Call | Returns |
+|---|---|
+| `engine.list(&qctx, &subject, permission, kind)` | An `AccessFilter` over the resources of that kind the subject can reach, ready to become a `WHERE` clause. |
+| `engine.who_can(&qctx, permission)` | Everyone named by an allow grant of the permission, anywhere. Denies, overrides and conditions are not evaluated. |
+| `engine.who_can_on(..)` | The same on one resource, with denies, overrides and conditions evaluated. |
+| `engine.access_of(..)` | Everyone with access to a resource, and their permissions. |
+| `engine.check_for(..)` | A check by subject reference: a `SubjectResolver` loads the subject, and the answer names the path that decided. |
+
 ## Exclusive resources
 
-With the `exclusive` feature, a resource can have one holder at a time. `Terms::new(priority, ttl_ms)` states how strong the claim is and for how long; a higher priority takes the resource over only when the claimant also holds `exclusive.preempt`. Permissions and time are checked by the same engine as any other decision.
+With the `exclusive` feature, a resource can have one holder at a time. `Terms::new(priority, ttl_ms)` sets how strong the claim is and how long it lasts. A higher priority takes the resource over only when the claimant also holds `exclusive.preempt`. Permissions and time are checked by the same engine as any other decision.
 
 ```rust
 let mut registry = ExclusiveRegistry::default();
@@ -272,8 +352,6 @@ grant change ──► Hub::publish ──► local sessions (SSE/WebSocket) and
                       └─► Transport (Redis, Postgres, your own) ──► Hub on the other instances
 ```
 
-The notice (`Change`) states the kind of change and the affected step, without the grants. Receivers reload from the source, so the notice fits any transport. A session watches scopes and, with a `CapabilityProvider`, pushes the capabilities of each affected scope back to the client. Changes that arrive together are recomputed once. When the transport drops and comes back, or a client falls behind, the hub emits `Resync` and everything is reloaded.
-
 ```rust
 let hub = Hub::builder()
     .transport(RedisTransport::new("redis://127.0.0.1/", "strig:changes")?)
@@ -287,17 +365,21 @@ let realtime = strig_axum::Realtime::new(hub).with_provider(Arc::new(provider));
 // in the routes: realtime.sse(subject, scopes) or realtime.websocket(upgrade, subject, scopes)
 ```
 
-Transports:
+A change notice (`Change`) says what kind of change happened and on which step, without the grants. Receivers reload from their own source, so any transport can carry it.
 
-- **Redis** (`strig-redis`): pub/sub, publishing with automatic reconnection.
-- **Postgres** (`strig-postgres`): `LISTEN/NOTIFY`. Calling `strig_postgres::notify(&tx, channel, &change)` inside the transaction that writes the grant makes the notice go out only on commit. TLS through `PgTransport::with_tls`.
-- **Your own**: NATS, Kafka or any other broker implements `Transport` (`publish` and `subscribe`).
+A session watches scopes, that is, anchors such as `org:acme`. With a `CapabilityProvider`, it sends its client the capabilities (the permissions the subject holds) of each affected scope, and changes that arrive together are recomputed once. When the transport drops and comes back, or a client falls behind, the hub emits `Resync` and everything is reloaded.
 
-Client protocol (JSON, identical over SSE and WebSocket): the server sends `hello`, `capabilities`, `change`, `resync`, `error` and `ping`; the client sends `watch`, `unwatch` and `refresh` (WebSocket only). To use another HTTP framework, forward the stream from `Session::open` and write each message with `ServerMessage::to_sse` or `to_json`.
+| Transport | Crate | Notes |
+|---|---|---|
+| Redis | `strig-redis` | Pub/sub; publishing reconnects on its own. |
+| Postgres | `strig-postgres` | `LISTEN/NOTIFY`. Call `strig_postgres::notify(&tx, channel, &change)` inside the transaction that writes the grant, and the notice goes out only on commit. TLS through `PgTransport::with_tls`. |
+| Your own | | NATS, Kafka or any broker: implement `Transport` (`publish` and `subscribe`). |
+
+The client protocol is JSON and identical over SSE and WebSocket. The server sends `hello`, `capabilities`, `change`, `resync`, `error` and `ping`; the client sends `watch`, `unwatch` and `refresh` (WebSocket only). For a web framework other than axum, forward the stream from `Session::open` and write each message with `ServerMessage::to_sse` or `to_json`.
 
 ## Decision server and remote client
 
-`strig-server` answers decisions over HTTP, for services that do not embed the engine. `DecisionServer::router()` returns an axum `Router` with `POST /v1/check`, `/v1/check/batch`, `/v1/list`, `/v1/who` and `/v1/access`, plus `GET /health/live` and `/health/ready`. The server reads the grants through a `DecisionSource`; `MemorySource` holds a `Snapshot` you can `replace`. The time of a decision is the server's clock. The contract is in [`crates/strig-server/API.md`](crates/strig-server/API.md).
+`strig-server` answers decisions over HTTP, for services that do not embed the engine.
 
 ```rust
 let source = Arc::new(MemorySource::new(Snapshot::new(Arc::new(engine), grants)));
@@ -306,7 +388,9 @@ let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
 axum::serve(listener, router).await?;
 ```
 
-The client fails closed: only a `200` is an answer. A timeout, a refused connection, a `503` or an answer it cannot read becomes `ClientDecision::Denied` with the reason, and a circuit breaker stops calling a server that keeps failing.
+The router serves `POST /v1/check`, `/v1/check/batch`, `/v1/list`, `/v1/who` and `/v1/access`, plus `GET /health/live` and `/health/ready`. Grants come from a `DecisionSource`; `MemorySource` holds a `Snapshot` you can `replace`. Decisions use the server's clock. The full contract is in [`crates/strig-server/API.md`](crates/strig-server/API.md).
+
+The client fails closed. Only a `200` counts as an answer: a timeout, a refused connection, a `503` or an unreadable body becomes `ClientDecision::Denied` with the reason, and a circuit breaker stops calling a server that keeps failing.
 
 ```rust
 let config = ClientConfig::default()
@@ -322,21 +406,27 @@ if client.check(&request).await.is_allowed() {
 
 ## JavaScript: Node, Bun and the browser
 
-Install with `npm install @the-hades-organization/strig`. The package lives in `crates/strig-node/js`. `scripts/build.sh` builds the native module (`js/native/strig.<platform>-<arch>.node`) and the WebAssembly (`js/wasm/`).
+```sh
+npm install @the-hades-organization/strig
+```
 
 ```js
 import { load } from '@the-hades-organization/strig';
 const { Engine, Context } = await load(); // native on Node/Bun, wasm in the browser
 
-const engine = new Engine(spec); // the same EngineSpec as the server
+const engine = new Engine(spec); // the same EngineSpec JSON as in Rust
 const ctx = new Context({ grants });
 engine.check(ctx, { subject, permission: 'document.view', resource });
 engine.apply({ actor, current, mutation: { add: grant }, invariants, audit: { level: 'standard' } });
 ```
 
-On Node and Bun, `load()` tries the native module and falls back to wasm. `STRIG_BACKEND=native|wasm` forces one of them.
+On Node and Bun, `load()` tries the native module and falls back to wasm. Set `STRIG_BACKEND=native` or `STRIG_BACKEND=wasm` to force one.
 
-**Frontend.** `PermissionClient` (`/client`) connects over SSE or WebSocket, keeps the capabilities of each scope and decides locally with the same engine. Client-side decisions are for the interface; the server still decides on every operation.
+What the binding cannot do: custom condition functions (`call`) and custom overrides exist only in Rust. The JSON spec covers the built-in overrides, `resource_owner` and `permission_holder`.
+
+### In the browser
+
+`PermissionClient` (`/client`) connects over SSE or WebSocket, keeps the capabilities of each scope and decides locally with the same engine. Use it to shape the interface; the server still decides on every operation.
 
 ```js
 import { PermissionClient } from '@the-hades-organization/strig/client';
@@ -345,9 +435,13 @@ client.on('capabilities', () => render());
 client.can('document.edit', resource);
 ```
 
-**JS backend** (`/server`). `Hub`, `openSession`, `sseResponse` (Fetch API: Bun.serve, Hono, Deno), `pipeSse` (Node's `http`) and the `redisTransport` (node-redis and Bun's `RedisClient`), `ioredisTransport` and `pgTransport` (`pg` package) transports. Notices share the `strig-sync` format, so Rust and JS instances exchange changes over the same channel.
+### Real time on a JS backend
 
-**Web frameworks.** Express, Fastify and NestJS decide on each route with the same options. `subject(req)` returns the subject (nothing means `401`), `resource(req)` the resource, and exactly one of `local: { engine, context, now }` or `remote: RemoteClient` says where the decision comes from. A deny is `403`, a failure to decide is `503`, and an error in your extractor is `500` with no detail, never a pass. `denyStatus`, `failureStatus`, `unauthenticatedStatus`, `errorStatus` and `onError` change that.
+`/server` has `Hub`, `openSession`, `sseResponse` (Fetch API: Bun.serve, Hono, Deno), `pipeSse` (Node's `http`) and three transports: `redisTransport` (node-redis and Bun's `RedisClient`), `ioredisTransport` and `pgTransport` (the `pg` package). Notices use the `strig-sync` format, so Rust and JS instances can share a channel.
+
+### Express, Fastify and NestJS
+
+The three integrations take the same options and decide on each route:
 
 ```js
 import { load, scopeFromString } from '@the-hades-organization/strig';
@@ -363,9 +457,27 @@ const options = {
 app.get('/doc/:id', authorize({ ...options, permission: 'document.view' }), handler);
 ```
 
-- **Fastify** (`@the-hades-organization/strig/fastify`): the same `authorize`, and `plugin`, which adds `fastify.strigCan`.
-- **NestJS** (`@the-hades-organization/strig/nestjs`): `@Can('document.view')` on a handler or a controller, and `new StrigGuard(options)` as the guard. Express, Fastify and NestJS are optional peer dependencies; the integration you do not import costs nothing, and a missing peer raises `MissingPeerError`.
-- **Remote** (`@the-hades-organization/strig/remote`): `RemoteClient` talks to a decision server, with timeout and breaker, and denies when there is no answer. Pass it as `remote` instead of `local`.
+| Option | Meaning |
+|---|---|
+| `subject(req)` | The subject; returning nothing answers `401`. |
+| `resource(req)` | The resource. |
+| `local: { engine, context, now }` or `remote: RemoteClient` | Where the decision comes from. Pass exactly one. |
+
+The request never passes unless the decision allows it:
+
+| Outcome | Status | Change it with |
+|---|---|---|
+| No subject | `401` | `unauthenticatedStatus` |
+| Denied | `403` | `denyStatus` |
+| The decision could not be made | `503` | `failureStatus` |
+| Your `subject` or `resource` function threw | `500`, with no detail | `errorStatus`, `onError` |
+
+- **Fastify** (`/fastify`): the same `authorize`, plus a `plugin` that adds `fastify.strigCan`.
+- **NestJS** (`/nestjs`): `@Can('document.view')` on a handler or controller, with `new StrigGuard(options)` as the guard.
+
+Express, Fastify and NestJS are optional peer dependencies. An integration you do not import costs nothing, and importing one whose peer is missing throws `MissingPeerError`.
+
+To get decisions from a [decision server](#decision-server-and-remote-client) instead, pass a `RemoteClient` (`/remote`) as `remote`. It has a timeout and a breaker, and denies when there is no answer:
 
 ```js
 import { RemoteClient } from '@the-hades-organization/strig/remote';
@@ -373,11 +485,11 @@ const remote = new RemoteClient({ url: 'http://127.0.0.1:8080', timeoutMs: 250 }
 const { allowed } = await remote.check({ subject, permission: 'document.view', resource });
 ```
 
-Binding limits: custom condition functions (`call`) and custom overrides exist only in Rust. The JSON spec covers the built-in overrides (`resource_owner`, `permission_holder`).
-
 ## Policy language
 
-A policy can be written as text instead of JSON, in the `dsl` feature of `strig`. There are three syntaxes for the same policy: Blocks, Rules and Actors, and `convert` moves between them. Every error carries a position and a hint, and the validated JSON stays the source of truth. The full guide, with the three syntaxes side by side and the grammar, is in [docs/dsl.md](docs/dsl.md).
+With the `dsl` feature, a policy can be written as text instead of JSON. The same policy has three syntaxes, Blocks, Rules and Actors, and `convert` moves between them. Every error carries a position and a hint. The validated JSON stays the source of truth.
+
+Try it in the [playground](https://strig-playground.vercel.app), which runs the real engine compiled to WebAssembly. The [guide](docs/dsl.md) has the three syntaxes side by side and the grammar.
 
 ```rust
 use strig::dsl::{self, Language};
@@ -396,24 +508,24 @@ let json = parsed.policy.to_json()?;
 let as_rules = dsl::convert(SOURCE, Language::Rules)?;
 ```
 
-The conditions of `when` are written in the three syntaxes as `a starts_with b`, `env.ip ip_in "10.0.0.0/8"`, `time_between "09:00" "17:30"` and `weekday_in ["mon", "tue"]`; the validator refuses a CIDR, a time of day or a weekday it cannot read. When a name is a slip away from a declared one (a permission, a role, a parent), the hint adds ``did you mean `x`?``.
+`as_rules` holds:
 
-**Breaking in 0.5.0:** in the Rules and Actors syntaxes a `permission` line writes `depends_on <ids>` where it wrote `needs <ids>`, the same word as the JSON field. `needs` is now an error with the hint `write: depends_on <ids>`; replace it in existing `.strig` files, in the same position on the line. The JSON does not change.
+```text
+language rules
 
-`strig::dsl::format` and `is_formatted` rewrite a source in the canonical layout of its syntax, keeping the comments, and `strig-inspect fmt [--check] <file|dir>` does it for `.strig` files (`--check` lists the ones that would change and exits with 1).
+kinds org
 
-To try the language without installing anything, run the [playground](playground/README.md): it runs the engine in the browser. There is no hosted copy; build and serve it locally:
-
-```sh
-sh playground/build.sh        # builds the WebAssembly engine and assembles playground/dist/
-node playground/dist-node/serve.js     # serves it on http://127.0.0.1:8080
+permission org.read on org
 ```
 
-With `dsl-fs`, `strig::dsl::fs::read_dir` reads every `*.strig` file of a directory into a `Project`, and `write_file` writes a policy back.
+Conditions in `when` read the same in the three syntaxes, for example `a starts_with b`, `env.ip ip_in "10.0.0.0/8"`, `time_between "09:00" "17:30"` and `weekday_in ["mon", "tue"]`. The validator refuses a CIDR, a time of day or a weekday it cannot read. When a name is one typo away from a declared permission, role or parent, the hint adds ``did you mean `x`?``.
 
-### Policy language in Node
+- **Formatting.** `strig::dsl::format` and `is_formatted` rewrite a source in the canonical layout of its syntax and keep the comments. `strig-inspect fmt [--check] <file|dir>` does the same for `.strig` files; `--check` lists the files that would change and exits with 1.
+- **Files.** With `dsl-fs`, `strig::dsl::fs::read_dir` reads every `*.strig` file of a directory into a `Project`, and `write_file` writes a policy back.
 
-The same language is in the JavaScript binding, native and WebAssembly, behind `load()`. The policy is the canonical JSON, with the comments in `notes`, and it is the same for the three syntaxes.
+### In Node
+
+The binding exposes the same language, native and WebAssembly, behind `load()`. A compiled policy is the canonical JSON, the same for the three syntaxes, with the comments in `notes`.
 
 ```js
 import { load } from '@the-hades-organization/strig';
@@ -438,10 +550,23 @@ const merged = strig.loadProject([
 const fromDisk = strig.loadProjectDir?.('./policy'); // native module only
 ```
 
-- `format(source)` returns the source in the canonical layout of its syntax and `isFormatted(source)` says whether it already is.
-- `loadProjectDir(dir)` exists only on the native module, because the WebAssembly build has no file access. It reads the `*.strig` files of the directory and refuses a policy file that is a symbolic link. `dir` itself must come from a trusted source.
-- Every failure is an `Error` with a `code` that is the same on both targets: `DSL_PARSE`, `DSL_VALIDATE`, `DSL_CONFLICT` (two sources declare the same thing; both positions are reported), `DSL_UNREPRESENTABLE` (the syntax cannot say it), `DSL_UNSUPPORTED`, `DSL_LIMIT` (a size or count limit), `DSL_DUPLICATE_SOURCE` (the same `path` twice in `loadProject`) and `DSL_IO` (a file or a link in `loadProjectDir`; the message carries the path, so do not pass it to a remote client).
-- `error.diagnostics` is a list of `{ file, line, column, message, hint, related? }`, at most 100, with a last entry saying "and N more" when some were left out. `file`, `line` and `column` are `null` for a policy that did not come from text, and `related` (a `{ file, line, column }`) appears on a `DSL_CONFLICT`.
+- `format(source)` returns the source in the canonical layout of its syntax; `isFormatted(source)` says whether it already is.
+- `loadProjectDir(dir)` exists only on the native module, since WebAssembly has no file access. It reads the `*.strig` files of the directory and refuses a policy file that is a symbolic link. Pass only a `dir` from a trusted source.
+
+Every failure is an `Error` whose `code` is the same on both targets:
+
+| `code` | Cause |
+|---|---|
+| `DSL_PARSE` | The text does not parse. |
+| `DSL_VALIDATE` | The policy parses but is invalid. |
+| `DSL_CONFLICT` | Two sources declare the same thing; both positions are reported. |
+| `DSL_UNREPRESENTABLE` | The target syntax cannot express the policy. |
+| `DSL_UNSUPPORTED` | The syntax is not available in this build. |
+| `DSL_LIMIT` | A size or count limit was exceeded. |
+| `DSL_DUPLICATE_SOURCE` | The same `path` appears twice in `loadProject`. |
+| `DSL_IO` | A file or a link in `loadProjectDir`. The message carries the path, so do not forward it to a remote client. |
+
+`error.diagnostics` lists up to 100 `{ file, line, column, message, hint, related? }` entries; when more were found, the last entry says "and N more". `file`, `line` and `column` are `null` for a policy that did not come from text. `related` (`{ file, line, column }`) appears on a `DSL_CONFLICT`.
 
 ```js
 try {
@@ -452,9 +577,9 @@ try {
 }
 ```
 
-## Macros
+### Macros
 
-`policy!` and `include_policy!` (crate `strig-macros`) check the policy while the crate compiles: a policy that does not validate does not build. They are not behind a `strig` feature; the guide explains [why](docs/dsl.md#macros).
+`policy!` and `include_policy!`, from the `strig-macros` crate, validate the policy at compile time: a policy that does not validate does not build. They live in their own crate rather than behind a `strig` feature; the guide explains [why](docs/dsl.md#macros).
 
 ```rust
 use strig_macros::{include_policy, policy};
@@ -473,72 +598,114 @@ let from_file: strig::dsl::Policy = include_policy!("policies/main.strig");
 
 ## Inspector (`strig-inspect`)
 
-An optional crate, outside the `default-members`: `cargo build -p strig-inspect`. The window uses gpui (`gpui-pre =0.3.11` and `gpui-component =0.9.0`); without the `gui` feature (`--no-default-features`) you keep the library and the terminal commands.
+`strig-inspect` shows why a decision came out the way it did. It is built on `Engine::explain`, which Rust and JS can also call directly. From the example scenario:
 
 ```sh
-strig-inspect --scenario scenario.json --audit trail.jsonl     # window
-strig-inspect --scenario scenario.json --subject ben --permission document.export --resource invoice-7 \
-               --disable pro-export --tab matrix                  # window opened on a selection and tab
-strig-inspect explain --scenario scenario.json --subject ben --permission document.view --resource secret
-strig-inspect matrix  --scenario scenario.json --resource secret --disable no-secret --add grant.json
-strig-inspect audit   --audit trail.jsonl --scenario scenario.json
+strig-inspect explain --scenario crates/strig-inspect/examples/scenario.json \
+    --subject ben --permission document.view --resource secret
 ```
 
-The scenario is a JSON file with the policy (`spec`, the same `EngineSpec`), the data (`grants`, `tuples`, `env`) and the subjects and resources to examine, by name. There is an example in `crates/strig-inspect/examples/scenario.json`, with a forensic trail of six decisions in `examples/audit.jsonl`, generated by:
+```text
+DENIED — ben asks document.view on document:secret → project:roadmap → org:acme → global
+reason: grant no-secret (document.view, step 0) chosen by strategy most_specific
+permissions that grant: document.view, project.view
+effective roles: member
+override resource_owner: abstained
+grants (5):
+  + members-view allow project.view → role member on org [step 2]
+      candidate
+  - editors-edit allow project.edit → relation editor on project
+      permission not related
+  ★ no-secret deny document.view → any subject on document:secret [step 0]
+      candidate
+  - pro-export allow document.export → role member on org
+      permission not related
+  - no-invoice-export deny document.invoice.export → role member on doc_type:invoice
+      permission not related
+```
+
+The crate is not on crates.io and is outside the workspace `default-members`. Install it from a clone:
+
+```sh
+cargo install --path crates/strig-inspect                          # window and terminal commands
+cargo install --path crates/strig-inspect --no-default-features    # terminal commands only, no gpui
+```
+
+```sh
+strig-inspect --scenario scenario.json --audit trail.jsonl          # window
+strig-inspect --scenario scenario.json --subject ben --permission document.export --resource invoice-7 \
+               --disable pro-export --tab matrix                    # window opened on a selection and tab
+strig-inspect matrix --scenario scenario.json --resource secret --disable no-secret --add grant.json
+strig-inspect audit  --audit trail.jsonl --scenario scenario.json
+strig-inspect fmt [--check] <file|dir>
+```
+
+A scenario is a JSON file with the policy (`spec`, an `EngineSpec`), the data (`grants`, `tuples`, `env`) and the named subjects and resources to examine. The example in `crates/strig-inspect/examples/` comes with a forensic trail of six decisions, `audit.jsonl`, generated by:
 
 ```sh
 cargo run -p strig-inspect --no-default-features --example trail -- \
     crates/strig-inspect/examples/scenario.json > crates/strig-inspect/examples/audit.jsonl
 ```
 
-- **Evaluation** (`evaluation`): pick a subject, permission and resource and see the decision, the reason, the resource path with the deciding step, the effective roles, each override and the fate of each grant (candidate, unrelated permission, out of scope, target off the path, subject does not match, condition false or not evaluable), with the condition tree and the resolved values. It is built on `Engine::explain`, also available from Rust and JS.
-- **Simulation**: turn grants on and off (or add some with `--add`) and see whether the set would allow the access. When the decision changes, the panel also shows the decision with the original grants.
-- **Matrix** (`matrix`): every catalog permission for every subject on a resource, with the cells the simulation changed marked. Clicking a cell opens its trace.
-- **Audit** (`audit`): reads the JSON Lines trail, checks the hash chain of the `forensic` records, shows the recorded trace and re-evaluates `detailed` or `forensic` decisions against the current policy, pointing out the ones that would change.
+The window has three tabs:
 
-`strig-inspect fmt [--check] <file|dir>` formats `.strig` files without opening the window. Files are reloaded on their own when they change on disk. The window follows the system light or dark appearance, with the palette of the playground: jade for structure and allow, clay for deny, gold for who, where and numbers. The window embeds the Noto Sans and JetBrains Mono fonts (OFL license, in `crates/strig-inspect/assets/fonts`) and its own icons, so it looks the same on any machine. The interface text is in English.
+- **Evaluation:** pick a subject, permission and resource and see the decision, the reason, the resource path with the deciding step, the effective roles, each override, and why each grant did or did not apply, with its condition tree and the resolved values.
+- **Matrix:** every catalog permission for every subject on one resource. Click a cell to open its trace.
+- **Audit:** reads a JSON Lines trail, checks the hash chain of the `forensic` records, shows the recorded trace and re-evaluates `detailed` and `forensic` decisions against the current policy, flagging the ones that would change.
+
+**Simulation** works across the tabs: turn grants off or on, or add some with `--add`, and see whether the set would allow the access. When a decision changes, the original decision is shown next to it, and changed matrix cells are marked.
+
+Files reload when they change on disk. The window follows the system light or dark appearance, uses the playground's palette, and embeds its fonts (Noto Sans and JetBrains Mono, OFL) and icons, so it looks the same on any machine. The interface is in English.
 
 ## Extension points
 
-| Trait | For |
+| Trait | Implement it to |
 |---|---|
-| `GrantSource` | Reading grants from a database, a cache or more than one source (`(A, B)` tuples chain). |
-| `TupleStore` | Keeping ReBAC tuples outside memory. |
-| `Override` | Owner, superadmin, suspended account, maintenance window. `FnOverride` takes a closure. |
-| `Strategy` | Another combination rule. |
-| `Invariant` | Another grant change rule. |
-| `CatalogRule` | Your own catalog validation (`RequireMeta`, `FnRule`). |
-| `AuditSink` | Where the audit trail goes. |
-| `Transport` | The medium between instances for change notices. |
-| `CapabilityProvider`, `GrantLoader` | How a session computes the capabilities it sends. |
-| `ChangeSink` | A synchronous reaction to each change (cache, metric). |
+| `GrantSource` | Read grants from a database, a cache, or several sources (`(A, B)` tuples chain). |
+| `TupleStore` | Keep ReBAC tuples outside memory. |
+| `Override` | Decide before the grants: owner, superadmin, suspended account, maintenance window. `FnOverride` takes a closure. |
+| `Strategy` | Combine grants with another rule. |
+| `Invariant` | Add a rule for grant changes. |
+| `CatalogRule` | Validate the catalog your way (`RequireMeta`, `FnRule`). |
+| `AuditSink` | Send the audit trail somewhere else. |
+| `Transport` | Carry change notices between instances. |
+| `CapabilityProvider`, `GrantLoader` | Control how a session computes the capabilities it sends. |
+| `ChangeSink` | React synchronously to each change (cache, metric). |
 
 ## Development
 
 ```sh
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-cargo clippy -p strig-node --features napi -- -D warnings
-cargo clippy -p strig-node --features wasm --target wasm32-unknown-unknown -- -D warnings
 cargo fmt --all --check
+cargo clippy --workspace --exclude strig-inspect --all-targets -- -D warnings
+cargo test --workspace --exclude strig-inspect
+cargo test -p strig-inspect --no-default-features
 
 # transports against real servers (skipped without the variables)
-STRIG_REDIS_URL=redis://127.0.0.1:6379/ STRIG_PG_URL=postgres://postgres:pw@127.0.0.1/postgres cargo test --workspace
-
-# JS: build and tests on Node and Bun
-crates/strig-node/scripts/build.sh
-cd crates/strig-node/js && npm install && node test/run.mjs && bun test/run.mjs
+STRIG_REDIS_URL=redis://127.0.0.1:6379/ STRIG_PG_URL=postgres://postgres:pw@127.0.0.1/postgres \
+    cargo test --workspace --exclude strig-inspect
 ```
 
-The JS tests also accept `STRIG_RUST_SERVER` (the URL of the `strig-axum` `server` example) to test the client against the Rust server.
+The npm package lives in `crates/strig-node/js`. `crates/strig-node/scripts/build.sh` builds the native module (`js/native/strig.<platform>-<arch>.node`) and the WebAssembly (`js/wasm/`); the wasm part needs the `wasm32-unknown-unknown` target and `wasm-bindgen-cli` 0.2.130.
 
-The gpui window of `strig-inspect` needs the Wayland and X11 development libraries on Linux (for example `libxkbcommon-dev`, `libwayland-dev`, `libxcb1-dev`, `libvulkan-dev`).
+```sh
+sh crates/strig-node/scripts/build.sh
+cd crates/strig-node/js
+npm ci
+npm test              # Node
+npm run test:bun      # Bun
+```
 
-Source comments are in Brazilian Portuguese; issues and pull requests are welcome in English or Portuguese. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Set `STRIG_RUST_SERVER` to the URL of the `strig-axum` `server` example to also test the JS client against the Rust server.
 
-## Migrating from Themis
+To run the playground locally, see [`playground/README.md`](playground/README.md).
 
-Strig was called Themis until 0.5.0. The code is the same; only names changed.
+Building the `strig-inspect` window on Linux needs the Wayland and X11 development libraries, for example `libxkbcommon-dev`, `libwayland-dev`, `libxcb1-dev` and `libvulkan-dev`.
+
+Source comments are in Brazilian Portuguese. Issues and pull requests are welcome in English or Portuguese; see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Upgrading from Themis
+
+Strig 0.6.0 is Themis 0.5.0 renamed. The code is the same; the names changed.
 
 | Before | Now |
 |---|---|
@@ -550,6 +717,8 @@ Strig was called Themis until 0.5.0. The code is the same; only names changed.
 | `THEMIS_*` environment variables | `STRIG_*` environment variables |
 
 Replace `use themis::` with `use strig::` and rename the files and variables above. The repository moved to [The-Hades-Organization/Strig](https://github.com/The-Hades-Organization/Strig).
+
+Coming from Themis 0.4 or earlier, there is also one keyword change from 0.5.0. In the Rules and Actors syntaxes, a `permission` line writes `depends_on <ids>` instead of `needs <ids>`, matching the JSON field. `needs` is now an error with the hint `write: depends_on <ids>`; replace it in place in your policy files. The JSON did not change.
 
 ## License
 
