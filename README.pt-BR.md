@@ -20,7 +20,7 @@ O núcleo não faz IO, não precisa de runtime assíncrono e compila para WebAss
 [Documentação](https://strig.vercel.app/docs) · [Playground](https://strig-playground.vercel.app) · [API no docs.rs](https://docs.rs/strig) · [Changelog](CHANGELOG.md)
 
 > [!NOTE]
-> A Strig ainda não chegou à 1.0: a API pode mudar entre versões menores. Até a 0.5.0 o projeto saiu com o nome Themis; veja [Atualizando a partir do Themis](#atualizando-a-partir-do-themis).
+> A Strig ainda não chegou à 1.0: a API pode mudar entre versões menores. Até a 0.5.0 o projeto saiu com o nome Themis.
 
 ## Instalação
 
@@ -702,23 +702,6 @@ Para rodar o playground localmente, veja [`playground/README.md`](playground/REA
 Compilar a janela do `strig-inspect` no Linux exige as bibliotecas de desenvolvimento de Wayland e X11, por exemplo `libxkbcommon-dev`, `libwayland-dev`, `libxcb1-dev` e `libvulkan-dev`.
 
 Os comentários do código são em português do Brasil. Issues e pull requests são bem-vindos em inglês ou português; veja o [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Atualizando a partir do Themis
-
-A Strig 0.6.0 é o Themis 0.5.0 com outro nome. O código é o mesmo; os nomes mudaram.
-
-| Antes | Agora |
-|---|---|
-| crate `themis-auth` (biblioteca `themis`) | crate `strig` (biblioteca `strig`) |
-| `themis-sync`, `themis-redis`, `themis-postgres`, `themis-axum`, `themis-macros`, `themis-server` | `strig-sync`, `strig-redis`, `strig-postgres`, `strig-axum`, `strig-macros`, `strig-server` |
-| pacote npm `themis-auth` | pacote npm `@the-hades-organization/strig` |
-| `themis-inspect` | `strig-inspect` |
-| arquivos de política `.themis` | arquivos de política `.strig` |
-| variáveis de ambiente `THEMIS_*` | variáveis de ambiente `STRIG_*` |
-
-Troque `use themis::` por `use strig::` e renomeie os arquivos e as variáveis acima. O repositório mudou para [The-Hades-Organization/Strig](https://github.com/The-Hades-Organization/Strig).
-
-Vindo do Themis 0.4 ou anterior, há também uma palavra-chave que mudou na 0.5.0. Nas sintaxes Rules e Actors, uma linha `permission` escreve `depends_on <ids>` em vez de `needs <ids>`, igual ao campo do JSON. `needs` agora é erro com a dica `write: depends_on <ids>`; substitua direto nos seus arquivos de política. O JSON não mudou.
 
 ## Licença
 
