@@ -52,7 +52,7 @@ test('types: PermissionClient accepts the union and still plain strings', () => 
 
 // Compile-time only: tsc checks that the typed engine takes the union and plain strings.
 export function typedEngineUsage(engine: Engine<PermissionId>, plain: Engine, context: Context, name: string) {
-  const resource = { kind: 'org', id: 'o1' };
+  const resource = { kind: 'org', id: 'o1', path: [] };
   const subject = { id: 'u1', kind: 'user' } as never;
   engine.check(context, { subject, permission: 'users:read', resource });
   engine.explain(context, { subject, permission: name, resource });
