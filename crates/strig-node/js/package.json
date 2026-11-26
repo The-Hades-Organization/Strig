@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "repository": { "type": "git", "url": "git+https://github.com/The-Hades-Organization/Strig.git", "directory": "crates/strig-node/js" },
-  "files": ["dist/", "native/", "wasm/", "README.md"],
+  "files": ["dist/", "wasm/", "README.md"],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

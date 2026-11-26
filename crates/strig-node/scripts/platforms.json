@@ -1,0 +1,7 @@
+[
+  { "platform": "linux-x64", "package": "strig-linux-x64-gnu", "os": "linux", "cpu": "x64", "libc": "glibc" },
+  { "platform": "linux-arm64", "package": "strig-linux-arm64-gnu", "os": "linux", "cpu": "arm64", "libc": "glibc" },
+  { "platform": "darwin-x64", "package": "strig-darwin-x64", "os": "darwin", "cpu": "x64" },
+  { "platform": "darwin-arm64", "package": "strig-darwin-arm64", "os": "darwin", "cpu": "arm64" },
+  { "platform": "win32-x64", "package": "strig-win32-x64-msvc", "os": "win32", "cpu": "x64" }
+]
