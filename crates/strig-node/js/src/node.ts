@@ -8,7 +8,7 @@ import type { Strig } from './index.js';
 
 type Backend = 'auto' | 'native' | 'wasm';
 
-type Binding = Pick<Strig, 'Engine' | 'Context' | 'Exclusive' | 'auditEstimate'> & DslBinding;
+type Binding = Pick<Strig, 'Engine' | 'Context' | 'Exclusive' | 'auditEstimate' | 'verifyAuditChain'> & DslBinding;
 
 const require = createRequire(import.meta.url);
 const cache = new Map<string, Promise<Strig>>();
@@ -18,6 +18,7 @@ function wrap(mod: Binding, backend: 'native' | 'wasm'): Strig {
     Engine: mod.Engine,
     Context: mod.Context,
     auditEstimate: mod.auditEstimate,
+    verifyAuditChain: mod.verifyAuditChain,
     Exclusive: mod.Exclusive,
     ...makeDsl(mod),
     backend,

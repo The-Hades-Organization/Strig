@@ -162,6 +162,19 @@ fn hooks_of(env: &Env, hooks: Unknown<'_>) -> Result<HostCallbacks> {
             host.invariant(name.clone(), host_fn(env, &format!("hooks.invariants.{name}"), f)?);
         }
     }
+    if let Some(sink) = hooks.get::<Unknown>("auditSink").raw()?.filter(is_set) {
+        host.audit_sink(host_fn(env, "hooks.auditSink", sink)?);
+    }
+    if let Some(redact) = hooks.get::<Unknown>("auditRedact").raw()?.filter(is_set) {
+        host.audit_redact(host_fn(env, "hooks.auditRedact", redact)?);
+    }
+    if let Some(on_drop) = hooks.get::<Unknown>("onAuditDrop").raw()?.filter(is_set) {
+        host.on_audit_drop(host_fn(env, "hooks.onAuditDrop", on_drop)?);
+    }
+    if let Some(policy) = hooks.get::<Unknown>("auditPolicy").raw()?.filter(is_set) {
+        let policy = crate::parse("hooks.auditPolicy", crate::integral(json(env, policy)?)).map_err(err)?;
+        host.set_audit_policy(policy);
+    }
     Ok(host)
 }
 
@@ -311,6 +324,19 @@ impl JsEngine {
         self.inner
             .apply(json(env, input)?, crate::clock_ms(std::time::SystemTime::now()))
             .map_err(err)
+    }
+
+    /// Tries to write the audit records waiting in the retry queue and answers its counters.
+    #[napi]
+    pub fn flush_audit(&self) -> Result<Value> {
+        self.inner
+            .flush_audit(crate::clock_ms(std::time::SystemTime::now()))
+            .map_err(err)
+    }
+
+    #[napi]
+    pub fn audit_stats(&self) -> Value {
+        self.inner.audit_stats()
     }
 
     #[napi]
@@ -528,6 +554,11 @@ impl JsExclusive {
 #[napi]
 pub fn audit_estimate(env: &Env, level: Unknown<'_>, records: Unknown<'_>) -> Result<f64> {
     crate::audit_estimate(json(env, level)?, json(env, records)?).map_err(err)
+}
+
+#[napi]
+pub fn verify_audit_chain(env: &Env, records: Unknown<'_>, anchors: Option<Unknown<'_>>) -> Result<Value> {
+    crate::verify_audit_chain(json(env, records)?, optional(env, anchors)?).map_err(err)
 }
 
 /// Um argumento da linguagem: o que não é JSON vira o `INVALID_ARGUMENT` do envelope.
