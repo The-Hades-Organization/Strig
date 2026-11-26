@@ -28,14 +28,15 @@ A record is one JSON object in **compact JSON** (no whitespace), encoded as UTF-
 | 1 | `at` | integer, ms since the Unix epoch | always |
 | 2 | `level` | `minimal`, `standard`, `detailed`, `forensic` | always |
 | 3 | `actor` | string, the actor id (its kind when anonymous) | always |
-| 4 | `action` | `grant_add`, `grant_remove`, `tuple_add`, `tuple_remove`, `role_assign`, `role_revoke`, `decision`, `exclusive_acquire`, `exclusive_preempt`, `exclusive_release`, `exclusive_expire` | always |
+| 4 | `action` | `grant_add`, `grant_remove`, `tuple_add`, `tuple_remove`, `role_assign`, `role_revoke`, `decision`, `exclusive_acquire`, `exclusive_preempt`, `exclusive_release`, `exclusive_expire`, `mutation_propose`, `mutation_approve`, `mutation_reject`, `mutation_expire` | always |
 | 5 | `object` | string: grant id, `object#relation@subject`, `role@subject` (`role#scope@subject` with a scope), or `permission@path` | always |
-| 6 | `outcome` | `applied`, `rejected`, `allowed`, `denied` | always |
+| 6 | `outcome` | `applied`, `rejected`, `allowed`, `denied`, `pending` | always |
 | 7 | `grant` | grant summary | `standard`+ on a grant change |
 | 8 | `role` | `{subject, role, scope?}` | `standard`+ on a role change |
 | 9 | `violations` | list of strings | `standard`+ on a refusal |
 | 10 | `suggestions` | list of suggestions | `standard`+ when an invariant proposed one |
 | 11 | `decision` | decision summary | `standard`+ on a decision |
+| 11b | `pending` | `{id, author, kind, target, expires_at?, reason?}`, the request of an approval-flow record | `standard`+ on `mutation_*` |
 | 12 | `full_grant` | the whole grant | `detailed`+ on a grant change |
 | 13 | `resource` | the whole resource | `detailed`+ on a decision |
 | 14 | `explanation` | the full trace | `forensic` on a decision |
@@ -170,3 +171,23 @@ The mode of a record is the first of: the mode of the call (`GovernanceAt::fail_
 (`with_fail_mode`, `auditPolicy.failMode`), `closed`. Role, tuple and exclusive-resource records
 carry no permission, so they follow the call and the default. The result of an `apply` says where the
 record went: `auditStatus` is `written`, `pending` or `dropped`.
+
+## Approval flow records
+
+The four `mutation_*` actions record the steps of a pending request (`Approvals` in Rust, `propose`,
+`resolve` and `expire` in JS). `object` is the request id and `pending` names the request: its `author`
+(the actor id of whoever proposed the change), the `kind` of the change (`add`, `remove`, `assign_role`,
+`revoke_role`), its `target` (grant id, or `role@subject`), the optional `expires_at` and, on a refusal by
+an approver, the `reason`. `outcome` says whether the step took effect:
+
+| action | `actor` | `outcome` |
+|---|---|---|
+| `mutation_propose` | the author | `pending` when the request was kept, `rejected` when the invariants or the audit refused it |
+| `mutation_approve` | the approver | `applied` when the change then went through the governance, `rejected` when the approver was the author, lacked the permission or the invariants now refuse it (`violations` says which) |
+| `mutation_reject` | the approver | `applied` when the request was refused, `rejected` when the attempt was refused (`violations`) |
+| `mutation_expire` | `strig-expiry` | `applied` |
+
+An approval writes `mutation_approve` first and then the `grant_add`/`grant_remove`/`role_*` record of the
+change itself, with the author as `actor` and the approver in `meta.approved_by` and the request id in
+`meta.request_id` (kept from `detailed`). A request whose approval record exists and whose change record does
+not was never applied.

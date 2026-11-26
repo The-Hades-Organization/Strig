@@ -15,6 +15,7 @@ import './web-fastify.js';
 import './web-nestjs.js';
 import './web-routes.js';
 import './store.js';
+import './approvals.js';
 import { Hub, change, engineProvider, memoryTransport, openSession, pgTransport, pipeSse, redisTransport, sseResponse } from '../dist/server.js';
 
 interface BunServer {

@@ -117,6 +117,14 @@ pub enum AuditAction {
     ExclusiveRelease,
     /// An exclusive lease ran out of time.
     ExclusiveExpire,
+    /// A change was proposed and, by policy, left as a pending request (`pending` module).
+    MutationPropose,
+    /// Another actor approved a pending request; the change then went through the governance.
+    MutationApprove,
+    /// Another actor refused a pending request.
+    MutationReject,
+    /// A pending request ran out of time before anyone decided it.
+    MutationExpire,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,6 +134,8 @@ pub enum AuditOutcome {
     Rejected,
     Allowed,
     Denied,
+    /// A proposal waits for an approver (`mutation_propose` only).
+    Pending,
 }
 
 /// Summary of a decision, kept from [`AuditLevel::Standard`] upward.
@@ -200,6 +210,22 @@ impl RoleChange {
     }
 }
 
+/// The pending request an approval-flow record is about, kept from [`AuditLevel::Standard`] upward.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingRef {
+    pub id: String,
+    /// Actor id of whoever proposed the change, or its kind when anonymous.
+    pub author: String,
+    pub kind: crate::governance::MutationKind,
+    /// Grant id, or `role@subject` (`role#scope@subject` with a scope) for a role change.
+    pub target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
+    /// Why an approver refused the request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 /// One record of the trail. The optional fields appear depending on the level.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AuditRecord {
@@ -228,6 +254,9 @@ pub struct AuditRecord {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision: Option<DecisionSummary>,
+    /// The request of an approval-flow record, from `standard` upward.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending: Option<PendingRef>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub full_grant: Option<Grant>,
@@ -749,6 +778,7 @@ impl Auditor {
             violations: Vec::new(),
             suggestions: Vec::new(),
             decision: None,
+            pending: None,
             full_grant: None,
             resource: None,
             explanation: None,
@@ -923,6 +953,31 @@ impl Auditor {
             });
         }
         let permission = grant.map(|g| g.permission.as_str());
+        self.emit_with(record, permission, call)
+    }
+
+    /// Records a step of the approval flow (`pending` module): `action` is one of the `Mutation*` actions
+    /// and `object` is the request id. `permission` is the approval permission, so that its [`FailMode`] applies.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn pending_event(
+        &self,
+        actor: &Subject,
+        action: AuditAction,
+        pending: PendingRef,
+        outcome: AuditOutcome,
+        violations: &[Violation],
+        meta: &Attributes,
+        permission: Option<&str>,
+        call: Option<FailMode>,
+        at: u64,
+    ) -> Result<Emitted, AuditError> {
+        let mut record = self.base(actor, action, pending.id.clone(), outcome);
+        record.at = at;
+        if self.level >= AuditLevel::Standard {
+            record.pending = Some(pending);
+            record.violations = self.violation_texts(violations);
+        }
+        self.detail(&mut record, actor, meta);
         self.emit_with(record, permission, call)
     }
 

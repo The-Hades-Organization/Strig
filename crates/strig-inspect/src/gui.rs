@@ -733,6 +733,10 @@ fn action_text(action: &AuditAction) -> &'static str {
         AuditAction::ExclusivePreempt => "exclusive hold taken over",
         AuditAction::ExclusiveRelease => "exclusive hold released",
         AuditAction::ExclusiveExpire => "exclusive hold expired",
+        AuditAction::MutationPropose => "change proposed",
+        AuditAction::MutationApprove => "change approved",
+        AuditAction::MutationReject => "change refused by an approver",
+        AuditAction::MutationExpire => "pending change expired",
     }
 }
 
@@ -742,6 +746,7 @@ fn outcome_label(t: Tokens, outcome: &AuditOutcome) -> Div {
         AuditOutcome::Rejected => label(Some("x"), "refused", t.effect(Effect::Deny)),
         AuditOutcome::Allowed => label(Some("check"), "allowed", t.effect(Effect::Allow)),
         AuditOutcome::Denied => label(Some("x"), "denied", t.effect(Effect::Deny)),
+        AuditOutcome::Pending => label(None, "pending", t.effect(Effect::Allow)),
     }
 }
 

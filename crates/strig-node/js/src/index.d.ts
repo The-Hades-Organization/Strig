@@ -441,6 +441,97 @@ export interface ApplyResult {
   auditStatus?: AuditDelivery | null;
 }
 
+/** Who may approve a kind of change: whoever holds `permission` on `resource`. */
+export interface ApprovalRule {
+  kind: 'add' | 'remove' | 'assign_role' | 'revoke_role';
+  permission: string;
+  resource: Resource;
+}
+
+export type PendingStatus =
+  | { state: 'pending' }
+  | { state: 'approved'; by: string; at: number }
+  | { state: 'rejected'; by: string; at: number; reason: string }
+  | { state: 'expired'; at: number };
+
+/** A change waiting for an approver. `mutation` has the shape of `ApplyInput['mutation']`. */
+export interface PendingRequest {
+  id: string;
+  actor: Subject;
+  mutation: ApplyInput['mutation'];
+  requestedAt: number;
+  expiresAt?: number;
+  status: PendingStatus;
+}
+
+/** What `propose`, `resolve` and `expire` share with `apply`: the state they judge against and the audit. */
+export interface ApprovalFlowInput {
+  /** The grants as they are now. */
+  current?: Grant[];
+  /** Which kinds of change wait for approval, and who approves them. */
+  approval?: ApprovalRule[];
+  invariants?: InvariantSpec[];
+  tuples?: unknown[];
+  audit?: ApplyInput['audit'];
+  meta?: Record<string, unknown>;
+  now?: number | bigint;
+}
+
+export interface ProposeInput extends ApprovalFlowInput {
+  actor: Subject;
+  mutation: ApplyInput['mutation'];
+  /** Id of the request; the caller makes it unique. */
+  id: string;
+  /** From this instant (ms UTC) on nobody can decide the request. */
+  expiresAt?: number | bigint;
+}
+
+export interface ResolveInput extends ApprovalFlowInput {
+  request: PendingRequest;
+  approver: Subject;
+  decision: 'approve' | 'reject';
+  /** Required by `reject`. */
+  reason?: string;
+}
+
+export interface ExpireInput extends ApprovalFlowInput {
+  requests: PendingRequest[];
+}
+
+/** The records of the steps, in order, and where the worst of them ended up (as in `ApplyResult`). */
+interface ApprovalAudit {
+  audits: Array<Record<string, unknown>>;
+  auditStatus?: AuditDelivery | null;
+}
+
+/**
+ * `ok` with `applied: true` and `grants`: the policy asks no approval and the change went through. `ok`
+ * with `applied: false` and `request`: it waits for an approver. Otherwise `code: 'REFUSED'` and `violations`.
+ */
+export type ProposeResult = ApprovalAudit &
+  (
+    | { ok: true; applied: true; grants: Grant[]; subject?: Subject }
+    | { ok: true; applied: false; request: PendingRequest }
+    | { ok: false; code: 'REFUSED'; violations: Violation[] }
+  );
+
+/**
+ * Approved: `grants` (and `subject` on a role change) to persist, and the request. Refused: `REFUSED` (the
+ * request stays pending), `EXPIRED` (`request` is now expired), `NOT_PENDING`.
+ */
+export type ResolveResult = ApprovalAudit &
+  (
+    | { ok: true; request: PendingRequest; grants?: Grant[]; subject?: Subject }
+    | { ok: false; code: 'REFUSED'; violations: Violation[] }
+    | { ok: false; code: 'EXPIRED'; request: PendingRequest }
+    | { ok: false; code: 'NOT_PENDING' }
+  );
+
+export interface ExpireResult extends ApprovalAudit {
+  ok: true;
+  expired: PendingRequest[];
+}
+
 /** Counters of the retry queue of `open` mode. */
 export interface AuditStats {
   pending: number;
@@ -598,6 +689,12 @@ export declare class Engine {
   materialize(input: MaterializeInput): Materialized;
   /** Materializes and applies the batch through the governance, in `depends_on` order. */
   applyTemplate(input: ApplyTemplateInput): ApplyTemplateResult;
+  /** Applies the change at once, or leaves it as a pending request when `approval` asks for approval of its kind. Nothing is stored: keep `request` (see `Approvals` in `@the-hades-organization/strig/approvals`). */
+  propose(input: ProposeInput): ProposeResult;
+  /** Approves or refuses `request`. The author never decides their own request; an approval judges the change again over `current`. */
+  resolve(input: ResolveInput): ResolveResult;
+  /** Closes the requests whose expiry has come and returns them. */
+  expire(input: ExpireInput): ExpireResult;
   /** Tries to write the records waiting in the retry queue now and returns its counters. */
   flushAudit(): AuditStats;
   auditStats(): AuditStats;

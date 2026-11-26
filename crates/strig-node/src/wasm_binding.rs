@@ -391,6 +391,33 @@ impl WasmEngine {
         )
     }
 
+    pub fn propose(&self, input: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .propose(from_js(input)?, crate::millis("now", js_sys::Date::now()))
+                .map_err(err)?,
+        )
+    }
+
+    pub fn resolve(&self, input: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .resolve(from_js(input)?, crate::millis("now", js_sys::Date::now()))
+                .map_err(err)?,
+        )
+    }
+
+    pub fn expire(&self, input: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .expire(from_js(input)?, crate::millis("now", js_sys::Date::now()))
+                .map_err(err)?,
+        )
+    }
+
     #[wasm_bindgen(js_name = flushAudit)]
     pub fn flush_audit(&self) -> Result<JsValue, JsFailure> {
         let now = crate::millis("now", js_sys::Date::now());
