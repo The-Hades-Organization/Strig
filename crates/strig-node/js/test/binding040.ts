@@ -479,6 +479,11 @@ for (const backend of ['native', 'wasm'] as const) {
       [{ op: 'time_between', from: '22:13', until: '22:14' }, {}, true],
       [{ op: 'weekday_in', days: ['tue'] }, {}, true],
       [{ op: 'weekday_in', days: ['mon', 'wed'] }, {}, false],
+      [{ op: 'time_between', from: '19:00', until: '20:00', tz: 'America/Sao_Paulo' }, {}, true],
+      [{ op: 'time_between', from: '22:00', until: '23:00', tz: 'America/Sao_Paulo' }, {}, false],
+      [{ op: 'time_between', from: '18:00', until: '07:00', tz: 'America/Sao_Paulo' }, {}, true],
+      [{ op: 'weekday_in', days: ['wed'], tz: 'Pacific/Auckland' }, {}, true],
+      [{ op: 'weekday_in', days: ['tue'], tz: 'Pacific/Auckland' }, {}, false],
     ];
     for (const [condition, attrs, expected] of cases) {
       assert.equal(decide(condition, attrs), expected, JSON.stringify([condition, attrs]));
@@ -486,6 +491,8 @@ for (const backend of ['native', 'wasm'] as const) {
     // Operando com tipo errado ou CIDR inválido nunca permite.
     assert.equal(decide({ op: 'starts_with', left: attr('n'), right: 'a' }, { n: 5 }), false);
     assert.equal(decide({ op: 'ip_in', item: attr('ip'), set: 'not-a-cidr' }, { ip: '10.1.2.3' }), false);
+    // Fuso desconhecido nunca permite.
+    assert.equal(decide({ op: 'time_between', from: '00:00', until: '23:59', tz: 'Mars/Olympus' }), false);
     // Sem now, as condições de tempo não resolvem e o allow não vale.
     const noNow = new Context({ grants: [allow('t', { kind: 'any' }, 'project.view', undefined, { condition: { op: 'weekday_in', days: ['tue'] } })] });
     assert.equal(engine.check(noNow, view({})), false, 'sem now o allow não vale');

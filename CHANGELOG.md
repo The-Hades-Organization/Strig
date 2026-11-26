@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Time zones for `time_between` and `weekday_in`: an optional `tz` with an IANA name (`America/Sao_Paulo`) makes both read the wall clock of that zone instead of UTC, daylight saving time included. It is `"tz"` in the JSON spec, `time_between "09:00" "18:00" tz "America/Sao_Paulo"` and `weekday_in ["mon"] tz "Europe/Lisbon"` in the three syntaxes, `Condition::in_tz` in Rust and `tz?: string` in the TypeScript types. Without `tz` nothing changes. An unknown name is a validation error when the policy loads, with position and hint; evaluated without validation it fails and never allows. The trace shows the local time used (`12:30 America/Sao_Paulo (UTC-03:00)`). The hour skipped by a spring-forward jump never holds and the hour repeated by a fall-back holds on both passes. The database comes from the new default feature `tz` of `strig` (`chrono-tz`): it adds about 0.9 MB to the `.wasm` (2.70 MB to 3.58 MB, 657 KB to 785 KB gzipped); without the feature a `tz` is refused at load.
+
 ### Changed
 
 - The playground editor tells the roles of a word apart by hue, not only by shade: keywords stay wine (rose in dark), relations are blue, who and where are gold, numbers teal, strings green and comments neutral grey. Every code colour reaches at least 7:1 against the editor background in both themes (it was one brown for four roles).
@@ -11,6 +15,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Breaking
 
+- `Condition::TimeBetween` and `Condition::WeekdayIn` gained a `tz: Option<String>` field, so Rust code that builds or matches them without `..` needs `tz: None` or `..`. The constructors `Condition::time_between` and `Condition::weekday_in` and the JSON are unchanged.
 - `strig-inspect --tab` takes `evaluation`, `matrix` or `audit` instead of `avaliacao`, `matriz` or `auditoria`. The text of the terminal commands changed language, so scripts that match it need updating (for example `NEGADO` is now `DENIED`).
 
 ## [0.6.1] - 2026-11-24

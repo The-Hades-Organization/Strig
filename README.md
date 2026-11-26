@@ -169,11 +169,20 @@ A condition or relation that cannot be evaluated (missing attribute, engine with
 | `starts_with`, `ends_with`, `contains` | Text (`contains` also tests list membership) |
 | `any_in`, `all_in` | Lists |
 | `ip_in` | An address in a CIDR or a list of CIDRs |
-| `time_between`, `weekday_in` | The decision instant, in UTC |
+| `time_between`, `weekday_in` | The decision instant, in UTC or in the IANA zone `tz` |
 | `all`, `any`, `not` | Other conditions |
 | `call` | Your own function, registered with `ConditionRegistry::register` |
 
 The time conditions read the instant given by `Context::at`; without it they cannot be resolved, so the `allow` does not apply. There is no regular-expression condition. `Engine::validate_grant` checks that every `call` names a registered function.
+
+#### Time zones
+
+Office hours are local, so `time_between` and `weekday_in` take an optional IANA zone: `Condition::time_between("09:00", "18:00").in_tz("America/Sao_Paulo")` in Rust, `{"op": "time_between", "from": "09:00", "until": "18:00", "tz": "America/Sao_Paulo"}` in JSON or JavaScript, and `time_between "09:00" "18:00" tz "America/Sao_Paulo"` or `weekday_in ["mon", "tue"] tz "Europe/Lisbon"` in the policy language. Without `tz` the clock is UTC, as before.
+
+- **Daylight saving time.** The instant decides the local time. A window inside the hour that a spring-forward jump skips never holds that day; the hour that a fall-back repeats holds on both passes. A window that crosses midnight (`"22:00"` to `"06:00"`) and the weekday follow the local date.
+- **Unknown names.** The validator refuses a zone it does not know when the policy loads, with position and hint. A condition built without validation fails when evaluated, and an `allow` with an error never applies.
+- **Trace.** `explain` shows the local time it used, for example `12:30 America/Sao_Paulo (UTC-03:00)`.
+- **Cost.** The zone database is the default feature `tz` of the `strig` crate (`chrono-tz`) and adds about 0.9 MB (0.13 MB gzipped) to the `.wasm`. Without the feature a `tz` is refused at load.
 
 ### ReBAC
 
@@ -518,7 +527,7 @@ kinds org
 permission org.read on org
 ```
 
-Conditions in `when` read the same in the three syntaxes, for example `a starts_with b`, `env.ip ip_in "10.0.0.0/8"`, `time_between "09:00" "17:30"` and `weekday_in ["mon", "tue"]`. The validator refuses a CIDR, a time of day or a weekday it cannot read. When a name is one typo away from a declared permission, role or parent, the hint adds ``did you mean `x`?``.
+Conditions in `when` read the same in the three syntaxes, for example `a starts_with b`, `env.ip ip_in "10.0.0.0/8"`, `time_between "09:00" "17:30"` and `weekday_in ["mon", "tue"]`. The validator refuses a CIDR, a time of day, a weekday or a time zone it cannot read. When a name is one typo away from a declared permission, role or parent, the hint adds ``did you mean `x`?``.
 
 - **Formatting.** `strig::dsl::format` and `is_formatted` rewrite a source in the canonical layout of its syntax and keep the comments. `strig-inspect fmt [--check] <file|dir>` does the same for `.strig` files; `--check` lists the files that would change and exits with 1.
 - **Files.** With `dsl-fs`, `strig::dsl::fs::read_dir` reads every `*.strig` file of a directory into a `Project`, and `write_file` writes a policy back.

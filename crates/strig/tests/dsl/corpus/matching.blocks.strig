@@ -41,7 +41,7 @@ grant g-night {
   subject = principal ana
   permission = document.view
   target = document:runbook
-  when = time_between "22:00" "06:00" or env.ip ip_in "192.168.0.0/16"
+  when = time_between "22:00" "06:00" tz "America/Sao_Paulo" or env.ip ip_in "192.168.0.0/16"
 }
 
 // Office network, working hours, weekdays only.
@@ -50,5 +50,5 @@ grant g-network {
   subject = anyone
   permission = document.edit
   target = document:ledger
-  when = not (env.ip ip_in ["10.0.0.0/8", "2001:db8::/32"]) or not (time_between "09:00" "17:30" and weekday_in ["mon", "tue", "wed", "thu", "fri"])
+  when = not (env.ip ip_in ["10.0.0.0/8", "2001:db8::/32"]) or not (time_between "09:00" "17:30" and weekday_in ["mon", "tue", "wed", "thu", "fri"] tz "Europe/Lisbon")
 }

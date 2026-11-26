@@ -400,6 +400,17 @@ fn attr_name(attr: &str, id: &str, report: &mut Report<'_>) {
     }
 }
 
+fn check_zone(tz: Option<&str>, id: &str, report: &mut Report<'_>) {
+    let Some(name) = tz else { return };
+    if let Err(reason) = crate::condition::check_tz(name) {
+        report.error(
+            id,
+            reason,
+            Some("write an IANA zone name, like \"America/Sao_Paulo\" or \"Europe/Lisbon\"".into()),
+        );
+    }
+}
+
 /// The names a condition uses: attribute paths and function names.
 fn condition_names(condition: &Condition, id: &str, report: &mut Report<'_>) {
     match condition {
@@ -442,7 +453,8 @@ fn condition_names(condition: &Condition, id: &str, report: &mut Report<'_>) {
                 }
             }
         }
-        Condition::TimeBetween { from, until } => {
+        Condition::TimeBetween { from, until, tz } => {
+            check_zone(tz.as_deref(), id, report);
             for text in [from, until] {
                 if crate::condition::parse_clock(text).is_err() {
                     report.error(
@@ -453,7 +465,8 @@ fn condition_names(condition: &Condition, id: &str, report: &mut Report<'_>) {
                 }
             }
         }
-        Condition::WeekdayIn { days } => {
+        Condition::WeekdayIn { days, tz } => {
+            check_zone(tz.as_deref(), id, report);
             for day in days {
                 if crate::condition::parse_weekday(day).is_err() {
                     report.error(
