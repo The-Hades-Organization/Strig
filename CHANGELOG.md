@@ -8,8 +8,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - A central route table for the JS integrations, deny by default: `authorizeRoutes(options)` for Express and Fastify and `StrigRouteGuard` for NestJS map method and route (`/doc/:id`) to a permission and resource, refuse any route the table does not cover and open a route only with `public: true`. In NestJS a `@Can` on the handler adds a check on top of the table and never opens what the table denies. The new `/testing` subpath (`expressRoutes`, `nestRoutes`, `collectFastifyRoutes`, `auditRoutes`, `assertRoutesCovered`) lists routes with no rule and rules with no route so the host's tests fail when they drift.
 
+- The npm release publishes a CycloneDX SBOM of the crates and of the npm package as assets of the GitHub release, and signs every npm package with provenance.
+
 ### Changed
 
+- The npm package no longer bundles the five native modules (about 24 MB unpacked): each platform has its own package (`@the-hades-organization/strig-<platform>`) installed as an optional dependency, which brings a typical install to about 8 MB on disk. The loader resolves the platform package, then a local build, then falls back to wasm (or throws a clear error with `STRIG_BACKEND=native`). Linux musl is served by the wasm backend.
 - The playground editor tells the roles of a word apart by hue, not only by shade: keywords stay wine (rose in dark), relations are blue, who and where are gold, numbers teal, strings green and comments neutral grey. Every code colour reaches at least 7:1 against the editor background in both themes (it was one brown for four roles).
 - The `strig-inspect` interface is in English: window, terminal output, error messages and the example scenario (`examples/scenario.json` now uses `ben`, `cara`, `visitor` and `invoice-7`). There is no locale selection yet.
 

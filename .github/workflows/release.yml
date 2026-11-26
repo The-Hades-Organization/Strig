@@ -117,9 +117,36 @@ jobs:
           path: crates/strig-node/js/wasm/
           if-no-files-found: error
 
+  sbom:
+    name: SBOM
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Generate the CycloneDX documents
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir sbom
+          cargo install cargo-cyclonedx --version 0.5.7 --locked
+          cargo cyclonedx --format json --spec-version 1.5 --override-filename "strig-$version-crates.cdx"
+          for f in $(find crates -name '*.cdx.json'); do mv "$f" "sbom/$(basename "$f")"; done
+          (cd crates/strig-node/js && npm ci --omit=dev --ignore-scripts && \
+            npm sbom --sbom-format cyclonedx --omit dev > "../../../sbom/strig-$version-npm.cdx.json")
+          ls -l sbom
+          test "$(ls sbom | wc -l)" -ge 2
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: sbom/
+          if-no-files-found: error
+
   github-release:
     name: GitHub release
-    needs: [native, wasm]
+    needs: [native, wasm, sbom]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -137,10 +164,15 @@ jobs:
         with:
           name: wasm
           path: wasm
+      - uses: actions/download-artifact@v8
+        with:
+          name: sbom
+          path: sbom
       - name: Name the assets after the package and version
         run: |
           version="${TAG#v}"
           mkdir dist
+          cp sbom/*.json dist/
           for f in native/strig.*.node; do
             platform="$(basename "$f" .node)"
             cp "$f" "dist/strig-$version-${platform#strig.}.node"
@@ -166,7 +198,7 @@ jobs:
           npm install @the-hades-organization/strig@$version
           \`\`\`
 
-          The \`.node\` files are the N-API modules shipped in the npm package; \`SHA256SUMS\` lists their hashes.
+          The \`.node\` files are the N-API modules, each shipped in its own npm package (\`@the-hades-organization/strig-<platform>\`); \`SHA256SUMS\` lists their hashes and the \`*.cdx.json\` files are the CycloneDX SBOMs of the crates and of the npm package.
 
           [crates.io](https://crates.io/crates/strig/$version) · [docs.rs](https://docs.rs/strig/$version) · [npm](https://www.npmjs.com/package/@the-hades-organization/strig/v/$version)
           EOF
@@ -215,18 +247,38 @@ jobs:
               -e "s#](README.pt-BR.md)#]($blob/README.pt-BR.md)#g" \
               -e "s#](CONTRIBUTING.md)#]($blob/CONTRIBUTING.md)#g" \
               README.md > crates/strig-node/js/README.md
+      - name: Build the platform packages and pin them in the main package
+        working-directory: crates/strig-node
+        run: node scripts/package-platforms.mjs
       - name: Check the package contents
         working-directory: crates/strig-node/js
         run: |
-          ls -l native wasm dist
+          ls -l platforms/* wasm dist
           test -s dist/node.js
           test -s dist/index.d.ts
+          test "$(ls platforms | wc -l)" -eq 5
           test "$(ls native | wc -l)" -eq 5
           test -s README.md
           if grep -nE '\]\((LICENSE|README\.pt-BR\.md|CONTRIBUTING\.md)\)|src="assets/' README.md; then exit 1; fi
+          for dir in platforms/*/; do (cd "$dir" && npm pack --dry-run); done
           npm pack --dry-run
-      - name: Publish
+      - name: Publish the platform packages, then the main package
         working-directory: crates/strig-node/js
-        run: npm publish --provenance --access public
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          for dir in platforms/*/; do
+            name="$(node -p "require('./$dir/package.json').name")"
+            # A rerun after a partial publish skips what is already out.
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already on npm"
+              continue
+            fi
+            (cd "$dir" && npm publish --provenance --access public)
+          done
+          if npm view "@the-hades-organization/strig@$version" version >/dev/null 2>&1; then
+            echo "main package $version is already on npm"
+          else
+            npm publish --provenance --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

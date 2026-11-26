@@ -30,9 +30,55 @@ async function loadWasm(): Promise<Strig> {
   return wrap(glue as unknown as Binding, 'wasm');
 }
 
+const SCOPE = '@the-hades-organization';
+
+function isGlibc(): boolean {
+  const report = process.report?.getReport() as { header?: { glibcVersionRuntime?: string } } | undefined;
+  return Boolean(report?.header?.glibcVersionRuntime);
+}
+
+// Keep in sync with scripts/platforms.json (the release script builds one package per entry).
+function platformPackage(): string | undefined {
+  const key = `${process.platform}-${process.arch}`;
+  switch (key) {
+    case 'linux-x64':
+    case 'linux-arm64':
+      return isGlibc() ? `strig-${key}-gnu` : undefined;
+    case 'darwin-x64':
+    case 'darwin-arm64':
+      return `strig-${key}`;
+    case 'win32-x64':
+      return 'strig-win32-x64-msvc';
+    default:
+      return undefined;
+  }
+}
+
 function loadNative(): Strig {
-  const file = new URL(`../native/strig.${process.platform}-${process.arch}.node`, import.meta.url);
-  return wrap(require(fileURLToPath(file)) as Binding, 'native');
+  const name = platformPackage();
+  const errors: string[] = [];
+  if (name) {
+    try {
+      return wrap(require(`${SCOPE}/${name}`) as Binding, 'native');
+    } catch (error) {
+      errors.push(String(error));
+    }
+  }
+  // A local build (scripts/build.sh) leaves the module next to the sources.
+  try {
+    const file = new URL(`../native/strig.${process.platform}-${process.arch}.node`, import.meta.url);
+    return wrap(require(fileURLToPath(file)) as Binding, 'native');
+  } catch (error) {
+    errors.push(String(error));
+  }
+  const platform = `${process.platform}-${process.arch}`;
+  throw new Error(
+    name
+      ? `Strig: the native module ${SCOPE}/${name} for ${platform} could not be loaded. Install it with ` +
+        `\`npm install ${SCOPE}/${name}\` (reinstall without --no-optional / --omit=optional), or set STRIG_BACKEND=wasm. ${errors.join(' | ')}`
+      : `Strig: there is no native module for ${platform}${process.platform === 'linux' ? ' (only glibc is built)' : ''}; ` +
+        'use the WebAssembly backend (STRIG_BACKEND=wasm).',
+  );
 }
 
 export async function load(options: { backend?: Backend } = {}): Promise<Strig> {
