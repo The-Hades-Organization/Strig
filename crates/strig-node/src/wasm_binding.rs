@@ -3,7 +3,9 @@ use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value};
 use wasm_bindgen::prelude::*;
 
-use crate::{BindingError, ContextData, EngineHandle, ExclusiveHandle};
+use std::sync::Arc;
+
+use crate::{BindingError, ContextData, EngineHandle, ExclusiveHandle, HostCallbacks, HostFn};
 
 /// Um `Error` do JavaScript com o `code` estável do binding.
 type JsFailure = JsValue;
@@ -160,7 +162,7 @@ impl WasmContext {
 
     #[wasm_bindgen(js_name = removeGrant)]
     pub fn remove_grant(&mut self, id: JsValue) -> Result<bool, JsFailure> {
-        Ok(self.inner.remove_grant(&text("id", &id)?))
+        self.inner.remove_grant(&text("id", &id)?).map_err(err)
     }
 
     pub fn grants(&self) -> Result<JsValue, JsFailure> {
@@ -204,6 +206,100 @@ impl WasmContext {
     }
 }
 
+/// A JavaScript function the engine calls back, synchronously, from inside a call of the host.
+struct WasmFn(js_sys::Function);
+
+// SAFETY: wasm32 here is single-threaded; the function is never touched from another thread.
+unsafe impl Send for WasmFn {}
+unsafe impl Sync for WasmFn {}
+
+fn thrown(error: JsValue) -> String {
+    match error.dyn_ref::<js_sys::Error>() {
+        Some(e) => String::from(e.message()),
+        None => error.as_string().unwrap_or_else(|| "a callback threw".to_string()),
+    }
+}
+
+impl HostFn for WasmFn {
+    fn call(&self, arg: Value) -> Result<Value, String> {
+        let arg = to_js(&arg).map_err(thrown)?;
+        let answer = self.0.call1(&JsValue::UNDEFINED, &arg).map_err(thrown)?;
+        if answer.is_undefined() {
+            return Ok(Value::Null);
+        }
+        from_js(answer).map_err(thrown)
+    }
+}
+
+fn host_fn(what: &str, value: JsValue) -> Result<Arc<dyn HostFn>, JsFailure> {
+    value
+        .dyn_into::<js_sys::Function>()
+        .map(|f| Arc::new(WasmFn(f)) as Arc<dyn HostFn>)
+        .map_err(|_| err(BindingError::invalid_argument(what, "esperado uma função")))
+}
+
+fn field(target: &JsValue, key: &str) -> Result<JsValue, JsFailure> {
+    js_sys::Reflect::get(target, &JsValue::from_str(key))
+        .map_err(|_| err(BindingError::invalid_argument(key, "ilegível")))
+}
+
+fn entries_of(what: &str, value: &JsValue) -> Result<Vec<(String, JsValue)>, JsFailure> {
+    if !value.is_object() {
+        return Err(err(BindingError::invalid_argument(what, "esperado um objeto")));
+    }
+    js_sys::Object::keys(value.unchecked_ref::<js_sys::Object>())
+        .iter()
+        .map(|key| {
+            let name = key.as_string().unwrap_or_default();
+            Ok((name.clone(), field(value, &name)?))
+        })
+        .collect()
+}
+
+/// The `hooks` argument of the `Engine` constructor: `conditions` (name → function), `overrides`
+/// (`{ name, except?, evaluate }[]`) and `invariants` (name → function).
+fn hooks_of(hooks: &JsValue) -> Result<HostCallbacks, JsFailure> {
+    if !hooks.is_object() {
+        return Err(err(BindingError::invalid_argument("hooks", "esperado um objeto")));
+    }
+    let mut host = HostCallbacks::default();
+    let set = |v: &JsValue| !(v.is_undefined() || v.is_null());
+    let conditions = field(hooks, "conditions")?;
+    if set(&conditions) {
+        for (name, f) in entries_of("hooks.conditions", &conditions)? {
+            host.condition(name.clone(), host_fn(&format!("hooks.conditions.{name}"), f)?);
+        }
+    }
+    let overrides = field(hooks, "overrides")?;
+    if set(&overrides) {
+        if !js_sys::Array::is_array(&overrides) {
+            return Err(err(BindingError::invalid_argument(
+                "hooks.overrides",
+                "esperado uma lista",
+            )));
+        }
+        for rule in js_sys::Array::from(&overrides).iter() {
+            let name = text("hooks.overrides[].name", &field(&rule, "name")?)?;
+            let except = match optional(field(&rule, "except")?)? {
+                None => Vec::new(),
+                Some(value) => crate::parse::<Vec<String>>("hooks.overrides[].except", value).map_err(err)?,
+            };
+            host.override_rule(
+                name,
+                except,
+                host_fn("hooks.overrides[].evaluate", field(&rule, "evaluate")?)?,
+            );
+        }
+    }
+    let invariants = field(hooks, "invariants")?;
+    if set(&invariants) {
+        for (name, f) in entries_of("hooks.invariants", &invariants)? {
+            host.invariant(name.clone(), host_fn(&format!("hooks.invariants.{name}"), f)?);
+        }
+    }
+    Ok(host)
+}
+
 #[wasm_bindgen(js_name = Engine)]
 pub struct WasmEngine {
     inner: EngineHandle,
@@ -212,9 +308,14 @@ pub struct WasmEngine {
 #[wasm_bindgen(js_class = Engine)]
 impl WasmEngine {
     #[wasm_bindgen(constructor)]
-    pub fn new(spec: JsValue) -> Result<WasmEngine, JsFailure> {
+    pub fn new(spec: JsValue, hooks: JsValue) -> Result<WasmEngine, JsFailure> {
+        let host = if hooks.is_undefined() || hooks.is_null() {
+            HostCallbacks::default()
+        } else {
+            hooks_of(&hooks)?
+        };
         Ok(Self {
-            inner: EngineHandle::new(from_js(spec)?).map_err(err)?,
+            inner: EngineHandle::with_host(from_js(spec)?, host).map_err(err)?,
         })
     }
 
