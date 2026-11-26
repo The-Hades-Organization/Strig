@@ -9,6 +9,7 @@ mod hints;
 mod hostile;
 mod notes;
 mod project;
+mod schema;
 
 use strig::dsl::Language;
 

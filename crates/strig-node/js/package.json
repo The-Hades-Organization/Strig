@@ -23,7 +23,9 @@
     "./express": { "types": "./dist/express.d.ts", "default": "./dist/express.js" },
     "./fastify": { "types": "./dist/fastify.d.ts", "default": "./dist/fastify.js" },
     "./types": { "types": "./dist/types-gen.d.ts", "default": "./dist/types-gen.js" },
-    "./nestjs": { "types": "./dist/nestjs.d.ts", "default": "./dist/nestjs.js" }
+    "./nestjs": { "types": "./dist/nestjs.d.ts", "default": "./dist/nestjs.js" },
+    "./store": { "types": "./dist/store.d.ts", "default": "./dist/store.js" },
+    "./testing": { "types": "./dist/testing.d.ts", "default": "./dist/testing.js" }
   },
   "scripts": {
     "build:ts": "tsc -p tsconfig.json && node scripts/copy-types.mjs",

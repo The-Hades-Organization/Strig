@@ -2,8 +2,11 @@
 import type { Resource } from './protocol.js';
 import { createAuthorizer } from './web-core.js';
 import type { AuthorizerOptions } from './web-core.js';
+import { createRouteDecider } from './route-table.js';
+import type { RouteTableOptions } from './route-table.js';
 
 export type { AuthorizerOptions, LocalMode, Outcome, ErrorBody } from './web-core.js';
+export type { RouteRule, RouteTableOptions, RouteParams } from './route-table.js';
 
 // The request, reply and instance types are the caller's Fastify ones; only the members used here are named.
 interface FastifyReply {
@@ -41,6 +44,20 @@ export function createCan<Req = any>(
       if (outcome.kind === 'allow') return;
       return reply.code(outcome.status).send(outcome.body);
     };
+  };
+}
+
+/**
+ * Global hook for a central route table, deny by default: `fastify.addHook('onRequest', authorizeRoutes(options))`
+ * before the routes. A request no rule covers answers 403 (unknown URLs included), a `public: true` rule passes
+ * without reading the subject. Literals are compared case sensitive and percent-decoded, like Fastify routes (`caseSensitive: false` if you turned its option off). Per-route `can()` still runs after it, so it only narrows.
+ */
+export function authorizeRoutes<Req = any>(options: RouteTableOptions<Req>): PreHandler<Req> {
+  const decide = createRouteDecider<Req>(options, (request: any) => ({ method: request.method, url: request.url, caseSensitive: true }));
+  return async function strigRouteHook(request, reply) {
+    const outcome = await decide(request);
+    if (outcome.kind === 'allow') return;
+    return reply.code(outcome.status).send(outcome.body);
   };
 }
 

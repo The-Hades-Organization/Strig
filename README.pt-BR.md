@@ -169,11 +169,20 @@ Uma condição ou relação que não pode ser avaliada (atributo ausente, motor 
 | `starts_with`, `ends_with`, `contains` | Texto (`contains` também testa se um item está numa lista) |
 | `any_in`, `all_in` | Listas |
 | `ip_in` | Um endereço num CIDR ou numa lista de CIDRs |
-| `time_between`, `weekday_in` | O instante da decisão, em UTC |
+| `time_between`, `weekday_in` | O instante da decisão, em UTC ou no fuso IANA `tz` |
 | `all`, `any`, `not` | Outras condições |
 | `call` | Uma função sua, registrada com `ConditionRegistry::register` |
 
 As condições de tempo leem o instante dado por `Context::at`; sem ele não dá para resolvê-las, então o `allow` não vale. Não existe condição de expressão regular. `Engine::validate_grant` confere se cada `call` aponta para uma função registrada.
+
+#### Fusos horários
+
+Horário comercial é local, então `time_between` e `weekday_in` aceitam um fuso IANA opcional: `Condition::time_between("09:00", "18:00").in_tz("America/Sao_Paulo")` em Rust, `{"op": "time_between", "from": "09:00", "until": "18:00", "tz": "America/Sao_Paulo"}` em JSON ou JavaScript, e `time_between "09:00" "18:00" tz "America/Sao_Paulo"` ou `weekday_in ["mon", "tue"] tz "Europe/Lisbon"` na linguagem de política. Sem `tz` o relógio é UTC, como antes.
+
+- **Horário de verão.** O instante decide a hora local. Uma janela dentro da hora que o avanço do relógio pula nunca vale naquele dia; a hora que a volta repete vale nas duas passagens. A janela que cruza a meia-noite (`"22:00"` a `"06:00"`) e o dia da semana seguem a data local.
+- **Nomes desconhecidos.** O validador recusa um fuso que não conhece quando a política é carregada, com posição e dica. Uma condição montada sem validação falha na avaliação, e um `allow` com erro nunca se aplica.
+- **Rastro.** O `explain` mostra a hora local usada, por exemplo `12:30 America/Sao_Paulo (UTC-03:00)`.
+- **Custo.** O banco de fusos é a feature `tz`, ligada por padrão, do crate `strig` (`chrono-tz`) e soma cerca de 0,9 MB (0,13 MB com gzip) ao `.wasm`. Sem a feature, um `tz` é recusado na carga.
 
 ### ReBAC
 
@@ -445,9 +454,67 @@ client.on('capabilities', () => render());
 client.can('document.edit', resource);
 ```
 
+### Regras escritas em JavaScript
+
+A função da condição `call`, o override próprio e o `Invariant` próprio existem também em JS, como callbacks síncronos passados ao construtor de `Engine`. O motor os chama no meio da decisão ou do `apply`, e eles aparecem como os nativos: o rastro de `explain` nomeia o override, a recusa carrega a sua violação e a auditoria registra como registra as invariantes embutidas.
+
+```js
+const engine = new Engine(spec, {
+  // condições `call`: { op: 'call', func: 'same_dept', args: [{ attr: 'subject.dept' }, { attr: 'resource.dept' }] }
+  conditions: { same_dept: ([a, b]) => a === b },
+  // Decide antes dos grants: 'allowed', 'denied' ou 'abstained' (nada). `except` pula permissões.
+  overrides: [{ name: 'frozen', except: ['project.view'], evaluate: ({ permission }) => (frozen ? 'denied' : undefined) }],
+  invariants: {
+    // O papel de um ambiente nunca excede o global.
+    env_role_within_global({ mutation }) {
+      if (!('assign_role' in mutation)) return;
+      const { subject, role } = mutation.assign_role;
+      if (role.scope?.kind !== 'environment' || rank(role.role) <= globalRank(subject)) return;
+      return { message: `${role.role} no ambiente excede o papel global`, suggestion: downgrade(subject, role) };
+    },
+    // Um papel em uso não se apaga.
+    role_in_use({ mutation, before }) {
+      if (!('remove' in mutation)) return;
+      const grant = before.find((g) => g.id === mutation.remove.id);
+      if (grant?.subject.kind === 'role' && inUse(grant.subject.id)) return `o papel ${grant.subject.id} está em uso`;
+    },
+  },
+});
+
+engine.apply({ actor, current, mutation, invariants: [{ kind: 'custom', name: 'env_role_within_global' }, { kind: 'custom', name: 'role_in_use' }] });
+```
+
+- A função de condição recebe os operandos já resolvidos e devolve um boolean. A invariante recebe `{ actor, mutation, before, after, now }` (a `mutation` tem a forma que o `apply` aceita) e devolve nada para aceitar, ou um texto, ou `{ message, suggestion? }` para recusar. A `suggestion` é uma mudança; a governança a confere contra todas as invariantes antes de ela aparecer.
+- **Um throw nega, nunca derruba.** Condição que lança (ou não devolve boolean) é erro de condição: o grant de allow não vale, o de deny ainda vale, e o rastro traz a mensagem. Override que lança responde `denied`. Invariante que lança recusa com a mensagem do erro.
+- **Os callbacks são síncronos.** Uma promise não é aguardada; é resposta errada e nega como um throw.
+- **Sem reentrada.** Callback que chama o motor, ou muda outro `Context`, recebe `REENTRANT_CALL`; mudar o `Context` em decisão é recusado pelo runtime. Leia o que precisa antes da chamada e guarde na closure.
+- Override próprio é opaco para listagens (`list`), como todo override que não descreve o seu alcance: os recursos que ele pode decidir ficam como resíduo, nunca como permitidos.
+
 ### Tempo real num backend JS
 
 `/server` traz `Hub`, `openSession`, `sseResponse` (Fetch API: Bun.serve, Hono, Deno), `pipeSse` (`http` do Node) e três transportes: `redisTransport` (node-redis e o `RedisClient` do Bun), `ioredisTransport` e `pgTransport` (pacote `pg`). Os avisos usam o formato do `strig-sync`, então instâncias Rust e JS podem dividir o mesmo canal.
+
+### Grants e papéis em arquivo JSON
+
+Para um sistema sem Postgres nem Redis, `/store` guarda os grants e as atribuições de papel num arquivo JSON (Node e Bun):
+
+```ts
+import { openJsonStore } from '@the-hades-organization/strig/store';
+
+const store = await openJsonStore({ path: './strig.json', createIfMissing: true });
+const provider = engineProvider({ engine, Context, loadGrants: store.loadGrants }); // a fonte de grants
+const subject = store.subject({ kind: 'user', id: 'ana' });                          // + os papéis do arquivo
+
+const result = await store.apply(engine, { actor, mutation: { assign_role: { subject, role: { role: 'admin' } } }, invariants });
+// aceita: os novos grants e papéis são gravados; recusada: nada é gravado
+```
+
+- **Arquivo:** `{ "version": 1, "grants": [...], "roles": { "<id do sujeito>": [<atribuição>, ...] } }`. Os papéis em si (a hierarquia) ficam na spec do motor; o arquivo guarda quem tem qual.
+- **Falha fechado.** Arquivo ausente, JSON inválido, id de grant repetido ou `version` diferente de 1 lança `JsonStoreError` (`STORE_NOT_FOUND`, `STORE_CORRUPT`, `STORE_VERSION`) na carga. O store nunca começa vazio sozinho; `createIfMissing` é o jeito explícito de começar um.
+- **Escrita atômica e serializada.** Arquivo temporário no mesmo diretório, `fsync`, `rename` e `fsync` do diretório. Chamadas no mesmo processo entram numa fila; entre processos vale um `<arquivo>.lock` (criado com `O_EXCL`), e o lock cujo dono morreu neste host, ou mais velho que `lockStaleMs` (30 s), é tomado. Cada mudança relê o arquivo sob o lock, então processos não se sobrescrevem. `STORE_LOCK_TIMEOUT` depois de `lockTimeoutMs` (5 s).
+- **Mudanças:** `addGrant`, `updateGrant`, `removeGrant`, `assignRole`, `revokeRole`, `setRoles`, ou `apply(engine, input)`, que roda a governança sobre os grants que o arquivo tem agora e grava o que ela aceita.
+- **Recarga:** `reload()` depois de uma edição de fora, ou `watch()` para recarregar sozinho (observa o diretório, porque o rename troca o arquivo). Arquivo ruim na recarga mantém o último snapshot bom, lança em `reload()` e vai para `onError` no `watch()`. `onChange` dispara a cada recarga e gravação.
+- Fora daqui: registros de auditoria e uma versão só em Rust.
 
 ### Express, Fastify e NestJS
 
@@ -484,6 +551,36 @@ A requisição só passa quando a decisão permite:
 
 - **Fastify** (`/fastify`): o mesmo `authorize`, mais um `plugin` que acrescenta `fastify.strigCan`.
 - **NestJS** (`/nestjs`): `@Can('document.view')` num handler ou controller, com `new StrigGuard(options)` como guard.
+
+#### Uma tabela de rotas, nega por padrão
+
+Para manter todas as regras num só lugar, dê à integração uma tabela em vez de uma permissão por handler. Uma requisição que nenhuma regra cobre é recusada (`denyStatus`, 403); uma rota só é pública quando a regra diz `public: true`.
+
+```js
+import { authorizeRoutes } from '@the-hades-organization/strig/express';
+
+const routes = [
+  { method: 'GET', path: '/health', public: true },
+  { method: 'GET', path: '/doc/:id', permission: 'document.view', resource: (req, params) => docScope(params.id) },
+  { method: ['PUT', 'DELETE'], path: '/doc/:id', permission: 'document.edit', resource: (req, params) => docScope(params.id) },
+];
+app.use(authorizeRoutes({ subject, local: { engine, context }, routes })); // antes dos routers
+```
+
+Os caminhos usam a sintaxe do framework: segmentos literais, `:nome` para um segmento e um `*` final para um ou mais. A primeira regra que casa decide, então escreva as específicas primeiro; `HEAD` cai nas regras de `GET` e `*` como método vale para qualquer um. A tabela casa do jeito que o framework roteia, para que nenhuma requisição escape de uma regra protegida para uma pública mais ampla: cada segmento é decodificado (percent-decoding) antes da comparação (`/%61dmin/1` é `/admin/1`; `%2F` fica dentro do segmento; escape malformado não casa com nada), e os literais ignoram maiúsculas com `caseSensitive: false`. O padrão é o do próprio framework: o Express ignora maiúsculas, o Fastify diferencia (defina `caseSensitive` na tabela se mudou a opção do Fastify) e o Nest segue a plataforma. Passe `{ caseSensitive: false }` a `assertRoutesCovered` num app Express. Cada regra tem `permission` ou `public: true` (tabela inválida lança na subida). `resource` recebe a requisição e os `params` casados: no nível do app o Express ainda não preencheu `req.params`.
+
+- **Express** (`/express`) e **Fastify** (`/fastify`): `authorizeRoutes(options)` é um middleware global ou hook `onRequest` (`fastify.addHook('onRequest', ...)`). Também responde 403 para URLs sem rota, e o preflight de CORS precisa de uma regra ou de ser respondido antes dele.
+- **NestJS** (`/nestjs`): `{ provide: APP_GUARD, useValue: new StrigRouteGuard(options) }`. A tabela decide primeiro. Se ela libera, um `@Can` no handler soma uma segunda checagem que também precisa passar: `@Can` restringe, nunca libera o que a tabela nega (e vale também numa regra `public`). Handler sem `@Can` não precisa de mais nada.
+
+Coloque a tabela sob teste para que ela não se afaste do app (`/testing`):
+
+```js
+import { expressRoutes, assertRoutesCovered } from '@the-hades-organization/strig/testing';
+
+assertRoutesCovered(expressRoutes(app), routes); // lança listando rotas sem regra e regras sem rota
+```
+
+`expressRoutes(app)` lê um app ou router do Express 4 ou 5 (routers aninhados incluídos, sub-apps montados não); `nestRoutes(app)` faz o mesmo para um app Nest no adaptador Express depois de `app.init()`; no Fastify chame `collectFastifyRoutes(fastify)` antes de registrar as rotas e use o array devolvido com o app pronto. `auditRoutes(routes, tabela)` devolve `{ uncovered, unusedRules, ok }` se preferir asserir por conta própria.
 
 Express, Fastify e NestJS são peer dependencies opcionais. Uma integração que você não importa não custa nada, e importar uma cujo peer falta lança `MissingPeerError`.
 
@@ -546,7 +643,7 @@ kinds org
 permission org.read on org
 ```
 
-As condições de `when` se escrevem igual nas três sintaxes, por exemplo `a starts_with b`, `env.ip ip_in "10.0.0.0/8"`, `time_between "09:00" "17:30"` e `weekday_in ["mon", "tue"]`. O validador recusa CIDR, horário ou dia da semana que não consegue ler. Quando um nome está a um erro de digitação de uma permissão, papel ou pai declarado, a dica acrescenta ``did you mean `x`?``.
+As condições de `when` se escrevem igual nas três sintaxes, por exemplo `a starts_with b`, `env.ip ip_in "10.0.0.0/8"`, `time_between "09:00" "17:30"` e `weekday_in ["mon", "tue"]`. O validador recusa CIDR, horário, dia da semana ou fuso horário que não consegue ler. Quando um nome está a um erro de digitação de uma permissão, papel ou pai declarado, a dica acrescenta ``did you mean `x`?``.
 
 - **Formatação.** `strig::dsl::format` e `is_formatted` reescrevem uma fonte no layout canônico da sintaxe dela e mantêm os comentários. `strig-inspect fmt [--check] <arquivo|dir>` faz o mesmo com arquivos `.strig`; `--check` lista os que mudariam e sai com 1.
 - **Arquivos.** Com `dsl-fs`, `strig::dsl::fs::read_dir` lê todos os `*.strig` de um diretório num `Project`, e `write_file` grava uma política de volta.

@@ -669,12 +669,17 @@ when = time_between "22:00" "06:00" and weekday_in ["mon", "tue", "wed", "thu", 
 - O validador recusa CIDR, hora do dia ou dia da semana ilegível, com posição e dica. As mesmas checagens valem para o
   JSON.
 - Tipo errado ou operando ilegível é erro, como nas comparações: um `allow` com ele não vale e um `deny` com ele vale.
-- As condições de tempo leem o instante da decisão, `Context::at` (`setNow` no binding Node), sempre em UTC. Sem
+- As condições de tempo leem o instante da decisão, `Context::at` (`setNow` no binding Node), em UTC, ou no relógio do fuso
+  IANA dado como `tz "America/Sao_Paulo"` depois dos argumentos. Sem
   instante não resolvem, então um grant que as usa nunca permite.
 - Uma condição que lê atributo `resource.` não vira SQL: a listagem a mantém como resíduo, conferido linha a linha, e o
   `strig-postgres` nunca a transforma em allow.
 - `DSL_SCHEMA` sobe de 1 para 2. Um leitor do schema 1 recusa a política que usa uma dessas condições, e a política sem
   elas lê como antes.
+- `DSL_SCHEMA` sobe de 2 para 3 por causa do `tz`. O JSON canônico da política que nomeia um fuso em alguma condição
+  começa com `"schema": 3`, então um leitor do schema 2 a recusa (campo desconhecido) em vez de ler a janela em UTC; a
+  política sem `tz` não leva `schema` e continua legível pelo schema 2. Este leitor aceita os dois e recusa `schema`
+  acima de 3.
 
 ### Relações
 

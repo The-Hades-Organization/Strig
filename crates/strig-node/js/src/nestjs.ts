@@ -2,8 +2,11 @@
 import type { Resource } from './protocol.js';
 import { createAuthorizer, requirePeer } from './web-core.js';
 import type { AuthorizerOptions, Outcome } from './web-core.js';
+import { createRouteDecider } from './route-table.js';
+import type { RouteTableOptions } from './route-table.js';
 
 export type { AuthorizerOptions, LocalMode, Outcome, ErrorBody } from './web-core.js';
+export type { RouteRule, RouteTableOptions, RouteParams } from './route-table.js';
 
 interface ExecutionContextLike {
   getHandler(): Function;
@@ -75,6 +78,50 @@ export class StrigGuard {
     }
     const status = this.options.errorStatus ?? 500;
     return { kind: 'error', status, body: { error: { code: 'internal', message: 'the decision could not be computed; access is denied' } } };
+  }
+}
+
+/**
+ * Global guard (`{ provide: APP_GUARD, useValue: new StrigRouteGuard(options) }`) driven by a central route table,
+ * deny by default. Precedence: the table decides first, and a route it does not cover or denies is refused whatever
+ * `@Can` says. When the table allows, a `@Can` on the handler or controller adds a second check that must also pass
+ * (so `@Can` narrows, never opens), even on a `public` rule. A handler with no `@Can` is fine: the table is enough.
+ * Case follows the platform: Fastify (a request with `raw`) compares literals case sensitive, Express ignores case; set
+ * `caseSensitive` to override. Same HTTP-only limit as `StrigGuard`.
+ */
+export class StrigRouteGuard {
+  private readonly options: RouteTableOptions;
+  private readonly byTable: ReturnType<typeof createRouteDecider>;
+  private readonly byCan: ReturnType<typeof createAuthorizer>;
+
+  constructor(options: RouteTableOptions) {
+    peer();
+    this.options = options;
+    this.byTable = createRouteDecider(options, (request: any) => ({ method: request.method, url: request.originalUrl ?? request.url, caseSensitive: request.raw ? true : false }));
+    const { routes: _routes, caseSensitive: _caseSensitive, ...rest } = options;
+    this.byCan = createAuthorizer(rest);
+  }
+
+  async canActivate(context: ExecutionContextLike): Promise<boolean> {
+    const { HttpException } = peer();
+    if ((context.getType?.() ?? 'http') !== 'http') throw new HttpException(this.#refuse(context), this.options.errorStatus ?? 500);
+    const request = context.switchToHttp().getRequest();
+    let outcome = await this.byTable(request);
+    if (outcome.kind === 'allow') {
+      const meta = reflect.getMetadata(STRIG_CAN, context.getHandler()) ?? reflect.getMetadata(STRIG_CAN, context.getClass());
+      if (meta) outcome = await this.byCan(request, { permission: meta.permission, resource: meta.resolver });
+    }
+    if (outcome.kind === 'allow') return true;
+    throw new HttpException(outcome.body, outcome.status);
+  }
+
+  #refuse(context: ExecutionContextLike): unknown {
+    try {
+      this.options.onError?.(new Error(`unsupported execution context: ${context.getType?.()}`), context);
+    } catch {
+      // the refusal stands whatever the logger does
+    }
+    return { error: { code: 'internal', message: 'the decision could not be computed; access is denied' } };
   }
 }
 

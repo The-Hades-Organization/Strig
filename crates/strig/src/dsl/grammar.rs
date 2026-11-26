@@ -676,11 +676,23 @@ fn clock_arg(cur: &mut Cursor, what: &str) -> PResult<String> {
     Ok(text)
 }
 
+fn tz_clause(cur: &mut Cursor) -> PResult<Option<String>> {
+    if !cur.eat_word("tz") {
+        return Ok(None);
+    }
+    let (name, span) = string_arg(cur, "a time zone name")?;
+    crate::condition::check_tz(&name).map_err(|reason| {
+        Raw::new(span, reason).hint("write an IANA zone name, like \"America/Sao_Paulo\" or \"Europe/Lisbon\"")
+    })?;
+    Ok(Some(name))
+}
+
 fn time_between(cur: &mut Cursor) -> PResult<Condition> {
     cur.advance();
     let from = clock_arg(cur, "the start time")?;
     let until = clock_arg(cur, "the end time")?;
-    Ok(Condition::TimeBetween { from, until })
+    let tz = tz_clause(cur)?;
+    Ok(Condition::TimeBetween { from, until, tz })
 }
 
 fn weekday_in(cur: &mut Cursor) -> PResult<Condition> {
@@ -699,7 +711,8 @@ fn weekday_in(cur: &mut Cursor) -> PResult<Condition> {
         }
     }
     cur.expect_punct("]", "to close the list of days")?;
-    Ok(Condition::WeekdayIn { days })
+    let tz = tz_clause(cur)?;
+    Ok(Condition::WeekdayIn { days, tz })
 }
 
 pub(crate) fn condition(cur: &mut Cursor) -> PResult<Condition> {
