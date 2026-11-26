@@ -543,6 +543,8 @@ fn permission(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
         targets: names(body.words("targets")),
         label: body.string("label").map(|s| s.v),
         description: body.string("description").map(|s| s.v),
+        labels: Default::default(),
+        descriptions: Default::default(),
         implied_by: names(body.words("implied_by")),
         depends_on: names(body.words("depends_on")),
         non_delegable: body.flag("non_delegable"),

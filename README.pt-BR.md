@@ -663,6 +663,24 @@ const remote = new RemoteClient({ url: 'http://127.0.0.1:8080', timeoutMs: 250 }
 const { allowed } = await remote.check({ subject, permission: 'document.view', resource });
 ```
 
+### Tipos do catálogo para o frontend
+
+Uma permissão pode levar o nome exibido e a descrição por locale (`labels` / `descriptions`, ao lado de `label` / `description`; em Rust `PermissionDef::localized_label("pt-BR", "Editar")`). São opcionais e não se declaram na linguagem de políticas, só no export do catálogo (JSON) ou no builder. O `strig-types` transforma um catálogo exportado num único `.ts` com a união `PermissionId`, a constante `PERMISSIONS` com os metadados e os helpers `isPermissionId`, `permissionLabel` e `permissionDescription` (locale com volta ao texto padrão). A saída é ordenada, então só muda quando o catálogo muda.
+
+```sh
+npx strig-types catalog.json -o src/permissions.generated.ts
+```
+
+```ts
+import { generateTypes } from '@the-hades-organization/strig/types'; // o mesmo, como função
+import { PermissionClient } from '@the-hades-organization/strig/client';
+import type { PermissionId } from './permissions.generated';
+
+const engine = new strig.Engine<PermissionId>(spec); // estrito: check, explain, list, whoCan... só aceitam os ids; sem o parâmetro, qualquer string
+const client = new PermissionClient<PermissionId>(/* ... */);
+client.can('users:read', resource); // só ids da união compilam; estreite uma string com isPermissionId antes
+```
+
 ## Linguagem de políticas
 
 Com a feature `dsl`, uma política pode ser escrita em texto em vez de JSON. A mesma política tem três sintaxes, Blocks, Rules e Actors, e `convert` passa de uma para outra. Todo erro traz posição e dica. O JSON validado continua sendo a fonte da verdade.
