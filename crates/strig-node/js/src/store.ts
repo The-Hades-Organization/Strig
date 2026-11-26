@@ -12,7 +12,9 @@ import type { FSWatcher } from 'node:fs';
 import { open, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import type { ApplyInput, ApplyResult, Grant, RoleAssignment, Subject } from './index.js';
+import { PendingStoreError } from './approvals.js';
+import type { Approvals, DecideOptions, PendingStore } from './approvals.js';
+import type { ApplyInput, ApplyResult, Grant, PendingRequest, ResolveResult, RoleAssignment, Subject } from './index.js';
 
 /** The only file version this store reads and writes. */
 export const STORE_VERSION = 1;
@@ -44,6 +46,8 @@ export interface StoreData {
   version: number;
   grants: Grant[];
   roles: Record<string, RoleAssignment[]>;
+  /** Requests of the approval flow (`@the-hades-organization/strig/approvals`). Absent in a file that never held one; the version stays 1. */
+  pending?: PendingRequest[];
 }
 
 export interface JsonFileStoreOptions {
@@ -97,7 +101,20 @@ function parse(path: string, text: string): StoreData {
       throw corrupt(`roles of "${subject}" must be an array of assignments with a string \`role\``);
     }
   }
-  return { version: STORE_VERSION, grants: raw.grants as Grant[], roles: raw.roles as Record<string, RoleAssignment[]> };
+  const data: StoreData = { version: STORE_VERSION, grants: raw.grants as Grant[], roles: raw.roles as Record<string, RoleAssignment[]> };
+  if (raw.pending !== undefined) {
+    if (!Array.isArray(raw.pending)) throw corrupt('`pending` must be an array');
+    const taken = new Set<string>();
+    for (const request of raw.pending) {
+      if (!isObject(request) || typeof request.id !== 'string' || request.id === '' || !isObject(request.status)) {
+        throw corrupt('every pending request needs a string `id` and a `status`');
+      }
+      if (taken.has(request.id)) throw corrupt(`pending request "${request.id}" appears twice`);
+      taken.add(request.id);
+    }
+    data.pending = raw.pending as PendingRequest[];
+  }
+  return data;
 }
 
 const sameAssignment = (a: RoleAssignment, b: RoleAssignment): boolean =>
@@ -217,6 +234,53 @@ export class JsonFileStore {
       if (at < 0) throw new JsonStoreError('STORE_INVALID', `grant "${grant.id}" does not exist`);
       data.grants[at] = structuredClone(grant);
     });
+  }
+
+  /** The requests of the approval flow, kept in the same file: `new Approvals(engine, store.pendingStore, options)`. */
+  readonly pendingStore: PendingStore = {
+    get: async (id) => structuredClone((await this.fresh()).pending?.find((r) => r.id === id)),
+    put: (request) =>
+      this.mutate((data) => {
+        const all = (data.pending ??= []);
+        if (all.some((r) => r.id === request.id)) throw new PendingStoreError('PENDING_DUPLICATE', `request "${request.id}" already exists`);
+        all.push(structuredClone(request));
+      }),
+    update: (request) =>
+      this.mutate((data) => {
+        const at = (data.pending ?? []).findIndex((r) => r.id === request.id);
+        const stored = data.pending?.[at];
+        if (!stored) throw new PendingStoreError('PENDING_UNKNOWN', `request "${request.id}" does not exist`);
+        if (stored.status.state !== 'pending') throw new PendingStoreError('PENDING_NOT_PENDING', `request "${request.id}" is no longer pending`);
+        (data.pending as PendingRequest[])[at] = structuredClone(request);
+      }),
+    list: async () =>
+      structuredClone([...((await this.fresh()).pending ?? [])].sort((a, b) => a.requestedAt - b.requestedAt || (a.id < b.id ? -1 : 1))),
+  };
+
+  /**
+   * Approves a pending request over the grants the file holds right now. The grants (and, in a role change, the
+   * assignments) are persisted before the request is marked approved, so a failed write leaves it pending.
+   */
+  async approvePending(approvals: Approvals, id: string, approver: Subject, options: Omit<DecideOptions, 'persist'> = {}): Promise<ResolveResult> {
+    const current = (await this.fresh()).grants;
+    return approvals.approve(id, approver, current, {
+      ...options,
+      persist: (result) =>
+        this.mutate((data) => {
+          if (result.grants) data.grants = result.grants;
+          if (result.subject?.id !== undefined) {
+            const roles = result.subject.roles ?? [];
+            if (roles.length === 0) delete data.roles[result.subject.id];
+            else data.roles[result.subject.id] = roles;
+          }
+        }),
+    });
+  }
+
+  private async fresh(): Promise<StoreData> {
+    const data = await this.serial(() => this.readFresh());
+    this.data = data;
+    return data;
   }
 
   /** Whether the grant existed. */

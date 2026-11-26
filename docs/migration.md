@@ -37,6 +37,48 @@ if let Condition::WeekdayIn { days, .. } = &cond { .. }
 `Condition::time_between` and `Condition::weekday_in` are unchanged, so prefer them; `.in_tz("America/Sao_Paulo")`
 sets a zone. The JSON is unchanged: a condition without `tz` serializes exactly as before.
 
+### Rust: new variants in `AuditAction` and `AuditOutcome`
+
+**Before.** `AuditAction` ended at `ExclusiveExpire` and `AuditOutcome` at `Denied`, and an exhaustive `match` on them compiled.
+
+**After.** The approval flow (pending requests, see the README) adds `AuditAction::MutationPropose`, `MutationApprove`,
+`MutationReject` and `MutationExpire`, and `AuditOutcome::Pending` (used by `mutation_propose` when a request is kept).
+
+```rust
+match record.action {
+    // ... the arms you had
+    AuditAction::MutationPropose => "change proposed",
+    AuditAction::MutationApprove => "change approved",
+    AuditAction::MutationReject => "change refused by an approver",
+    AuditAction::MutationExpire => "pending change expired",
+}
+```
+
+**Step.** Add the four action arms and the `Pending` outcome arm, or a `_ =>` arm. Nothing changes for code that never
+calls the approval flow: only `Approvals` writes these values. In the JSON they are `mutation_propose`,
+`mutation_approve`, `mutation_reject`, `mutation_expire` and `pending`; if a log consumer (a SIEM mapping, a schema)
+accepts a closed list of `action` and `outcome` values, add them before you turn the flow on. See
+[audit-format.md](audit-format.md#approval-flow-records).
+
+### Rust: `AuditRecord` has a `pending` field
+
+**Before.** `AuditRecord { at, level, actor, .., decision, full_grant, .. }` listed every field.
+
+**After.** There is one more field, `pending: Option<PendingRef>` (the request of an approval-flow record, from the
+`standard` level up).
+
+**Step.** Add `pending: None` where you build the struct with a literal, and `..` where you destructure it. Records
+you already stored deserialize and hash as before: the field is omitted from the canonical form when unset, so the
+hash chain and the test vector do not change.
+
+### New, no action: `MutationKind`, `Approvals` and the JS `/approvals` subpath
+
+`Mutation::kind()` and `MutationKind` (`add`, `remove`, `assign_role`, `revoke_role`), `strig::pending` (`Approvals`,
+`ApprovalPolicy`, `PendingStore`, `MemoryPendingStore`) and `@the-hades-organization/strig/approvals` are additions. A
+`Governance` that nobody wraps in `Approvals` behaves as before, and a kind with no approval rule applies at once. The
+JSON store gains an optional `pending` list; a file without it reads as before and the store version stays 1. If
+several processes or versions share one store file, upgrade all of them before the first request is proposed.
+
 ### Policies that use `tz` export `"schema": 3`
 
 **Before.** `DSL_SCHEMA` was 2.

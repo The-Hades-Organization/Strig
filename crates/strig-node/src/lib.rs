@@ -25,8 +25,10 @@ use serde_json::Value;
 use strig::ChainError;
 use strig::audit::{AuditLevel, AuditRecord, AuditStatus, FailMode, MemoryAuditLog, chain_head, verify_chain_anchored};
 use strig::{
-    Attributes, CapabilitySet, Context, Engine, EngineSpec, Governance, Grant, InMemorySubjects, InMemoryTuples,
-    InvariantSpec, Mutation, PathLayout, QueryContext, QueryLimits, Request, Resource, RoleTemplate, Subject, Tuple,
+    ApprovalError, ApprovalPolicy, ApprovalRule, Approvals, Attributes, CapabilitySet, Context, Engine, EngineSpec,
+    Governance, Grant, InMemorySubjects, InMemoryTuples, InvariantSpec, MemoryPendingStore, Mutation, PathLayout,
+    PendingError, PendingRequest, PendingStore, Proposed, QueryContext, QueryLimits, Request, Resource, Review,
+    RoleTemplate, Subject, Tuple,
 };
 
 pub use error::{BindingError, BindingResult};
@@ -397,6 +399,117 @@ struct ApplyInput {
     meta: Attributes,
     #[serde(default)]
     now: Option<Value>,
+}
+
+/// Entrada comum do fluxo de pedido pendente: o estado contra o qual se julga, as invariantes, a
+/// política de aprovação e a auditoria, como em `apply`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FlowInput {
+    #[serde(default)]
+    current: Vec<Grant>,
+    #[serde(default)]
+    invariants: Vec<InvariantSpec>,
+    #[serde(default)]
+    tuples: Option<Vec<Tuple>>,
+    #[serde(default)]
+    audit: Option<AuditInput>,
+    #[serde(default)]
+    meta: Attributes,
+    #[serde(default)]
+    now: Option<Value>,
+    #[serde(default)]
+    approval: Vec<ApprovalRule>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProposeInput {
+    actor: Subject,
+    mutation: Mutation,
+    id: String,
+    #[serde(default)]
+    expires_at: Option<Value>,
+    #[serde(flatten)]
+    flow: FlowInput,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResolveInput {
+    request: PendingRequest,
+    approver: Subject,
+    /// `approve` ou `reject`.
+    decision: String,
+    #[serde(default)]
+    reason: Option<String>,
+    #[serde(flatten)]
+    flow: FlowInput,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExpireInput {
+    requests: Vec<PendingRequest>,
+    #[serde(flatten)]
+    flow: FlowInput,
+}
+
+/// O instante, a governança, a captura de auditoria, a política e as tuplas de um passo do fluxo.
+type FlowParts = (u64, Governance, Arc<Capture>, ApprovalPolicy, Option<InMemoryTuples>);
+
+/// O pedido como JSON da API: chaves em camelCase, e a mudança como entrou em `apply`
+/// (`{ add: grant }`, `{ assign_role: ... }`), para voltar inteira numa chamada seguinte.
+fn request_json(request: &PendingRequest) -> Value {
+    let mut out = to_value(request);
+    let mut mutation = serde_json::to_value(&request.mutation).expect("tipos da Strig sempre serializam");
+    if let Value::Object(variant) = &mut mutation {
+        for inner in variant.values_mut() {
+            *inner = camel_keys(inner.take());
+        }
+    }
+    out["mutation"] = mutation;
+    out
+}
+
+/// O resultado de um passo do fluxo: `ok`, o que o passo trouxe e os registros de auditoria na
+/// ordem em que foram aceitos.
+fn flow_reply(capture: &Capture, ok: bool, extra: Value) -> Value {
+    let items = capture.take();
+    let audits: Vec<Value> = items.iter().map(|(r, _)| to_value(r)).collect();
+    let status = worst_status(&items);
+    let mut out = serde_json::json!({"ok": ok, "audits": audits, "auditStatus": status});
+    if let (Value::Object(base), Value::Object(more)) = (&mut out, extra) {
+        base.extend(more);
+    }
+    out
+}
+
+fn refused_reply(capture: &Capture, error: ApprovalError, request: Option<&PendingRequest>) -> BindingResult<Value> {
+    Ok(match error {
+        ApprovalError::Refused(violations) => flow_reply(
+            capture,
+            false,
+            serde_json::json!({"code": "REFUSED", "violations": to_value(&violations)}),
+        ),
+        ApprovalError::Expired(_) => flow_reply(
+            capture,
+            false,
+            serde_json::json!({"code": "EXPIRED", "request": request.map(request_json)}),
+        ),
+        ApprovalError::Store(PendingError::NotPending(_)) => {
+            flow_reply(capture, false, serde_json::json!({"code": "NOT_PENDING"}))
+        }
+        ApprovalError::Store(PendingError::Unknown(_)) => {
+            flow_reply(capture, false, serde_json::json!({"code": "UNKNOWN"}))
+        }
+        ApprovalError::Store(PendingError::Duplicate(_)) => {
+            flow_reply(capture, false, serde_json::json!({"code": "DUPLICATE"}))
+        }
+        ApprovalError::Store(PendingError::Store(message)) => {
+            return Err(BindingError::invalid_input("pending", message));
+        }
+    })
 }
 
 #[derive(Deserialize)]
@@ -842,6 +955,160 @@ impl EngineHandle {
         Ok(reply(true, out!({"grants": grants})))
     }
 
+    /// Prepara um passo do fluxo de pedido pendente: o instante, a governança com a auditoria
+    /// capturada e a política.
+    fn flow_parts(
+        &self,
+        flow: &mut FlowInput,
+        custom: &[String],
+        clock: BindingResult<u64>,
+    ) -> BindingResult<FlowParts> {
+        let now = match &flow.now {
+            Some(v) if !v.is_null() => millis_value("now", v)?,
+            _ => clock?,
+        };
+        let governed = Governed {
+            invariants: &flow.invariants,
+            host: &self.host,
+            custom,
+            audit: flow.audit.as_ref(),
+            tuples: None,
+            meta: &flow.meta,
+            now,
+        };
+        let capture = Arc::new(Capture::default());
+        let governance = governed.governance(Some(&capture))?;
+        let policy = ApprovalPolicy::from_rules(std::mem::take(&mut flow.approval));
+        let tuples = flow.tuples.take().map(|t| t.into_iter().collect());
+        Ok((now, governance, capture, policy, tuples))
+    }
+
+    /// Propõe uma mudança. Sem regra de aprovação para o tipo dela, aplica na hora (`applied: true`,
+    /// `grants`); com regra, devolve o pedido (`applied: false`, `request`) para o chamador guardar.
+    /// Recusa: `{ ok: false, code: 'REFUSED', violations }`. `ok` é `true` quando a mudança foi aplicada ou
+    /// ficou pendente.
+    pub fn propose(&self, input: Value, clock: BindingResult<u64>) -> BindingResult<Value> {
+        host::forbid_reentry()?;
+        let mut input = input;
+        let custom = host::take_custom(&mut input)?;
+        let mut input: ProposeInput = parse("propose", input)?;
+        let (now, governance, capture, policy, tuples) = self.flow_parts(&mut input.flow, &custom, clock)?;
+        let expires_at = match &input.expires_at {
+            Some(v) if !v.is_null() => Some(millis_value("expiresAt", v)?),
+            _ => None,
+        };
+        let store = MemoryPendingStore::new();
+        let approvals = self.approvals(&governance, &policy, &store, input.flow.audit.as_ref());
+        let review = Review {
+            engine: &self.engine,
+            current: &input.flow.current,
+            tuples: tuples.as_ref().map(|s| s as &dyn strig::TupleStore),
+            now,
+            meta: &input.flow.meta,
+        };
+        Ok(
+            match approvals.propose(&review, &input.actor, &input.mutation, input.id, expires_at) {
+                Ok(Proposed::Applied(grants)) => {
+                    let mut extra = serde_json::json!({"applied": true, "grants": to_value(&grants)});
+                    if let Some(subject) = input.mutation.subject_after() {
+                        extra["subject"] = to_value(&subject);
+                    }
+                    flow_reply(&capture, true, extra)
+                }
+                Ok(Proposed::Pending(request)) => flow_reply(
+                    &capture,
+                    true,
+                    serde_json::json!({"applied": false, "request": request_json(&request)}),
+                ),
+                Err(error) => refused_reply(&capture, error, None)?,
+            },
+        )
+    }
+
+    /// Aprova (`decision: 'approve'`) ou recusa (`'reject'`, com `reason`) o `request`. Na aprovação a
+    /// mudança roda de novo pelas invariantes sobre `current` e só então se aplica: `{ ok: true,
+    /// grants, subject?, request }`. Recusas do fluxo: `{ ok: false, code, ... }` com `code` em
+    /// `REFUSED` (`violations`; o pedido segue pendente), `EXPIRED` (`request` já expirado) e
+    /// `NOT_PENDING`.
+    pub fn resolve(&self, input: Value, clock: BindingResult<u64>) -> BindingResult<Value> {
+        host::forbid_reentry()?;
+        let mut input = input;
+        let custom = host::take_custom(&mut input)?;
+        let mut input: ResolveInput = parse("resolve", input)?;
+        let (now, governance, capture, policy, tuples) = self.flow_parts(&mut input.flow, &custom, clock)?;
+        let id = input.request.id.clone();
+        let store = MemoryPendingStore::new();
+        seed(&store, std::slice::from_ref(&input.request))?;
+        let approvals = self.approvals(&governance, &policy, &store, input.flow.audit.as_ref());
+        let review = Review {
+            engine: &self.engine,
+            current: &input.flow.current,
+            tuples: tuples.as_ref().map(|s| s as &dyn strig::TupleStore),
+            now,
+            meta: &input.flow.meta,
+        };
+        let stored = |store: &MemoryPendingStore| store.get(&id).ok().flatten();
+        Ok(match input.decision.as_str() {
+            "approve" => match approvals.approve(&review, &input.approver, &id) {
+                Ok(approved) => {
+                    let mut extra = serde_json::json!({"grants": to_value(&approved.grants), "request": request_json(&approved.request)});
+                    if let Some(subject) = approved.request.mutation.subject_after() {
+                        extra["subject"] = to_value(&subject);
+                    }
+                    flow_reply(&capture, true, extra)
+                }
+                Err(error) => refused_reply(&capture, error, stored(&store).as_ref())?,
+            },
+            "reject" => {
+                let reason = input.reason.as_deref().unwrap_or_default();
+                match approvals.reject(&review, &input.approver, &id, reason) {
+                    Ok(request) => flow_reply(&capture, true, serde_json::json!({"request": request_json(&request)})),
+                    Err(error) => refused_reply(&capture, error, stored(&store).as_ref())?,
+                }
+            }
+            other => {
+                return Err(BindingError::invalid_argument(
+                    "decision",
+                    format!("esperado approve ou reject, veio {other}"),
+                ));
+            }
+        })
+    }
+
+    /// Fecha os pedidos pendentes cujo prazo chegou em `now` e devolve `{ ok, expired, audits }`, com os
+    /// pedidos já expirados para o chamador gravar.
+    pub fn expire(&self, input: Value, clock: BindingResult<u64>) -> BindingResult<Value> {
+        host::forbid_reentry()?;
+        let mut input = input;
+        let custom = host::take_custom(&mut input)?;
+        let mut input: ExpireInput = parse("expire", input)?;
+        let (now, governance, capture, policy, _) = self.flow_parts(&mut input.flow, &custom, clock)?;
+        let store = MemoryPendingStore::new();
+        seed(&store, &input.requests)?;
+        let approvals = self.approvals(&governance, &policy, &store, input.flow.audit.as_ref());
+        Ok(match approvals.expire_due(now, &input.flow.meta) {
+            Ok(expired) => {
+                let expired: Vec<Value> = expired.iter().map(request_json).collect();
+                flow_reply(&capture, true, serde_json::json!({"expired": expired}))
+            }
+            Err(error) => refused_reply(&capture, error, None)?,
+        })
+    }
+
+    fn approvals<'a>(
+        &self,
+        governance: &'a Governance,
+        policy: &'a ApprovalPolicy,
+        store: &'a MemoryPendingStore,
+        audit: Option<&AuditInput>,
+    ) -> Approvals<'a> {
+        let approvals = Approvals::new(governance, policy, store);
+        match audit.and_then(|a| a.fail_mode) {
+            Some(mode) => approvals.fail_mode(mode),
+            None => approvals,
+        }
+    }
+
     /// Tenta gravar agora os registros que esperam na fila (`failMode: 'open'`) e devolve os
     /// contadores: `{ pending, writtenLate, dropped, failures, nextRetryAt }`. `now` é o instante do
     /// relógio do alvo, ou o dado.
@@ -854,6 +1121,15 @@ impl EngineHandle {
     pub fn audit_stats(&self) -> Value {
         camel_keys(self.host.audit_stats())
     }
+}
+
+fn seed(store: &MemoryPendingStore, requests: &[PendingRequest]) -> BindingResult<()> {
+    for request in requests {
+        store
+            .insert(request.clone())
+            .map_err(|e| BindingError::invalid_input("requests", e))?;
+    }
+    Ok(())
 }
 
 #[derive(Deserialize, Default)]

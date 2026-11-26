@@ -219,6 +219,47 @@ let bob = change.subject_after().expect("role change"); // persista os papéis d
 
 `Forbid` só se aplica a uma atribuição de papel quando ela é para um usuário, e ignora o escopo. Escreva sua própria regra implementando `Invariant`. A lista de invariantes também pode vir de JSON (`InvariantSpec`).
 
+### Aprovar uma mudança antes de aplicar
+
+Uma mudança que a política marca como dependente de aprovação não é aplicada na hora: espera como pedido pendente, que outro ator aprova ou recusa. A política é por tipo de mudança e diz quem aprova.
+
+```rust
+let policy = ApprovalPolicy::new()
+    .require(MutationKind::Add, "org.approve", org_resource.clone())
+    .require(MutationKind::AssignRole, "org.approve", org_resource);
+let store = MemoryPendingStore::new();
+let flow = Approvals::new(&governance, &policy, &store);
+let review = Review { engine: &engine, current: &current, tuples: None, now, meta: &request_meta };
+
+// Ana propõe; as invariantes julgam e, se aceitam, o pedido fica guardado (expira em uma hora).
+let Proposed::Pending(request) = flow.propose(&review, &ana, &Mutation::Add(grant), "req-1", Some(now + 3_600_000))? else {
+    unreachable!("a política cobre Add");
+};
+
+// Caio aprova: precisa de `org.approve`, não pode ser a Ana, e as invariantes rodam de novo sobre `current`.
+let approved = flow.approve(&review, &caio, &request.id)?;
+// persista `approved.grants`
+```
+
+Quem aprova sendo o autor, sem a permissão, ou diante de invariantes que agora recusam recebe `ApprovalError::Refused` e o pedido segue pendente; `reject(&review, &caio, id, "motivo")` fecha com um motivo, e `expire_due(now, &meta)` fecha os que venceram (aprovar um pedido vencido também o fecha). Com auditor na governança, cada passo é um registro (`mutation_propose`, `mutation_approve`, `mutation_reject`, `mutation_expire`; veja [`docs/audit-format.md`](docs/audit-format.md)), e o registro da aprovação é gravado antes de a mudança ser aplicada. A crate não tem relógio nem banco: passe o instante e serialize as aprovações de um mesmo pedido quando vários processos dividem um store. Fora do escopo: vários aprovadores (quórum) e o autor retirar o próprio pedido.
+
+Em JavaScript o engine julga e audita cada passo e o `Approvals` guarda os pedidos:
+
+```js
+import { Approvals, MemoryPendingStore } from '@the-hades-organization/strig/approvals';
+
+const flow = new Approvals(engine, new MemoryPendingStore(), {
+  approval: [{ kind: 'add', permission: 'org.approve', resource: orgResource }],
+  invariants,
+});
+const proposed = await flow.propose(ana, { add: grant }, grants, { id: 'req-1', expiresAt: Date.now() + 3_600_000 });
+const done = await flow.approve('req-1', caio, grants, { persist: (r) => saveGrants(r.grants) }); // `persist` roda antes de o pedido ser marcado como aprovado
+await flow.reject('req-2', caio, 'fora da janela de mudança', grants);
+await flow.expire();
+```
+
+O `JsonFileStore` guarda os pedidos no mesmo arquivo (`new Approvals(engine, store.pendingStore, options)`, e `store.approvePending(flow, id, approver)` grava as grants antes de marcar o pedido como aprovado). Sem regra para o tipo, `propose` aplica a mudança na hora (`applied: true`).
+
 ### Regras declaradas no catálogo
 
 Algumas regras pertencem a uma permissão, então são declaradas no `PermissionDef` dela:

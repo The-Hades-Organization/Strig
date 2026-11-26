@@ -219,6 +219,47 @@ let bob = change.subject_after().expect("role change"); // persist bob's roles
 
 `Forbid` applies to a role assignment only when the assignment targets a user, and it ignores scope. Write your own rule by implementing `Invariant`. The invariant list can also come from JSON (`InvariantSpec`).
 
+### Approving a change before it applies
+
+A change the policy marks as needing approval does not apply on the spot: it waits as a pending request that another actor approves or refuses. The policy is per kind of change and names who approves.
+
+```rust
+let policy = ApprovalPolicy::new()
+    .require(MutationKind::Add, "org.approve", org_resource.clone())
+    .require(MutationKind::AssignRole, "org.approve", org_resource);
+let store = MemoryPendingStore::new();
+let flow = Approvals::new(&governance, &policy, &store);
+let review = Review { engine: &engine, current: &current, tuples: None, now, meta: &request_meta };
+
+// Ana proposes; the invariants judge it and, if they accept, it is kept (expires in an hour).
+let Proposed::Pending(request) = flow.propose(&review, &ana, &Mutation::Add(grant), "req-1", Some(now + 3_600_000))? else {
+    unreachable!("the policy covers Add");
+};
+
+// Caio approves: he needs `org.approve`, he is not Ana, and the invariants run again over `current`.
+let approved = flow.approve(&review, &caio, &request.id)?;
+// persist `approved.grants`
+```
+
+An approver who is the author, lacks the permission, or meets invariants that now refuse gets `ApprovalError::Refused` and the request stays pending; `reject(&review, &caio, id, "reason")` closes it with a reason, and `expire_due(now, &meta)` closes the ones whose expiry came (approving a due request closes it too). With an auditor on the governance, every step is a record (`mutation_propose`, `mutation_approve`, `mutation_reject`, `mutation_expire`; see [`docs/audit-format.md`](docs/audit-format.md)), and the approval record is written before the change is applied. The crate keeps no clock and no database: pass the instant, and serialise approvals of one request when several processes share a store. Not covered: several approvers (quorum) and the author withdrawing their own request.
+
+In JavaScript the engine judges and audits each step and `Approvals` keeps the requests:
+
+```js
+import { Approvals, MemoryPendingStore } from '@the-hades-organization/strig/approvals';
+
+const flow = new Approvals(engine, new MemoryPendingStore(), {
+  approval: [{ kind: 'add', permission: 'org.approve', resource: orgResource }],
+  invariants,
+});
+const proposed = await flow.propose(ana, { add: grant }, grants, { id: 'req-1', expiresAt: Date.now() + 3_600_000 });
+const done = await flow.approve('req-1', caio, grants, { persist: (r) => saveGrants(r.grants) }); // `persist` runs before the request is marked approved
+await flow.reject('req-2', caio, 'outside the change window', grants);
+await flow.expire();
+```
+
+`JsonFileStore` keeps the requests in the same file (`new Approvals(engine, store.pendingStore, options)`, and `store.approvePending(flow, id, approver)` persists the grants before marking the request approved). Without a rule for its kind, `propose` applies the change at once (`applied: true`).
+
 ### Rules declared in the catalog
 
 Some rules belong to a permission, so they are declared on its `PermissionDef`:

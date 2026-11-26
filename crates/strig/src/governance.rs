@@ -50,11 +50,50 @@ impl Mutation {
         }
     }
 
+    /// Which of the four changes this is.
+    pub fn kind(&self) -> MutationKind {
+        match self {
+            Mutation::Add(_) => MutationKind::Add,
+            Mutation::Remove { .. } => MutationKind::Remove,
+            Mutation::AssignRole { .. } => MutationKind::AssignRole,
+            Mutation::RevokeRole { .. } => MutationKind::RevokeRole,
+        }
+    }
+
     /// The subject of the role change with the role added or removed. `None` for a grant
     /// change.
     pub fn subject_after(&self) -> Option<Subject> {
         let (subject, role, assigned) = self.role_change()?;
         Some(with_role_change(subject, role, assigned))
+    }
+}
+
+/// The kind of a [`Mutation`], without its payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MutationKind {
+    Add,
+    Remove,
+    AssignRole,
+    RevokeRole,
+}
+
+impl MutationKind {
+    pub const ALL: [MutationKind; 4] = [
+        MutationKind::Add,
+        MutationKind::Remove,
+        MutationKind::AssignRole,
+        MutationKind::RevokeRole,
+    ];
+
+    /// The name the kind has in JSON and in the audit trail.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MutationKind::Add => "add",
+            MutationKind::Remove => "remove",
+            MutationKind::AssignRole => "assign_role",
+            MutationKind::RevokeRole => "revoke_role",
+        }
     }
 }
 
@@ -70,7 +109,7 @@ fn with_role_change(subject: &Subject, role: &RoleAssignment, assigned: bool) ->
 
 /// Same subject: subjects are identified by id, ignoring the kind, and only when the id exists.
 /// The same id with another kind counts as the same subject, the safe side for self-management and lockout.
-fn same_subject(a: &Subject, b: &Subject) -> bool {
+pub(crate) fn same_subject(a: &Subject, b: &Subject) -> bool {
     a.id.is_some() && a.id == b.id
 }
 
@@ -266,6 +305,12 @@ impl Governance {
         self
     }
 
+    /// The auditor `audited` set, for the records of the approval flow (see [`crate::pending`]).
+    #[cfg(feature = "audit")]
+    pub(crate) fn auditor(&self) -> Option<&Arc<Auditor>> {
+        self.auditor.as_ref()
+    }
+
     pub fn len(&self) -> usize {
         self.invariants.len()
     }
@@ -365,6 +410,20 @@ impl Governance {
         tuples: Option<&dyn TupleStore>,
     ) -> Result<Vec<Grant>, Vec<Violation>> {
         self.evaluate_inner(engine, actor, current, mutation, Scene { tuples, now: None }, true)
+    }
+
+    /// [`Governance::evaluate`] at `now`, for the approval flow to judge a change without recording it.
+    pub(crate) fn evaluate_at(
+        &self,
+        engine: &Engine,
+        actor: &Subject,
+        current: &[Grant],
+        mutation: &Mutation,
+        tuples: Option<&dyn TupleStore>,
+        now: u64,
+    ) -> Result<Vec<Grant>, Vec<Violation>> {
+        let scene = Scene { tuples, now: Some(now) };
+        self.evaluate_inner(engine, actor, current, mutation, scene, true)
     }
 
     fn evaluate_inner(
