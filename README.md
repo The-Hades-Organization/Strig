@@ -445,6 +445,42 @@ client.on('capabilities', () => render());
 client.can('document.edit', resource);
 ```
 
+### Rules written in JavaScript
+
+The `call` condition function, your own override and your own `Invariant` exist in JS too, as synchronous callbacks passed to the `Engine` constructor. The engine calls them in the middle of a decision or of `apply`; they show up like the native ones: the `explain` trace names the override, a refusal carries your violation, and the audit records it as it records the built-in invariants.
+
+```js
+const engine = new Engine(spec, {
+  // `call` conditions: { op: 'call', func: 'same_dept', args: [{ attr: 'subject.dept' }, { attr: 'resource.dept' }] }
+  conditions: { same_dept: ([a, b]) => a === b },
+  // Decides before the grants: 'allowed', 'denied' or 'abstained' (nothing). `except` skips permissions.
+  overrides: [{ name: 'frozen', except: ['project.view'], evaluate: ({ permission }) => (frozen ? 'denied' : undefined) }],
+  invariants: {
+    // The role of an environment never exceeds the global one.
+    env_role_within_global({ mutation }) {
+      if (!('assign_role' in mutation)) return;
+      const { subject, role } = mutation.assign_role;
+      if (role.scope?.kind !== 'environment' || rank(role.role) <= globalRank(subject)) return;
+      return { message: `${role.role} in the environment exceeds the global role`, suggestion: downgrade(subject, role) };
+    },
+    // A role in use is not deleted.
+    role_in_use({ mutation, before }) {
+      if (!('remove' in mutation)) return;
+      const grant = before.find((g) => g.id === mutation.remove.id);
+      if (grant?.subject.kind === 'role' && inUse(grant.subject.id)) return `role ${grant.subject.id} is in use`;
+    },
+  },
+});
+
+engine.apply({ actor, current, mutation, invariants: [{ kind: 'custom', name: 'env_role_within_global' }, { kind: 'custom', name: 'role_in_use' }] });
+```
+
+- A condition function gets the resolved operands and returns a boolean. An invariant gets `{ actor, mutation, before, after, now }` (the `mutation` has the shape `apply` takes) and returns nothing to accept, or a text, or `{ message, suggestion? }` to refuse. The `suggestion` is a change; the governance re-checks it against every invariant before it surfaces.
+- **A throw denies, never crashes.** A condition that throws (or does not return a boolean) is a condition error: an allow grant does not apply, a deny grant still does, and the trace carries the message. An override that throws answers `denied`. An invariant that throws refuses with the message of the error.
+- **Callbacks are synchronous.** A promise is not awaited; it is a wrong answer and denies like a throw.
+- **No re-entry.** A callback that calls the engine, or changes another `Context`, gets `REENTRANT_CALL`; changing the `Context` under decision is refused by the runtime. Read what you need before the call and keep it in the closure.
+- A custom override is opaque to listings (`list`), like any override that does not describe its reach: the resources it might decide on stay as residue, never as allowed.
+
 ### Real time on a JS backend
 
 `/server` has `Hub`, `openSession`, `sseResponse` (Fetch API: Bun.serve, Hono, Deno), `pipeSse` (Node's `http`) and three transports: `redisTransport` (node-redis and Bun's `RedisClient`), `ioredisTransport` and `pgTransport` (the `pg` package). Notices use the `strig-sync` format, so Rust and JS instances can share a channel.

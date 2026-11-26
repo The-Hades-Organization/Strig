@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- JavaScript callbacks in the Node, Bun and wasm bindings: `new Engine(spec, { conditions, overrides, invariants })` registers synchronous functions for the `call` condition, your own override (`allowed`/`denied`/`abstained`, with `except`) and your own governance invariant, applied with `{ kind: 'custom', name }` in `apply` and `applyTemplate`. They enter the normal flow (the `explain` trace names the override, the governance refuses with the violation and an optional `suggestion`, the audit records it). A callback that throws denies instead of crashing; a callback that calls the engine or changes a `Context` gets `REENTRANT_CALL`. New error codes `UNKNOWN_INVARIANT` and `REENTRANT_CALL`.
 - A central route table for the JS integrations, deny by default: `authorizeRoutes(options)` for Express and Fastify and `StrigRouteGuard` for NestJS map method and route (`/doc/:id`) to a permission and resource, refuse any route the table does not cover and open a route only with `public: true`. In NestJS a `@Can` on the handler adds a check on top of the table and never opens what the table denies. The new `/testing` subpath (`expressRoutes`, `nestRoutes`, `collectFastifyRoutes`, `auditRoutes`, `assertRoutesCovered`) lists routes with no rule and rules with no route so the host's tests fail when they drift.
 
 - The npm release publishes a CycloneDX SBOM of the crates and of the npm package as assets of the GitHub release, and signs every npm package with provenance.
