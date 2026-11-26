@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Catalog as the source of frontend types: `PermissionDef` takes per-locale `labels` and `descriptions` (optional, serialized only when set, not part of the policy language). The npm package ships `strig-types <catalog.json> [-o out.ts]` and `generateTypes` (`/types`), which write the `PermissionId` union, a `PERMISSIONS` metadata constant and label helpers. `PermissionClient` takes an optional type parameter, so `can`/`decide` accept the union and still accept any string.
+
 ### Changed
 
 - The playground editor tells the roles of a word apart by hue, not only by shade: keywords stay wine (rose in dark), relations are blue, who and where are gold, numbers teal, strings green and comments neutral grey. Every code colour reaches at least 7:1 against the editor background in both themes (it was one brown for four roles).

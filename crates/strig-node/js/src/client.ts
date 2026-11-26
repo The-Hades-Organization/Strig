@@ -45,7 +45,7 @@ interface Entry {
   context: Context;
 }
 
-export class PermissionClient {
+export class PermissionClient<P extends string = string> {
   readonly url: string | URL;
   readonly transport: 'sse' | 'websocket';
   scopes: Resource[];
@@ -128,13 +128,13 @@ export class PermissionClient {
   }
 
   /** Decisão local. Sem capacidades de um escopo que contenha o recurso, nega. */
-  decide(permission: string, resource: Resource): Decision {
+  decide(permission: P | (string & {}), resource: Resource): Decision {
     const entry = [...this.entries.values()].find((e) => resourceWithin(resource, e.scope));
     if (!entry) return { effect: 'deny', reason: { kind: 'no_applicable_grant' }, warnings: ['sem capacidades para o escopo'] };
     return this.engine.decide(entry.context, { subject: entry.set.subject, permission, resource });
   }
 
-  can(permission: string, resource: Resource): boolean {
+  can(permission: P | (string & {}), resource: Resource): boolean {
     return this.decide(permission, resource).effect === 'allow';
   }
 

@@ -7,6 +7,7 @@ import type { Grant, Subject } from '../dist/index.js';
 import { load, scopeFromString } from '../dist/node.js';
 import './binding040.js';
 import './dsl.js';
+import './types-gen.js';
 import './web-core.js';
 import './web-express.js';
 import './web-fastify.js';
