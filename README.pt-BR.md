@@ -508,9 +508,9 @@ import { generateTypes } from '@the-hades-organization/strig/types'; // o mesmo,
 import { PermissionClient } from '@the-hades-organization/strig/client';
 import type { PermissionId } from './permissions.generated';
 
-const engine = new strig.Engine<PermissionId>(spec); // check, explain, list, whoCan... também aceitam a união
+const engine = new strig.Engine<PermissionId>(spec); // estrito: check, explain, list, whoCan... só aceitam os ids; sem o parâmetro, qualquer string
 const client = new PermissionClient<PermissionId>(/* ... */);
-client.can('users:read', resource); // autocompleta os ids; qualquer outra string continua aceita (use isPermissionId para estreitar)
+client.can('users:read', resource); // só ids da união compilam; estreite uma string com isPermissionId antes
 ```
 
 ## Linguagem de políticas

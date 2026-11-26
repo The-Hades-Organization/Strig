@@ -171,9 +171,12 @@ export interface CapabilitySet {
   grants: Grant[];
 }
 
+/** Strict when `P` is given (a union of ids), any string at the default. */
+export type PermissionArg<P extends string = string> = string extends P ? string : P;
+
 export interface DecisionRequest<P extends string = string> {
   subject: Subject;
-  permission: P | (string & {});
+  permission: PermissionArg<P>;
   resource: Resource;
 }
 
@@ -456,15 +459,15 @@ export declare class Engine<P extends string = string> {
   /** Materializes and applies the batch through the governance, in `depends_on` order. */
   applyTemplate(input: ApplyTemplateInput): ApplyTemplateResult;
   /** The filter of what `subject` holds `permission` on, among `kind` resources. */
-  list(context: Context, subject: Subject, permission: P | (string & {}), kind: string, options?: ListOptions, now?: number | bigint): ListResult;
+  list(context: Context, subject: Subject, permission: PermissionArg<P>, kind: string, options?: ListOptions, now?: number | bigint): ListResult;
   /** Parties named by an allow grant of the permission, anywhere. */
-  whoCan(context: Context, permission: P | (string & {}), now?: number | bigint): SubjectRef[];
+  whoCan(context: Context, permission: PermissionArg<P>, now?: number | bigint): SubjectRef[];
   /** Who holds the permission on the resource, and how. */
-  whoCanOn(context: Context, permission: P | (string & {}), resource: Resource, now?: number | bigint): WhoCanOnResult;
+  whoCanOn(context: Context, permission: PermissionArg<P>, resource: Resource, now?: number | bigint): WhoCanOnResult;
   /** What each party can do on the resource. */
   accessOf(context: Context, resource: Resource, now?: number | bigint): Array<{ subject: SubjectRef; permissions: string[] }>;
   /** The decision for a named party; `subjects` are those the resolver knows. An unknown one throws `UNKNOWN_SUBJECT`. */
-  checkFor(context: Context, subject: SubjectRef, permission: P | (string & {}), resource: Resource, subjects: Subject[], now?: number | bigint): CheckForResult;
+  checkFor(context: Context, subject: SubjectRef, permission: PermissionArg<P>, resource: Resource, subjects: Subject[], now?: number | bigint): CheckForResult;
 }
 
 /**

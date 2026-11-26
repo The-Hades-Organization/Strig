@@ -1,6 +1,6 @@
 // Cliente de tempo real: recebe as capacidades do servidor por SSE ou WebSocket e decide localmente
 // com o mesmo motor do servidor. Roda no navegador, no Node (>= 22 para WebSocket global) e no Bun.
-import type { CapabilitySet, Context, Decision, Engine, Strig } from './index.js';
+import type { CapabilitySet, Context, Decision, Engine, PermissionArg, Strig } from './index.js';
 import { readSse, resourceWithin, scopeToString, sameAnchor } from './protocol.js';
 import type { Change, Resource, ServerMessage } from './protocol.js';
 
@@ -128,13 +128,13 @@ export class PermissionClient<P extends string = string> {
   }
 
   /** Decisão local. Sem capacidades de um escopo que contenha o recurso, nega. */
-  decide(permission: P | (string & {}), resource: Resource): Decision {
+  decide(permission: PermissionArg<P>, resource: Resource): Decision {
     const entry = [...this.entries.values()].find((e) => resourceWithin(resource, e.scope));
     if (!entry) return { effect: 'deny', reason: { kind: 'no_applicable_grant' }, warnings: ['sem capacidades para o escopo'] };
     return this.engine.decide(entry.context, { subject: entry.set.subject, permission, resource });
   }
 
-  can(permission: P | (string & {}), resource: Resource): boolean {
+  can(permission: PermissionArg<P>, resource: Resource): boolean {
     return this.decide(permission, resource).effect === 'allow';
   }
 

@@ -508,9 +508,9 @@ import { generateTypes } from '@the-hades-organization/strig/types'; // same thi
 import { PermissionClient } from '@the-hades-organization/strig/client';
 import type { PermissionId } from './permissions.generated';
 
-const engine = new strig.Engine<PermissionId>(spec); // check, explain, list, whoCan... take the union too
+const engine = new strig.Engine<PermissionId>(spec); // strict: check, explain, list, whoCan... take only the ids; without the parameter, any string
 const client = new PermissionClient<PermissionId>(/* ... */);
-client.can('users:read', resource); // autocompletes the ids; any other string is still accepted (use isPermissionId to narrow)
+client.can('users:read', resource); // only ids of the union compile; narrow a plain string with isPermissionId first
 ```
 
 ## Policy language

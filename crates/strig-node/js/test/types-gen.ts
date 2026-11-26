@@ -42,26 +42,31 @@ test('types: helpers resolve labels with fallback', () => {
   assert.equal(permissionDescription('users:read'), undefined);
 });
 
-test('types: PermissionClient accepts the union and still plain strings', () => {
+test('types: PermissionClient accepts the union ids', () => {
   const client = new PermissionClient<PermissionId>({} as never);
   const id: PermissionId = 'users:read';
-  const typed: (permission: PermissionId | (string & {}), resource: never) => boolean = client.can.bind(client);
+  const typed: (permission: PermissionId, resource: never) => boolean = client.can.bind(client);
   assert.equal(typeof typed, 'function');
   assert.equal(typeof id, 'string');
 });
 
-// Compile-time only: tsc checks that the typed engine takes the union and plain strings.
-export function typedEngineUsage(engine: Engine<PermissionId>, plain: Engine, context: Context, name: string) {
+// Compile-time only: tsc checks that the typed engine is strict and the default one is free.
+export function typedEngineUsage(engine: Engine<PermissionId>, plain: Engine, client: PermissionClient<PermissionId>, context: Context, name: string) {
   const resource = { kind: 'org', id: 'o1', path: [] };
   const subject = { id: 'u1', kind: 'user' } as never;
   engine.check(context, { subject, permission: 'users:read', resource });
-  engine.explain(context, { subject, permission: name, resource });
+  // @ts-expect-error an id outside the union is refused
+  engine.explain(context, { subject, permission: 'users:reed', resource });
+  // @ts-expect-error a plain string is not a PermissionId either
+  engine.whoCanOn(context, name, resource);
+  // @ts-expect-error the client is strict too
+  client.can('users:reed', resource as never);
   engine.whoCan(context, 'users:write');
   engine.list(context, subject, 'users:read', 'org');
   plain.decide(context, { subject, permission: name, resource });
 }
 
-test('types: Engine<PermissionId> keeps accepting any string', () => {
+test('types: Engine without a parameter accepts any string, Engine<PermissionId> only the ids', () => {
   assert.equal(typeof typedEngineUsage, 'function');
 });
 

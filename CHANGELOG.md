@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
-- Catalog as the source of frontend types: `PermissionDef` takes per-locale `labels` and `descriptions` (optional, serialized only when set, not part of the policy language). The npm package ships `strig-types <catalog.json> [-o out.ts]` and `generateTypes` (`/types`), which write the `PermissionId` union, a `PERMISSIONS` metadata constant and label helpers. `Engine` (including `DecisionRequest`) and `PermissionClient` take an optional type parameter, so `check`/`decide`/`explain`/`list`/`whoCan`/`whoCanOn`/`checkFor`/`can` accept the union and still accept any string.
+- Catalog as the source of frontend types: `PermissionDef` takes per-locale `labels` and `descriptions` (optional, serialized only when set, not part of the policy language). The npm package ships `strig-types <catalog.json> [-o out.ts]` and `generateTypes` (`/types`), which write the `PermissionId` union, a `PERMISSIONS` metadata constant and label helpers. `Engine` (including `DecisionRequest`) and `PermissionClient` take an optional type parameter: with it (`Engine<PermissionId>`) `check`/`decide`/`explain`/`list`/`whoCan`/`whoCanOn`/`checkFor`/`can` accept only the ids of the union; without it they accept any string, as before (`PermissionArg<P>`).
 - The npm release publishes a CycloneDX SBOM of the crates and of the npm package as assets of the GitHub release, and signs every npm package with provenance.
 
 ### Changed
