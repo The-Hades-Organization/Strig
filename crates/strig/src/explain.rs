@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::attr::Value;
-use crate::condition::{Condition, ConditionRegistry, EvalContext, Operand};
+use crate::condition::{Condition, ConditionRegistry, EvalContext, Operand, clock_label};
 use crate::decision::Decision;
 use crate::grant::{Effect, Grant};
 use crate::resource::{Anchor, Resource};
@@ -233,8 +233,15 @@ pub fn trace_condition_at(
         Condition::AnyIn { left, right } => leaf(binary("tem algum em", left, right)),
         Condition::AllIn { left, right } => leaf(binary("tem todos em", left, right)),
         Condition::IpIn { item, set } => leaf(binary("IP em", item, set)),
-        Condition::TimeBetween { from, until } => leaf(format!("hora UTC em [{from}, {until})")),
-        Condition::WeekdayIn { days } => leaf(format!("dia UTC em {}", days.join(", "))),
+        Condition::TimeBetween { from, until, tz } => leaf(format!(
+            "hora {} em [{from}, {until})",
+            clock_label(now, tz.as_deref(), false)
+        )),
+        Condition::WeekdayIn { days, tz } => leaf(format!(
+            "dia {} em {}",
+            clock_label(now, tz.as_deref(), true),
+            days.join(", ")
+        )),
         Condition::Exists { attr } => leaf(format!("existe {}", show_operand(ctx, &Operand::attr(attr.clone())))),
         Condition::Call { func, args } => {
             let args: Vec<String> = args.iter().map(|a| show_operand(ctx, a)).collect();

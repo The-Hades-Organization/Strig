@@ -6,11 +6,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Time zones for `time_between` and `weekday_in`: an optional `tz` with an IANA name (`America/Sao_Paulo`) makes both read the wall clock of that zone instead of UTC, daylight saving time included. It is `"tz"` in the JSON spec, `time_between "09:00" "18:00" tz "America/Sao_Paulo"` and `weekday_in ["mon"] tz "Europe/Lisbon"` in the three syntaxes, `Condition::in_tz` in Rust and `tz?: string` in the TypeScript types. Without `tz` nothing changes, and a policy without `tz` exports the same JSON as before. A policy that uses `tz` exports its canonical JSON with `"schema": 3` (`DSL_SCHEMA` is now 3), so a reader of schema 2 refuses it instead of reading the window in UTC; `Policy::from_json` takes documents with or without `schema` and refuses one above 3. An unknown name is a validation error when the policy loads, with position and hint; evaluated without validation it fails and never allows. The trace shows the local time used (`12:30 America/Sao_Paulo (UTC-03:00)`). The hour skipped by a spring-forward jump never holds and the hour repeated by a fall-back holds on both passes. The database comes from the new default feature `tz` of `strig` (`chrono-tz`): it adds about 0.9 MB to the `.wasm` (2.70 MB to 3.58 MB, 657 KB to 785 KB gzipped); without the feature a `tz` is refused at load.
 - JavaScript callbacks in the Node, Bun and wasm bindings: `new Engine(spec, { conditions, overrides, invariants })` registers synchronous functions for the `call` condition, your own override (`allowed`/`denied`/`abstained`, with `except`) and your own governance invariant, applied with `{ kind: 'custom', name }` in `apply` and `applyTemplate`. They enter the normal flow (the `explain` trace names the override, the governance refuses with the violation and an optional `suggestion`, the audit records it). A callback that throws denies instead of crashing; a callback that calls the engine or changes a `Context` gets `REENTRANT_CALL`. New error codes `UNKNOWN_INVARIANT` and `REENTRANT_CALL`.
 - A central route table for the JS integrations, deny by default: `authorizeRoutes(options)` for Express and Fastify and `StrigRouteGuard` for NestJS map method and route (`/doc/:id`) to a permission and resource, refuse any route the table does not cover and open a route only with `public: true`. In NestJS a `@Can` on the handler adds a check on top of the table and never opens what the table denies. The new `/testing` subpath (`expressRoutes`, `nestRoutes`, `collectFastifyRoutes`, `auditRoutes`, `assertRoutesCovered`) lists routes with no rule and rules with no route so the host's tests fail when they drift.
-
 - A JSON file store for the JS package, for systems with neither Postgres nor Redis: `@the-hades-organization/strig/store` (`openJsonStore`, `JsonFileStore`) keeps the grants and the role assignments in a versioned file, serves them as the `loadGrants` of `engineProvider`, and persists what the governance accepts through `store.apply(engine, input)`. Writes are atomic (temp file, `fsync`, `rename`) and locked between calls and between processes; a missing, corrupt or unknown-version file is a `JsonStoreError` on load, never an empty start. `reload()` and `watch()` pick up outside edits.
-
 - The npm release publishes a CycloneDX SBOM of the crates and of the npm package as assets of the GitHub release, and signs every npm package with provenance.
 
 ### Changed
@@ -21,6 +20,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Breaking
 
+- `Condition::TimeBetween` and `Condition::WeekdayIn` gained a `tz: Option<String>` field, so Rust code that builds or matches them without `..` needs `tz: None` or `..`. The constructors `Condition::time_between` and `Condition::weekday_in` and the JSON are unchanged.
 - `strig-inspect --tab` takes `evaluation`, `matrix` or `audit` instead of `avaliacao`, `matriz` or `auditoria`. The text of the terminal commands changed language, so scripts that match it need updating (for example `NEGADO` is now `DENIED`).
 
 ## [0.6.1] - 2026-11-24
