@@ -201,6 +201,16 @@ impl Condition {
         }
     }
 
+    /// True when this condition, or one nested in it, names a time zone.
+    pub fn uses_tz(&self) -> bool {
+        match self {
+            Self::TimeBetween { tz, .. } | Self::WeekdayIn { tz, .. } => tz.is_some(),
+            Self::All { of } | Self::Any { of } => of.iter().any(Self::uses_tz),
+            Self::Not { cond } => cond.uses_tz(),
+            _ => false,
+        }
+    }
+
     /// Reads the clock of an IANA zone (`America/Sao_Paulo`) instead of UTC in `time_between` and
     /// `weekday_in`; any other condition is returned as it is. An unknown name is refused when a
     /// policy is loaded and fails the evaluation here.

@@ -8,7 +8,8 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CatalogExport, EngineSpec, Grant, InvariantSpec, OverrideSpec, RelationSpec, RoleSpec, StrategySpec, Subject, Tuple,
+    CatalogExport, Condition, EngineSpec, Grant, InvariantSpec, OverrideSpec, RelationSpec, RoleSpec, StrategySpec,
+    Subject, Tuple,
 };
 
 use super::error::Location;
@@ -132,6 +133,9 @@ pub struct Policy {
     pub notes: Vec<Note>,
 }
 
+/// The `schema` a document gets when a condition names a time zone.
+const ZONES_SCHEMA: u32 = 3;
+
 impl Policy {
     /// The engine part of the policy, ready for [`EngineSpec::builder`].
     pub fn engine_spec(&self) -> EngineSpec {
@@ -145,14 +149,38 @@ impl Policy {
         }
     }
 
-    /// The canonical JSON of the policy.
+    /// The canonical JSON of the policy. A policy that names a time zone in some condition starts
+    /// with `"schema": 3`, so that a reader of schema 2 refuses it instead of ignoring the zone;
+    /// any other policy carries no `schema`.
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string_pretty(self)
+        let json = serde_json::to_string_pretty(self)?;
+        let needs_zones = self
+            .grants
+            .iter()
+            .any(|grant| grant.condition.as_ref().is_some_and(Condition::uses_tz));
+        Ok(match json.strip_prefix("{\n") {
+            Some(rest) if needs_zones => format!("{{\n  \"schema\": {ZONES_SCHEMA},\n{rest}"),
+            _ => json,
+        })
     }
 
-    /// Reads the canonical JSON. It does not validate: call [`Policy::validate`].
+    /// Reads the canonical JSON, with or without `schema`; a `schema` above what this reader knows
+    /// is an error. It does not validate: call [`Policy::validate`].
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(json)
+        use serde::de::Error as _;
+        let mut document: serde_json::Value = serde_json::from_str(json)?;
+        if let Some(schema) = document.as_object_mut().and_then(|fields| fields.remove("schema")) {
+            let known = u64::from(crate::dsl::__macro_support::DSL_SCHEMA);
+            match schema.as_u64() {
+                Some(found) if found <= known => {}
+                _ => {
+                    return Err(serde_json::Error::custom(format!(
+                        "unsupported policy schema {schema}; this reader knows up to {known}"
+                    )));
+                }
+            }
+        }
+        serde_json::from_value(document)
     }
 
     /// True when both describe the same policy and carry the same comments on the same elements.
