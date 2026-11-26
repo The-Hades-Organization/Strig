@@ -7,9 +7,11 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Added
 
 - Time zones for `time_between` and `weekday_in`: an optional `tz` with an IANA name (`America/Sao_Paulo`) makes both read the wall clock of that zone instead of UTC, daylight saving time included. It is `"tz"` in the JSON spec, `time_between "09:00" "18:00" tz "America/Sao_Paulo"` and `weekday_in ["mon"] tz "Europe/Lisbon"` in the three syntaxes, `Condition::in_tz` in Rust and `tz?: string` in the TypeScript types. Without `tz` nothing changes. An unknown name is a validation error when the policy loads, with position and hint; evaluated without validation it fails and never allows. The trace shows the local time used (`12:30 America/Sao_Paulo (UTC-03:00)`). The hour skipped by a spring-forward jump never holds and the hour repeated by a fall-back holds on both passes. The database comes from the new default feature `tz` of `strig` (`chrono-tz`): it adds about 0.9 MB to the `.wasm` (2.70 MB to 3.58 MB, 657 KB to 785 KB gzipped); without the feature a `tz` is refused at load.
+- The npm release publishes a CycloneDX SBOM of the crates and of the npm package as assets of the GitHub release, and signs every npm package with provenance.
 
 ### Changed
 
+- The npm package no longer bundles the five native modules (about 24 MB unpacked): each platform has its own package (`@the-hades-organization/strig-<platform>`) installed as an optional dependency, which brings a typical install to about 8 MB on disk. The loader resolves the platform package, then a local build, then falls back to wasm (or throws a clear error with `STRIG_BACKEND=native`). Linux musl is served by the wasm backend.
 - The playground editor tells the roles of a word apart by hue, not only by shade: keywords stay wine (rose in dark), relations are blue, who and where are gold, numbers teal, strings green and comments neutral grey. Every code colour reaches at least 7:1 against the editor background in both themes (it was one brown for four roles).
 - The `strig-inspect` interface is in English: window, terminal output, error messages and the example scenario (`examples/scenario.json` now uses `ben`, `cara`, `visitor` and `invoice-7`). There is no locale selection yet.
 

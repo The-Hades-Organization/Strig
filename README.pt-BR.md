@@ -431,6 +431,16 @@ engine.apply({ actor, current, mutation: { add: grant }, invariants, audit: { le
 
 No Node e no Bun, `load()` tenta o módulo nativo e recorre ao wasm. Defina `STRIG_BACKEND=native` ou `STRIG_BACKEND=wasm` para forçar um deles.
 
+O módulo nativo sai em um pacote pequeno por plataforma, instalado pelo npm como dependência opcional de `@the-hades-organization/strig` (uma instalação típica baixa cerca de 2 MB e ocupa 8 MB em disco):
+
+| Plataforma | Pacote |
+| --- | --- |
+| Linux x64 e arm64 (glibc) | `strig-linux-x64-gnu`, `strig-linux-arm64-gnu` |
+| macOS Intel e Apple silicon | `strig-darwin-x64`, `strig-darwin-arm64` |
+| Windows x64 | `strig-win32-x64-msvc` |
+
+Qualquer outra plataforma (Alpine/musl, por exemplo) roda no backend wasm, que vem no pacote principal. Se você instalar com `--omit=optional` (ou `--no-optional`), `load()` também recorre ao wasm, e `STRIG_BACKEND=native` lança um erro com o nome do pacote a instalar.
+
 O que o binding não faz: funções de condição próprias (`call`) e overrides próprios só existem em Rust. A spec JSON cobre os overrides prontos, `resource_owner` e `permission_holder`.
 
 ### No navegador
@@ -694,7 +704,7 @@ STRIG_REDIS_URL=redis://127.0.0.1:6379/ STRIG_PG_URL=postgres://postgres:pw@127.
     cargo test --workspace --exclude strig-inspect
 ```
 
-O pacote npm fica em `crates/strig-node/js`. `crates/strig-node/scripts/build.sh` gera o módulo nativo (`js/native/strig.<plataforma>-<arch>.node`) e o WebAssembly (`js/wasm/`); a parte wasm precisa do target `wasm32-unknown-unknown` e do `wasm-bindgen-cli` 0.2.130.
+O pacote npm fica em `crates/strig-node/js`. `crates/strig-node/scripts/build.sh` gera o módulo nativo (`js/native/strig.<plataforma>-<arch>.node`, o fallback de build local do loader) e o WebAssembly (`js/wasm/`); a release separa os módulos nativos em pacotes por plataforma com `scripts/package-platforms.mjs`; a parte wasm precisa do target `wasm32-unknown-unknown` e do `wasm-bindgen-cli` 0.2.130.
 
 ```sh
 sh crates/strig-node/scripts/build.sh

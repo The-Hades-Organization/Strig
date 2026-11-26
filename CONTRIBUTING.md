@@ -24,6 +24,10 @@ cargo test -p strig-inspect --no-default-features
 
 The README's [Development](README.md#development) section covers the transports against real Redis and Postgres, the JS bindings and the gpui window.
 
+### npm package layout
+
+The published `@the-hades-organization/strig` holds the JS, the wasm and the loader; the native modules live in one package per platform (`scripts/platforms.json` lists them). The release job builds them with `crates/strig-node/scripts/package-platforms.mjs`, which also pins them as `optionalDependencies` of the main package (the repository's `package.json` does not list them, so `npm ci` needs no unpublished package). A new platform means an entry in `platforms.json`, the matrix in `release.yml` and the switch in `js/src/node.ts`.
+
 ## Pull requests
 
 - Keep each pull request to one change, with tests for the behavior it adds or fixes.
@@ -42,6 +46,7 @@ Issues e pull requests são bem-vindos em português ou inglês.
 - **Bug:** abra uma issue com a menor spec, os grants e o pedido que reproduzem o problema, a decisão que saiu e a esperada. A saída do `strig-inspect explain` ajuda bastante.
 - **Funcionalidade nova ou mudança de comportamento:** abra uma issue antes, para combinarmos o desenho antes do código.
 - **Segurança:** pelo [SECURITY.md](SECURITY.md), nunca por issue pública.
+- **Pacote npm:** o pacote principal leva JS, wasm e loader; cada plataforma tem o seu pacote nativo (`crates/strig-node/scripts/platforms.json`), montado e fixado em `optionalDependencies` pela release (`scripts/package-platforms.mjs`). Plataforma nova = entrada no `platforms.json`, na matriz do `release.yml` e no `switch` de `js/src/node.ts`.
 - **Pull request:** uma mudança por PR, com testes. Mudança que pode abrir acesso antes fechado precisa de teste mostrando que a negação continua negando. Atualize os dois READMEs quando mexer no que eles documentam e acrescente uma linha ao `CHANGELOG.md` em `Unreleased`. Os comandos que o CI roda estão na seção em inglês acima.
 
 Ao contribuir, você concorda que sua contribuição fica sob a [licença MIT](LICENSE).

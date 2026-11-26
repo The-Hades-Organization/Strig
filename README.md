@@ -431,6 +431,16 @@ engine.apply({ actor, current, mutation: { add: grant }, invariants, audit: { le
 
 On Node and Bun, `load()` tries the native module and falls back to wasm. Set `STRIG_BACKEND=native` or `STRIG_BACKEND=wasm` to force one.
 
+The native module ships as one small package per platform, installed by npm as an optional dependency of `@the-hades-organization/strig` (a typical install is about 2 MB to download and 8 MB on disk):
+
+| Platform | Package |
+| --- | --- |
+| Linux x64 and arm64 (glibc) | `strig-linux-x64-gnu`, `strig-linux-arm64-gnu` |
+| macOS Intel and Apple silicon | `strig-darwin-x64`, `strig-darwin-arm64` |
+| Windows x64 | `strig-win32-x64-msvc` |
+
+Any other platform (Alpine/musl, for example) runs on the wasm backend, which is bundled in the main package. If you install with `--omit=optional` (or `--no-optional`), `load()` falls back to wasm too, and `STRIG_BACKEND=native` throws an error naming the package to install.
+
 What the binding cannot do: custom condition functions (`call`) and custom overrides exist only in Rust. The JSON spec covers the built-in overrides, `resource_owner` and `permission_holder`.
 
 ### In the browser
@@ -694,7 +704,7 @@ STRIG_REDIS_URL=redis://127.0.0.1:6379/ STRIG_PG_URL=postgres://postgres:pw@127.
     cargo test --workspace --exclude strig-inspect
 ```
 
-The npm package lives in `crates/strig-node/js`. `crates/strig-node/scripts/build.sh` builds the native module (`js/native/strig.<platform>-<arch>.node`) and the WebAssembly (`js/wasm/`); the wasm part needs the `wasm32-unknown-unknown` target and `wasm-bindgen-cli` 0.2.130.
+The npm package lives in `crates/strig-node/js`. `crates/strig-node/scripts/build.sh` builds the native module (`js/native/strig.<platform>-<arch>.node`, the local-build fallback of the loader) and the WebAssembly (`js/wasm/`); the release splits the native modules into per-platform packages with `scripts/package-platforms.mjs`; the wasm part needs the `wasm32-unknown-unknown` target and `wasm-bindgen-cli` 0.2.130.
 
 ```sh
 sh crates/strig-node/scripts/build.sh
