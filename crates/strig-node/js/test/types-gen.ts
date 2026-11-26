@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Context, Engine } from '../dist/index.js';
 import { PermissionClient } from '../dist/client.js';
 import { generateTypes, type CatalogInput } from '../dist/types-gen.js';
 import { PERMISSION_IDS, isPermissionId, permissionDescription, permissionLabel, type PermissionId } from './fixtures/permissions.generated.js';
@@ -47,6 +48,21 @@ test('types: PermissionClient accepts the union and still plain strings', () => 
   const typed: (permission: PermissionId | (string & {}), resource: never) => boolean = client.can.bind(client);
   assert.equal(typeof typed, 'function');
   assert.equal(typeof id, 'string');
+});
+
+// Compile-time only: tsc checks that the typed engine takes the union and plain strings.
+export function typedEngineUsage(engine: Engine<PermissionId>, plain: Engine, context: Context, name: string) {
+  const resource = { kind: 'org', id: 'o1' };
+  const subject = { id: 'u1', kind: 'user' } as never;
+  engine.check(context, { subject, permission: 'users:read', resource });
+  engine.explain(context, { subject, permission: name, resource });
+  engine.whoCan(context, 'users:write');
+  engine.list(context, subject, 'users:read', 'org');
+  plain.decide(context, { subject, permission: name, resource });
+}
+
+test('types: Engine<PermissionId> keeps accepting any string', () => {
+  assert.equal(typeof typedEngineUsage, 'function');
 });
 
 test('types: tsc rejects a typo in the union', () => {

@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
-- Catalog as the source of frontend types: `PermissionDef` takes per-locale `labels` and `descriptions` (optional, serialized only when set, not part of the policy language). The npm package ships `strig-types <catalog.json> [-o out.ts]` and `generateTypes` (`/types`), which write the `PermissionId` union, a `PERMISSIONS` metadata constant and label helpers. `PermissionClient` takes an optional type parameter, so `can`/`decide` accept the union and still accept any string.
+- Catalog as the source of frontend types: `PermissionDef` takes per-locale `labels` and `descriptions` (optional, serialized only when set, not part of the policy language). The npm package ships `strig-types <catalog.json> [-o out.ts]` and `generateTypes` (`/types`), which write the `PermissionId` union, a `PERMISSIONS` metadata constant and label helpers. `Engine` (including `DecisionRequest`) and `PermissionClient` take an optional type parameter, so `check`/`decide`/`explain`/`list`/`whoCan`/`whoCanOn`/`checkFor`/`can` accept the union and still accept any string.
 
 ### Changed
 

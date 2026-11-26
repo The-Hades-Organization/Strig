@@ -50,7 +50,7 @@ export class PermissionClient<P extends string = string> {
   readonly transport: 'sse' | 'websocket';
   scopes: Resource[];
   readonly strig: Pick<Strig, 'Context'>;
-  readonly engine: Engine;
+  readonly engine: Engine<P>;
   readonly headers: Record<string, string>;
   readonly fetch: typeof fetch;
   readonly WebSocket: typeof WebSocket;

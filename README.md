@@ -498,6 +498,7 @@ import { generateTypes } from '@the-hades-organization/strig/types'; // same thi
 import { PermissionClient } from '@the-hades-organization/strig/client';
 import type { PermissionId } from './permissions.generated';
 
+const engine = new strig.Engine<PermissionId>(spec); // check, explain, list, whoCan... take the union too
 const client = new PermissionClient<PermissionId>(/* ... */);
 client.can('users:read', resource); // autocompletes the ids; any other string is still accepted (use isPermissionId to narrow)
 ```

@@ -171,9 +171,9 @@ export interface CapabilitySet {
   grants: Grant[];
 }
 
-export interface DecisionRequest {
+export interface DecisionRequest<P extends string = string> {
   subject: Subject;
-  permission: string;
+  permission: P | (string & {});
   resource: Resource;
 }
 
@@ -440,13 +440,13 @@ export declare class Context {
  * wins over the `Context` instant. The system clock is never used by these: without any `now` the
  * engine fails closed on windows.
  */
-export declare class Engine {
+export declare class Engine<P extends string = string> {
   /** `EngineSpec` da Strig: catálogo, papéis, relações, estratégia, overrides. */
   constructor(spec: unknown);
-  decide(context: Context, request: DecisionRequest, now?: number | bigint): Decision;
-  check(context: Context, request: DecisionRequest, now?: number | bigint): boolean;
+  decide(context: Context, request: DecisionRequest<P>, now?: number | bigint): Decision;
+  check(context: Context, request: DecisionRequest<P>, now?: number | bigint): boolean;
   /** A decisão com o rastro: overrides, destino de cada grant e árvore das condições. */
-  explain(context: Context, request: DecisionRequest, now?: number | bigint): Explanation;
+  explain(context: Context, request: DecisionRequest<P>, now?: number | bigint): Explanation;
   capabilities(context: Context, subject: Subject, scope: Resource, now?: number | bigint): CapabilitySet;
   validateGrant(grant: Grant): void;
   catalog(): unknown;
@@ -456,15 +456,15 @@ export declare class Engine {
   /** Materializes and applies the batch through the governance, in `depends_on` order. */
   applyTemplate(input: ApplyTemplateInput): ApplyTemplateResult;
   /** The filter of what `subject` holds `permission` on, among `kind` resources. */
-  list(context: Context, subject: Subject, permission: string, kind: string, options?: ListOptions, now?: number | bigint): ListResult;
+  list(context: Context, subject: Subject, permission: P | (string & {}), kind: string, options?: ListOptions, now?: number | bigint): ListResult;
   /** Parties named by an allow grant of the permission, anywhere. */
-  whoCan(context: Context, permission: string, now?: number | bigint): SubjectRef[];
+  whoCan(context: Context, permission: P | (string & {}), now?: number | bigint): SubjectRef[];
   /** Who holds the permission on the resource, and how. */
-  whoCanOn(context: Context, permission: string, resource: Resource, now?: number | bigint): WhoCanOnResult;
+  whoCanOn(context: Context, permission: P | (string & {}), resource: Resource, now?: number | bigint): WhoCanOnResult;
   /** What each party can do on the resource. */
   accessOf(context: Context, resource: Resource, now?: number | bigint): Array<{ subject: SubjectRef; permissions: string[] }>;
   /** The decision for a named party; `subjects` are those the resolver knows. An unknown one throws `UNKNOWN_SUBJECT`. */
-  checkFor(context: Context, subject: SubjectRef, permission: string, resource: Resource, subjects: Subject[], now?: number | bigint): CheckForResult;
+  checkFor(context: Context, subject: SubjectRef, permission: P | (string & {}), resource: Resource, subjects: Subject[], now?: number | bigint): CheckForResult;
 }
 
 /**
