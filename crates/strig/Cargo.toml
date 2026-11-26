@@ -68,6 +68,7 @@ harness = false
 [[bench]]
 name = "engine"
 harness = false
+required-features = ["audit"]
 
 [[test]]
 name = "pending_audit"
