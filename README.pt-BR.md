@@ -261,7 +261,7 @@ Mais duas ferramentas:
 
 ## Auditoria
 
-Com a feature `audit`, toda mudança que passa pela governança vira um `AuditRecord`, aplicada ou recusada. Registre tuplas ReBAC e atribuições de papel com `Auditor::tuple_change` e `Auditor::role_change`. Se o destino falha ao gravar, a governança recusa a mudança com a violação `audit`: sem registro, sem mudança.
+Com a feature `audit`, toda mudança que passa pela governança vira um `AuditRecord`, aplicada ou recusada. Registre tuplas ReBAC e atribuições de papel com `Auditor::tuple_change` e `Auditor::role_change`. Se o destino falha ao gravar, a governança recusa a mudança com a violação `audit`: sem registro, sem mudança (a menos que você escolha `FailMode::Open`, abaixo).
 
 ```rust
 let auditor = Arc::new(Auditor::new(AuditLevel::Standard, Arc::new(JsonLinesAudit::new(file))));
@@ -296,6 +296,36 @@ Os números são conferidos: os testes `estimates_match_reference_records` e `de
 ### Cadeia de hash
 
 No nível `forensic`, cada registro leva o hash do anterior. `audit::verify_chain` detecta um registro editado ou removido, e `Auditor::resume_chain` continua a cadeia depois de um reinício.
+
+Os bytes exatos de um registro e o cálculo do hash, com um vetor de teste que outra linguagem consegue reproduzir, estão em [docs/audit-format.md](docs/audit-format.md) (em inglês). A mesma página explica como pegar só os registros e encadear no seu próprio log, e como ancorar a cabeça da cadeia fora (`Auditor::chain_head`, depois `verify_chain_anchored(&records, start, head)`), que é o que pega registros cortados do fim.
+
+### Quando o destino falha
+
+Por padrão, um destino que falha recusa a mudança (`FailMode::Closed`). Com `FailMode::Open` a mudança segue e o registro espera numa fila de retentativa em memória, em ordem, com capacidade e backoff configuráveis (`RetryPolicy`); `AuditStatus::Pending` diz que está esperando e `Auditor::stats()` conta o que espera ou foi descartado. O modo vem da chamada (`governance.at(now).fail_mode(..)`, `Auditor::grant_mutation_with`), da permissão (`with_permission_fail_mode`) ou do padrão do auditor (`with_fail_mode`), nessa ordem de precedência.
+
+```rust
+let auditor = Auditor::new(AuditLevel::Forensic, sink)
+    .with_fail_mode(FailMode::Closed)
+    .with_permission_fail_mode("report.view", FailMode::Open)
+    .with_retry(RetryPolicy { capacity: 500, ..RetryPolicy::default() })
+    .with_redactor(mask_attributes(["ip", "email"], "[redacted]"));
+```
+
+`with_redactor` mascara atributos antes de o registro ser hasheado e gravado, então o hash cobre a versão mascarada.
+
+Em JS o destino é uma função síncrona; um `throw` é falha do destino:
+
+```js
+const engine = new Engine(spec, {
+  auditSink: (record) => log.append(record),
+  auditPolicy: { failMode: 'closed', permissions: { 'report.view': 'open' }, capacity: 500 },
+  onAuditDrop: (record) => spill.write(record),
+});
+const out = engine.apply({ actor, current, mutation, audit: { level: 'forensic', prevHash, failMode: 'open' } });
+out.auditStatus;                 // 'written' | 'pending' | 'dropped'
+engine.flushAudit();             // tenta a fila de novo e devolve { pending, writtenLate, dropped, failures, nextRetryAt }
+verifyAuditChain(records, { start, head }); // { ok: true, head } ou { ok: false, code }
+```
 
 ## Janelas de validade
 

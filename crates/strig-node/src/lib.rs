@@ -22,7 +22,8 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 use serde_json::Value;
-use strig::audit::{AuditLevel, Auditor, MemoryAuditLog};
+use strig::ChainError;
+use strig::audit::{AuditLevel, AuditRecord, AuditStatus, FailMode, MemoryAuditLog, chain_head, verify_chain_anchored};
 use strig::{
     Attributes, CapabilitySet, Context, Engine, EngineSpec, Governance, Grant, InMemorySubjects, InMemoryTuples,
     InvariantSpec, Mutation, PathLayout, QueryContext, QueryLimits, Request, Resource, RoleTemplate, Subject, Tuple,
@@ -30,7 +31,7 @@ use strig::{
 
 pub use error::{BindingError, BindingResult};
 pub use exclusive::ExclusiveHandle;
-pub use host::{HostCallbacks, HostFn};
+pub use host::{AuditPolicy, HostCallbacks, HostFn, Redaction};
 use query_json::{expr_json, parse_subject_ref, residual_json, shape_json, subject_ref_json, via_json};
 
 #[cfg(feature = "napi")]
@@ -344,6 +345,40 @@ struct AuditInput {
     level: AuditLevel,
     #[serde(default)]
     prev_hash: Option<String>,
+    /// Modo de falha desta chamada; vence o da permissão e o padrão do motor.
+    #[serde(default)]
+    fail_mode: Option<FailMode>,
+    #[serde(default)]
+    redact: Option<Redaction>,
+}
+
+/// Os registros que o auditor aceitou numa chamada, com o destino de cada um.
+#[derive(Default)]
+struct Capture {
+    items: std::sync::Mutex<Vec<(AuditRecord, AuditStatus)>>,
+}
+
+impl Capture {
+    fn push(&self, record: &AuditRecord, status: AuditStatus) {
+        self.items
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push((record.clone(), status));
+    }
+
+    fn take(&self) -> Vec<(AuditRecord, AuditStatus)> {
+        std::mem::take(&mut *self.items.lock().unwrap_or_else(|p| p.into_inner()))
+    }
+}
+
+/// O pior destino entre os registros: `dropped` sobre `pending` sobre `written`; `None` sem registro.
+fn worst_status(items: &[(AuditRecord, AuditStatus)]) -> Option<AuditStatus> {
+    let rank = |s: &AuditStatus| match s {
+        AuditStatus::Written => 0,
+        AuditStatus::Pending => 1,
+        AuditStatus::Dropped => 2,
+    };
+    items.iter().map(|(_, s)| *s).max_by_key(rank)
 }
 
 #[derive(Deserialize)]
@@ -421,20 +456,31 @@ struct Governed<'a> {
 }
 
 impl Governed<'_> {
-    fn governance(&self, log: Option<&Arc<MemoryAuditLog>>) -> BindingResult<Governance> {
+    fn governance(&self, capture: Option<&Arc<Capture>>) -> BindingResult<Governance> {
         let mut governance: Governance = self.invariants.iter().collect();
         for name in self.custom {
             governance = governance.with(self.host.invariant_named(name)?);
         }
-        let (Some(audit), Some(log)) = (self.audit, log) else {
+        let (Some(audit), Some(capture)) = (self.audit, capture) else {
             return Ok(governance);
         };
-        let now = self.now;
-        let mut auditor = Auditor::new(audit.level, log.clone()).with_clock(move || now);
+        let mut auditor = self.host.auditor(
+            audit.level,
+            self.now,
+            audit.redact.as_ref(),
+            Arc::new(MemoryAuditLog::new()),
+        );
         if let Some(prev) = &audit.prev_hash {
             auditor = auditor.resume_chain(prev.clone());
         }
+        let capture = capture.clone();
+        auditor = auditor.observe(move |record, status| capture.push(record, status));
         Ok(governance.audited(Arc::new(auditor)))
+    }
+
+    /// O modo de falha da chamada, quando a entrada o traz.
+    fn call_mode(&self) -> Option<FailMode> {
+        self.audit.and_then(|a| a.fail_mode)
     }
 
     fn store(&self) -> Option<&dyn strig::TupleStore> {
@@ -661,9 +707,14 @@ impl EngineHandle {
             meta: &input.meta,
             now,
         };
-        let log = Arc::new(MemoryAuditLog::new());
-        let governance = governed.governance(Some(&log))?;
-        let result = governance.at(now).apply_with(
+        let capture = Arc::new(Capture::default());
+        let governance = governed.governance(Some(&capture))?;
+        let at = governance.at(now);
+        let at = match governed.call_mode() {
+            Some(mode) => at.fail_mode(mode),
+            None => at,
+        };
+        let result = at.apply_with(
             &self.engine,
             &input.actor,
             &input.current,
@@ -671,16 +722,18 @@ impl EngineHandle {
             governed.store(),
             governed.meta,
         );
-        let audit = log.drain().pop().map(|r| to_value(&r));
+        let items = capture.take();
+        let status = worst_status(&items);
+        let audit = items.last().map(|(r, _)| to_value(r));
         Ok(match result {
             Ok(grants) => {
-                let mut out = out!({ "ok": true, "grants": grants, "audit": audit });
+                let mut out = out!({ "ok": true, "grants": grants, "audit": audit, "auditStatus": status });
                 if let Some(subject) = input.mutation.subject_after() {
                     out["subject"] = to_value(&subject);
                 }
                 out
             }
-            Err(violations) => out!({ "ok": false, "violations": violations, "audit": audit }),
+            Err(violations) => out!({ "ok": false, "violations": violations, "audit": audit, "auditStatus": status }),
         })
     }
 
@@ -723,8 +776,26 @@ impl EngineHandle {
             now,
         };
         let ordered = materialized.ordered(&self.engine);
-        let log = Arc::new(MemoryAuditLog::new());
-        let audited = governed.governance(Some(&log))?;
+        let capture = Arc::new(Capture::default());
+        let audited = governed.governance(Some(&capture))?;
+        let call_mode = governed.call_mode();
+        let audited_at = |now: u64| {
+            let at = audited.at(now);
+            match call_mode {
+                Some(mode) => at.fail_mode(mode),
+                None => at,
+            }
+        };
+        let reply = |ok: bool, extra: Value| {
+            let items = capture.take();
+            let audits: Vec<Value> = items.iter().map(|(r, _)| to_value(r)).collect();
+            let status = worst_status(&items);
+            let mut out = out!({"ok": ok, "audits": audits, "auditStatus": status});
+            if let (Value::Object(base), Value::Object(more)) = (&mut out, extra) {
+                base.extend(more);
+            }
+            out
+        };
 
         // Simulação sem auditoria: a trilha nunca diz `applied` de um lote que será descartado.
         let silent = governed.governance(None)?;
@@ -741,7 +812,7 @@ impl EngineHandle {
                 Ok(next) => grants = next,
                 Err(violations) => {
                     // Registra só a recusa, no estado em que o lote chegou nela.
-                    let refused = audited.at(now).apply_with(
+                    let refused = audited_at(now).apply_with(
                         &self.engine,
                         &input.actor,
                         &grants,
@@ -750,14 +821,13 @@ impl EngineHandle {
                         governed.meta,
                     );
                     let violations = refused.err().unwrap_or(violations);
-                    let audits: Vec<Value> = log.drain().iter().map(to_value).collect();
-                    return Ok(out!({"ok": false, "violations": violations, "audits": audits}));
+                    return Ok(reply(false, out!({"violations": violations})));
                 }
             }
         }
         let mut grants = input.current;
         for mutation in &ordered {
-            match audited.at(now).apply_with(
+            match audited_at(now).apply_with(
                 &self.engine,
                 &input.actor,
                 &grants,
@@ -766,15 +836,61 @@ impl EngineHandle {
                 governed.meta,
             ) {
                 Ok(next) => grants = next,
-                Err(violations) => {
-                    let audits: Vec<Value> = log.drain().iter().map(to_value).collect();
-                    return Ok(out!({"ok": false, "violations": violations, "audits": audits}));
-                }
+                Err(violations) => return Ok(reply(false, out!({"violations": violations}))),
             }
         }
-        let audits: Vec<Value> = log.drain().iter().map(to_value).collect();
-        Ok(out!({"ok": true, "grants": grants, "audits": audits}))
+        Ok(reply(true, out!({"grants": grants})))
     }
+
+    /// Tenta gravar agora os registros que esperam na fila (`failMode: 'open'`) e devolve os
+    /// contadores: `{ pending, writtenLate, dropped, failures, nextRetryAt }`. `now` é o instante do
+    /// relógio do alvo, ou o dado.
+    pub fn flush_audit(&self, clock: BindingResult<u64>) -> BindingResult<Value> {
+        host::forbid_reentry()?;
+        Ok(camel_keys(self.host.flush_audit(clock?)))
+    }
+
+    /// Os contadores da fila de retentativa, sem tentar gravar.
+    pub fn audit_stats(&self) -> Value {
+        camel_keys(self.host.audit_stats())
+    }
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ChainAnchors {
+    /// O hash que o primeiro registro continua; sem ele, a lista começa a cadeia.
+    #[serde(default)]
+    start: Option<String>,
+    /// A cabeça publicada, que o último registro tem de ter.
+    #[serde(default)]
+    head: Option<String>,
+}
+
+/// Verifica uma sequência de registros `forensic` na ordem em que foram gravados, contra as
+/// âncoras conhecidas de fora. Devolve `{ ok: true, head }` ou `{ ok: false, code, index?, message }`
+/// com `code` em `TAMPERED`, `BROKEN`, `UNCHAINED`, `ANCHOR_MISMATCH` e `HEAD_MISMATCH`.
+pub fn verify_audit_chain(records: Value, anchors: Option<Value>) -> BindingResult<Value> {
+    let records: Vec<AuditRecord> = parse("records", records)?;
+    let anchors: ChainAnchors = match anchors {
+        Some(v) if !v.is_null() => parse("anchors", v)?,
+        _ => ChainAnchors::default(),
+    };
+    Ok(
+        match verify_chain_anchored(&records, anchors.start.as_deref(), anchors.head.as_deref()) {
+            Ok(()) => out!({"ok": true, "head": chain_head(&records)}),
+            Err(error) => {
+                let (code, index) = match &error {
+                    ChainError::Tampered { index } => ("TAMPERED", Some(*index)),
+                    ChainError::Broken { index } => ("BROKEN", Some(*index)),
+                    ChainError::Unchained { index } => ("UNCHAINED", Some(*index)),
+                    ChainError::AnchorMismatch => ("ANCHOR_MISMATCH", None),
+                    ChainError::HeadMismatch => ("HEAD_MISMATCH", None),
+                };
+                out!({"ok": false, "code": code, "index": index, "message": error.to_string()})
+            }
+        },
+    )
 }
 
 /// Bytes estimados para `records` registros de auditoria no nível dado. `records` é um número

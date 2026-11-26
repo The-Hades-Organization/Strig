@@ -53,8 +53,9 @@ pub mod validity;
 pub use attr::{Attributes, Value};
 #[cfg(feature = "audit")]
 pub use audit::{
-    AuditAction, AuditError, AuditLevel, AuditOutcome, AuditRecord, AuditSink, Auditor, JsonLinesAudit, MemoryAuditLog,
-    RoleChange,
+    AuditAction, AuditError, AuditLevel, AuditOutcome, AuditRecord, AuditSink, AuditStats, AuditStatus, Auditor,
+    ChainError, DropHook, DroppedRecord, Emitted, FailMode, JsonLinesAudit, MemoryAuditLog, PendingQueue, Redactor,
+    RetryPolicy, RoleChange, chain_head, mask_attributes, verify_chain, verify_chain_anchored,
 };
 pub use catalog::{
     Catalog, CatalogBuilder, CatalogError, CatalogErrors, CatalogExport, CatalogRule, FnRule, PermissionDef,

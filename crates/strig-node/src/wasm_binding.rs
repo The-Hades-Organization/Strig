@@ -297,6 +297,22 @@ fn hooks_of(hooks: &JsValue) -> Result<HostCallbacks, JsFailure> {
             host.invariant(name.clone(), host_fn(&format!("hooks.invariants.{name}"), f)?);
         }
     }
+    let sink = field(hooks, "auditSink")?;
+    if set(&sink) {
+        host.audit_sink(host_fn("hooks.auditSink", sink)?);
+    }
+    let redact = field(hooks, "auditRedact")?;
+    if set(&redact) {
+        host.audit_redact(host_fn("hooks.auditRedact", redact)?);
+    }
+    let on_drop = field(hooks, "onAuditDrop")?;
+    if set(&on_drop) {
+        host.on_audit_drop(host_fn("hooks.onAuditDrop", on_drop)?);
+    }
+    let policy = field(hooks, "auditPolicy")?;
+    if set(&policy) {
+        host.set_audit_policy(crate::parse("hooks.auditPolicy", from_js(policy)?).map_err(err)?);
+    }
     Ok(host)
 }
 
@@ -373,6 +389,17 @@ impl WasmEngine {
                 .apply(from_js(input)?, crate::millis("now", js_sys::Date::now()))
                 .map_err(err)?,
         )
+    }
+
+    #[wasm_bindgen(js_name = flushAudit)]
+    pub fn flush_audit(&self) -> Result<JsValue, JsFailure> {
+        let now = crate::millis("now", js_sys::Date::now());
+        to_js(&self.inner.flush_audit(now).map_err(err)?)
+    }
+
+    #[wasm_bindgen(js_name = auditStats)]
+    pub fn audit_stats(&self) -> Result<JsValue, JsFailure> {
+        to_js(&self.inner.audit_stats())
     }
 
     pub fn materialize(&self, input: JsValue) -> Result<JsValue, JsFailure> {
@@ -564,6 +591,11 @@ impl WasmExclusive {
 #[wasm_bindgen(js_name = auditEstimate)]
 pub fn audit_estimate(level: JsValue, records: JsValue) -> Result<f64, JsFailure> {
     crate::audit_estimate(from_js(level)?, from_js(records)?).map_err(err)
+}
+
+#[wasm_bindgen(js_name = verifyAuditChain)]
+pub fn verify_audit_chain(records: JsValue, anchors: JsValue) -> Result<JsValue, JsFailure> {
+    to_js(&crate::verify_audit_chain(from_js(records)?, optional(anchors)?).map_err(err)?)
 }
 
 /// Um argumento da linguagem: o que não é JSON vira o `INVALID_ARGUMENT` do envelope.

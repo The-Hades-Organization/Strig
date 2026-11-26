@@ -4,6 +4,23 @@ export * from './protocol.js';
 
 export type AuditLevel = 'minimal' | 'standard' | 'detailed' | 'forensic';
 
+/**
+ * What happens to a change when its audit record cannot be written. `closed` (the default) refuses
+ * the change; `open` lets it through and the record waits in a retry queue, in order. The mode of an
+ * `apply` is, in this order: `audit.failMode`, then `hooks.auditPolicy.permissions[permission]`,
+ * then `hooks.auditPolicy.failMode`, then `closed`.
+ */
+export type AuditFailMode = 'closed' | 'open';
+
+/** Where the record ended up: written, waiting in the retry queue, or dropped by a full queue. */
+export type AuditDelivery = 'written' | 'pending' | 'dropped';
+
+/** Attributes whose value is replaced by `mask` (default `[redacted]`) before the record is hashed and written. */
+export interface AuditRedaction {
+  keys: string[];
+  mask?: string;
+}
+
 export interface Subject {
   kind: string;
   id?: string;
@@ -235,7 +252,7 @@ export interface ApplyInput {
     | { revoke_role: { subject: Subject; role: RoleAssignment } };
   invariants?: InvariantSpec[];
   tuples?: unknown[];
-  audit?: { level: AuditLevel; prevHash?: string };
+  audit?: { level: AuditLevel; prevHash?: string; failMode?: AuditFailMode; redact?: AuditRedaction };
   meta?: Record<string, unknown>;
   /** Instant the governance judges the actor's windows at, in ms UTC. Defaults to the system clock; an invalid one (`NaN`, negative, text) throws `INVALID_ARGUMENT`, and a clock before 1970 is an error, never `0`. Never take it from a client: a past instant revives expired windows. */
   now?: number | bigint;
@@ -277,7 +294,7 @@ export interface ApplyTemplateInput extends MaterializeInput {
   current: Grant[];
   invariants?: InvariantSpec[];
   tuples?: unknown[];
-  audit?: { level: AuditLevel; prevHash?: string };
+  audit?: { level: AuditLevel; prevHash?: string; failMode?: AuditFailMode; redact?: AuditRedaction };
   meta?: Record<string, unknown>;
   now?: number | bigint;
 }
@@ -288,6 +305,8 @@ export interface ApplyTemplateResult {
   violations?: Violation[];
   /** One record per change when accepted; only the refusal when not. Nothing is written by the binding. */
   audits: Array<Record<string, unknown>>;
+  /** The worst destination among `audits`; `pending` means a record waits in the retry queue. */
+  auditStatus?: AuditDelivery | null;
 }
 
 export type Violation = { invariant: string; message: string; suggestion?: Suggestion };
@@ -421,7 +440,48 @@ export interface ApplyResult {
   subject?: Subject;
   violations?: Violation[];
   audit?: Record<string, unknown> | null;
+  /** With `audit`: `pending` means the sink failed in `open` mode and the record waits in the queue. */
+  auditStatus?: AuditDelivery | null;
 }
+
+/** Counters of the retry queue of `open` mode. */
+export interface AuditStats {
+  pending: number;
+  writtenLate: number;
+  dropped: number;
+  failures: number;
+  /** Instant (ms) from which the next write is tried by itself; `null` with nothing waiting. */
+  nextRetryAt: number | null;
+}
+
+export interface AuditPolicy {
+  failMode?: AuditFailMode;
+  /** Mode by permission, over `failMode`. */
+  permissions?: Record<string, AuditFailMode>;
+  /** Records kept waiting; past it a new one is dropped. Default 1024. */
+  capacity?: number;
+  /** Wait after the first failure, doubled per consecutive failure up to `maxDelayMs`. Default 100. */
+  baseDelayMs?: number;
+  /** Default 30000. */
+  maxDelayMs?: number;
+}
+
+/** Anchors known from outside the log, to check a chain against. */
+export interface ChainAnchors {
+  /** Hash the first record continues; leave it out when the list starts the chain. */
+  start?: string;
+  /** Published head the last record must carry. */
+  head?: string;
+}
+
+export type ChainVerification =
+  | { ok: true; head: string | null }
+  | {
+      ok: false;
+      code: 'TAMPERED' | 'BROKEN' | 'UNCHAINED' | 'ANCHOR_MISMATCH' | 'HEAD_MISMATCH';
+      index: number | null;
+      message: string;
+    };
 
 /**
  * What a `hooks.conditions` function gets: the operands of the `call` condition, already resolved
@@ -482,6 +542,20 @@ export interface EngineHooks {
   overrides?: HostOverride[];
   /** Run by `apply` and `applyTemplate` when `invariants` lists `{ kind: 'custom', name }`. */
   invariants?: Record<string, (proposal: HostProposal) => HostInvariantResult>;
+  /**
+   * Where `apply` and `applyTemplate` write each audit record (the JSON of `audit`), synchronously.
+   * A throw is a failure of the sink and applies the failure mode. The record is still returned.
+   */
+  auditSink?: (record: Record<string, unknown>) => void;
+  /**
+   * Masks a record before it is hashed and written: takes it and returns it changed. A throw, or an
+   * answer that is not a record, refuses the change in any failure mode, never writes it unmasked.
+   * Runs after `audit.redact`.
+   */
+  auditRedact?: (record: Record<string, unknown>) => Record<string, unknown>;
+  /** Called with a record that a full retry queue dropped. */
+  onAuditDrop?: (record: Record<string, unknown>) => void;
+  auditPolicy?: AuditPolicy;
 }
 
 export declare class Context {
@@ -527,6 +601,9 @@ export declare class Engine<P extends string = string> {
   materialize(input: MaterializeInput): Materialized;
   /** Materializes and applies the batch through the governance, in `depends_on` order. */
   applyTemplate(input: ApplyTemplateInput): ApplyTemplateResult;
+  /** Tries to write the records waiting in the retry queue now and returns its counters. */
+  flushAudit(): AuditStats;
+  auditStats(): AuditStats;
   /** The filter of what `subject` holds `permission` on, among `kind` resources. */
   list(context: Context, subject: Subject, permission: PermissionArg<P>, kind: string, options?: ListOptions, now?: number | bigint): ListResult;
   /** Parties named by an allow grant of the permission, anywhere. */
@@ -687,6 +764,11 @@ export interface Strig extends PolicyLanguageApi {
   Context: typeof Context;
   Exclusive: typeof Exclusive;
   auditEstimate(level: AuditLevel, records: number): number;
+  /**
+   * Checks `forensic` records in the order they were written, against anchors known from outside
+   * (`docs/audit-format.md`). Never throws for a bad chain: it answers `{ ok: false, code }`.
+   */
+  verifyAuditChain(records: Record<string, unknown>[], anchors?: ChainAnchors): ChainVerification;
   backend: 'native' | 'wasm';
 }
 
