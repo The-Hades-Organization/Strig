@@ -4,7 +4,7 @@ What to change in your code when you upgrade, release by release. The newest rel
 [changelog](../CHANGELOG.md) lists every change; this page shows the before, the after and the step for the ones that
 need action. The rules for what counts as breaking are in [versioning.md](versioning.md).
 
-## Upgrading to the next release (`Unreleased`)
+## 0.7.0
 
 ### Rust: `ChainError` has two new variants
 

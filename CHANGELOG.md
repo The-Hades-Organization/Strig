@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-26
+
 ### Added
 
 - Pending requests for a change (`Mutation`): `ApprovalPolicy` names, per kind of change (`add`, `remove`, `assign_role`, `revoke_role`), the permission an approver must hold and on which resource. `Approvals::propose` judges the change with the invariants and, when the policy asks for approval, keeps it as a `PendingRequest` (id, author, mutation, instant, optional expiry) instead of applying it; a kind with no rule applies at once, as before. Another actor approves or refuses it (`approve`, `reject` with a reason): the author never decides their own request, the approver needs the permission, and an approval runs the invariants again over the current grants, as the author, before applying; if they now refuse, the request stays pending. `expire_due` closes the requests whose expiry came. Every step is audited (`mutation_propose`, `mutation_approve`, `mutation_reject`, `mutation_expire`, outcome `pending` for a kept proposal, `PendingRef` in the record) under the fail mode of the call. Requests live behind the `PendingStore` trait (`MemoryPendingStore` in memory). In JS: `engine.propose`, `engine.resolve`, `engine.expire` and `Approvals` with `MemoryPendingStore` from `@the-hades-organization/strig/approvals`; `JsonFileStore` keeps the requests in the same file (`store.pendingStore`, `store.approvePending`) and a file without them reads as before. The new enum variants and the `pending` field are additive: records and files from before read unchanged.
@@ -156,7 +158,8 @@ Before, after and the step to take for each of these, including the `DSL_SCHEMA`
 - `themis-node`: JavaScript bindings (N-API for Node and Bun, WebAssembly for the browser), real-time client and server in JS.
 - `themis-inspect`: inspector with evaluation trace, grant simulation, access matrix and audit trail reading, as terminal commands and an optional gpui window.
 
-[Unreleased]: https://github.com/The-Hades-Organization/Strig/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/The-Hades-Organization/Strig/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/The-Hades-Organization/Strig/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.4.0...v0.5.0
