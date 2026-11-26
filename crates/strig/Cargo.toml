@@ -35,6 +35,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 
 [[example]]
 name = "audit_storage"
@@ -63,6 +64,11 @@ required-features = ["dsl"]
 [[bench]]
 name = "listing"
 harness = false
+
+[[bench]]
+name = "engine"
+harness = false
+required-features = ["audit"]
 
 [[test]]
 name = "pending_audit"

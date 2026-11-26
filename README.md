@@ -20,7 +20,7 @@ The core does no IO, needs no async runtime and compiles to WebAssembly. Real ti
 [Documentation](https://strig.vercel.app/docs) · [Playground](https://strig-playground.vercel.app) · [API on docs.rs](https://docs.rs/strig) · [Changelog](CHANGELOG.md)
 
 > [!NOTE]
-> Strig is pre-1.0: the API can change between minor versions. Versions up to 0.5.0 were published as Themis.
+> Strig is pre-1.0: the API can change between minor versions. Versions up to 0.5.0 were published as Themis. The [versioning and deprecation policy](docs/versioning.md) says what counts as public API and what breaks it, [migration.md](docs/migration.md) shows what to change when you upgrade, and [benchmarks](docs/benchmarks.md) has the numbers.
 
 ## Install
 
@@ -896,6 +896,8 @@ Set `STRIG_RUST_SERVER` to the URL of the `strig-axum` `server` example to also 
 To run the playground locally, see [`playground/README.md`](playground/README.md).
 
 Building the `strig-inspect` window on Linux needs the Wayland and X11 development libraries, for example `libxkbcommon-dev`, `libwayland-dev`, `libxcb1-dev` and `libvulkan-dev`.
+
+Benchmarks: `cargo bench -p strig --bench engine`, and `node bench/bench.mjs` in `crates/strig-node/js` (or `bun`); see [docs/benchmarks.md](docs/benchmarks.md).
 
 Source comments are in Brazilian Portuguese. Issues and pull requests are welcome in English or Portuguese; see [CONTRIBUTING.md](CONTRIBUTING.md).
 

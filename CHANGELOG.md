@@ -16,6 +16,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - A central route table for the JS integrations, deny by default: `authorizeRoutes(options)` for Express and Fastify and `StrigRouteGuard` for NestJS map method and route (`/doc/:id`) to a permission and resource, refuse any route the table does not cover and open a route only with `public: true`. In NestJS a `@Can` on the handler adds a check on top of the table and never opens what the table denies. The new `/testing` subpath (`expressRoutes`, `nestRoutes`, `collectFastifyRoutes`, `auditRoutes`, `assertRoutesCovered`) lists routes with no rule and rules with no route so the host's tests fail when they drift.
 - A JSON file store for the JS package, for systems with neither Postgres nor Redis: `@the-hades-organization/strig/store` (`openJsonStore`, `JsonFileStore`) keeps the grants and the role assignments in a versioned file, serves them as the `loadGrants` of `engineProvider`, and persists what the governance accepts through `store.apply(engine, input)`. Writes are atomic (temp file, `fsync`, `rename`) and locked between calls and between processes; a missing, corrupt or unknown-version file is a `JsonStoreError` on load, never an empty start. `reload()` and `watch()` pick up outside edits.
 - The npm release publishes a CycloneDX SBOM of the crates and of the npm package as assets of the GitHub release, and signs every npm package with provenance.
+- Project policy and guides: [docs/versioning.md](docs/versioning.md) (what is public API, what breaks it, semver before and after 1.0, MSRV, supported Node and Bun, and the deprecation policy), [docs/migration.md](docs/migration.md) (before, after and the step for each Breaking entry), a revised [SECURITY.md](SECURITY.md) (supported versions, private reporting, response times, scope, and how to verify provenance and the SBOM of a release) and the release and deprecation flow in CONTRIBUTING.
+- Published benchmarks: a criterion suite (`cargo bench -p strig --bench engine`, a dev-dependency only) and `crates/strig-node/js/bench/bench.mjs` for Node and Bun on both backends, covering a plain decision, conditions and relations, listing, and governed changes with and without audit. Numbers, machine and commands in [docs/benchmarks.md](docs/benchmarks.md); a manual `benchmarks` workflow (`workflow_dispatch`) reruns them, and CI does not.
 
 ### Changed
 
@@ -27,7 +29,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - `ChainError` has two new variants, `AnchorMismatch` and `HeadMismatch`; an exhaustive `match` on it needs two more arms. `AuditError` and `AuditRecord` are unchanged.
 - `Condition::TimeBetween` and `Condition::WeekdayIn` gained a `tz: Option<String>` field, so Rust code that builds or matches them without `..` needs `tz: None` or `..`. The constructors `Condition::time_between` and `Condition::weekday_in` and the JSON are unchanged.
+- `AuditAction` has four new variants (`MutationPropose`, `MutationApprove`, `MutationReject`, `MutationExpire`) and `AuditOutcome` has `Pending`; an exhaustive `match` on either needs the new arms. In the audit JSON they are the new `action` values `mutation_propose`, `mutation_approve`, `mutation_reject`, `mutation_expire` and the new `outcome` value `pending`, so a reader of the log that validates these fields against a closed list needs the new values.
+- `AuditRecord` has a new field, `pending: Option<PendingRef>`, so Rust code that builds the struct with a literal needs `pending: None`. The field is left out of the JSON when unset, and records written before read and hash unchanged.
 - `strig-inspect --tab` takes `evaluation`, `matrix` or `audit` instead of `avaliacao`, `matriz` or `auditoria`. The text of the terminal commands changed language, so scripts that match it need updating (for example `NEGADO` is now `DENIED`).
+
+Before, after and the step to take for each of these, including the `DSL_SCHEMA` 3 reader rule, the `tz` default feature and the per-platform npm packages, are in [docs/migration.md](docs/migration.md).
 
 ## [0.6.1] - 2026-11-24
 
