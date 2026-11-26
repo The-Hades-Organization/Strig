@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- JavaScript callbacks in the Node, Bun and wasm bindings: `new Engine(spec, { conditions, overrides, invariants })` registers synchronous functions for the `call` condition, your own override (`allowed`/`denied`/`abstained`, with `except`) and your own governance invariant, applied with `{ kind: 'custom', name }` in `apply` and `applyTemplate`. They enter the normal flow (the `explain` trace names the override, the governance refuses with the violation and an optional `suggestion`, the audit records it). A callback that throws denies instead of crashing; a callback that calls the engine or changes a `Context` gets `REENTRANT_CALL`. New error codes `UNKNOWN_INVARIANT` and `REENTRANT_CALL`.
+
 ### Changed
 
 - The playground editor tells the roles of a word apart by hue, not only by shade: keywords stay wine (rose in dark), relations are blue, who and where are gold, numbers teal, strings green and comments neutral grey. Every code colour reaches at least 7:1 against the editor background in both themes (it was one brown for four roles).

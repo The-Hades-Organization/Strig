@@ -1,9 +1,12 @@
-use napi::bindgen_prelude::{FromNapiValue, Unknown};
-use napi::{Env, JsValue};
+use std::sync::Arc;
+
+use napi::bindgen_prelude::JsObjectValue;
+use napi::bindgen_prelude::{FromNapiValue, Function, FunctionRef, Object, Unknown};
+use napi::{Env, JsValue, ValueType, sys};
 use napi_derive::napi;
 use serde_json::Value;
 
-use crate::{BindingError, ContextData, EngineHandle, ExclusiveHandle};
+use crate::{BindingError, ContextData, EngineHandle, ExclusiveHandle, HostCallbacks, HostFn};
 
 /// O `code` estável do erro vira `error.code` no JavaScript.
 type Error = napi::Error<String>;
@@ -59,6 +62,113 @@ fn clock() -> Result<u64> {
     crate::clock_ms(std::time::SystemTime::now()).map_err(err)
 }
 
+/// A JavaScript function the engine calls back, kept alive by a reference. It only runs while a
+/// call of the host is on the stack (the engine is synchronous), on the thread that registered it.
+struct NapiFn {
+    callback: FunctionRef<Value, Unknown<'static>>,
+    env: sys::napi_env,
+}
+
+// SAFETY: the function is only called synchronously from inside an engine call made by JavaScript
+// itself, so the `napi_env` is the one of the running thread; nothing is called from elsewhere.
+unsafe impl Send for NapiFn {}
+unsafe impl Sync for NapiFn {}
+
+impl HostFn for NapiFn {
+    fn call(&self, arg: Value) -> std::result::Result<Value, String> {
+        let env = Env::from_raw(self.env);
+        let function = self.callback.borrow_back(&env).map_err(|e| e.reason.clone())?;
+        let answer = function.call(arg).map_err(|e| e.reason.clone())?;
+        if answer.get_type().map_err(|e| e.reason.clone())? == ValueType::Undefined {
+            return Ok(Value::Null);
+        }
+        // SAFETY: `answer` belongs to this env and the conversion only reads it.
+        unsafe { Value::from_napi_value(self.env, answer.raw()) }.map_err(|e| e.reason.clone())
+    }
+}
+
+trait Raw<T> {
+    fn raw(self) -> Result<T>;
+}
+
+impl<T> Raw<T> for napi::Result<T> {
+    fn raw(self) -> Result<T> {
+        self.map_err(|e| Error::new("INTERNAL".to_string(), e.reason.clone()))
+    }
+}
+
+fn host_fn(env: &Env, what: &str, value: Unknown<'_>) -> Result<Arc<dyn HostFn>> {
+    if value.get_type().raw()? != ValueType::Function {
+        return Err(err(BindingError::invalid_argument(what, "esperado uma função")));
+    }
+    // SAFETY: the value was just checked to be a function of this env.
+    let function = unsafe { Function::<Value, Unknown<'static>>::from_napi_value(env.raw(), value.raw()) }.raw()?;
+    Ok(Arc::new(NapiFn {
+        callback: function.create_ref().raw()?,
+        env: env.raw(),
+    }))
+}
+
+fn object_of<'a>(env: &Env, what: &str, value: Unknown<'a>) -> Result<Object<'a>> {
+    if value.get_type().raw()? != ValueType::Object {
+        return Err(err(BindingError::invalid_argument(what, "esperado um objeto")));
+    }
+    // SAFETY: the value was just checked to be an object of this env.
+    unsafe { Object::from_napi_value(env.raw(), value.raw()) }.raw()
+}
+
+/// The `hooks` argument of the `Engine` constructor: `conditions` (name → function), `overrides`
+/// (`{ name, except?, evaluate }[]`) and `invariants` (name → function).
+fn hooks_of(env: &Env, hooks: Unknown<'_>) -> Result<HostCallbacks> {
+    let hooks = object_of(env, "hooks", hooks)?;
+    let mut host = HostCallbacks::default();
+    if let Some(conditions) = hooks.get::<Unknown>("conditions").raw()?.filter(is_set) {
+        let conditions = object_of(env, "hooks.conditions", conditions)?;
+        for name in Object::keys(&conditions).raw()? {
+            let f = conditions
+                .get::<Unknown>(&name)
+                .raw()?
+                .ok_or_else(|| err(BindingError::invalid_argument(&name, "ausente")))?;
+            host.condition(name.clone(), host_fn(env, &format!("hooks.conditions.{name}"), f)?);
+        }
+    }
+    if let Some(overrides) = hooks.get::<Unknown>("overrides").raw()?.filter(is_set) {
+        let overrides = object_of(env, "hooks.overrides", overrides)?;
+        for index in 0..overrides.get_array_length().raw()? {
+            let rule = object_of(env, "hooks.overrides[]", overrides.get_element::<Unknown>(index).raw()?)?;
+            let name: String = rule.get("name").raw()?.ok_or_else(|| {
+                err(BindingError::invalid_argument(
+                    "hooks.overrides[].name",
+                    "esperado um texto",
+                ))
+            })?;
+            let except: Vec<String> = rule.get("except").raw()?.unwrap_or_default();
+            let evaluate = rule.get::<Unknown>("evaluate").raw()?.ok_or_else(|| {
+                err(BindingError::invalid_argument(
+                    "hooks.overrides[].evaluate",
+                    "esperado uma função",
+                ))
+            })?;
+            host.override_rule(name, except, host_fn(env, "hooks.overrides[].evaluate", evaluate)?);
+        }
+    }
+    if let Some(invariants) = hooks.get::<Unknown>("invariants").raw()?.filter(is_set) {
+        let invariants = object_of(env, "hooks.invariants", invariants)?;
+        for name in Object::keys(&invariants).raw()? {
+            let f = invariants
+                .get::<Unknown>(&name)
+                .raw()?
+                .ok_or_else(|| err(BindingError::invalid_argument(&name, "ausente")))?;
+            host.invariant(name.clone(), host_fn(env, &format!("hooks.invariants.{name}"), f)?);
+        }
+    }
+    Ok(host)
+}
+
+fn is_set(value: &Unknown<'_>) -> bool {
+    !matches!(value.get_type(), Ok(ValueType::Undefined | ValueType::Null))
+}
+
 #[napi(js_name = "Context")]
 pub struct JsContext {
     inner: ContextData,
@@ -85,7 +195,7 @@ impl JsContext {
 
     #[napi]
     pub fn remove_grant(&mut self, env: &Env, id: Unknown<'_>) -> Result<bool> {
-        Ok(self.inner.remove_grant(&text(env, "id", id)?))
+        self.inner.remove_grant(&text(env, "id", id)?).map_err(err)
     }
 
     #[napi]
@@ -141,9 +251,13 @@ pub struct JsEngine {
 #[napi]
 impl JsEngine {
     #[napi(constructor)]
-    pub fn new(env: &Env, spec: Unknown<'_>) -> Result<Self> {
+    pub fn new(env: &Env, spec: Unknown<'_>, hooks: Option<Unknown<'_>>) -> Result<Self> {
+        let host = match hooks.filter(is_set) {
+            Some(hooks) => hooks_of(env, hooks)?,
+            None => HostCallbacks::default(),
+        };
         Ok(Self {
-            inner: EngineHandle::new(json(env, spec)?).map_err(err)?,
+            inner: EngineHandle::with_host(json(env, spec)?, host).map_err(err)?,
         })
     }
 

@@ -53,6 +53,8 @@ export type ErrorCode =
   | 'EXCLUSIVE_UNKNOWN_PERMISSION'
   | 'EXCLUSIVE_STORE'
   | 'EXCLUSIVE_ERROR'
+  | 'UNKNOWN_INVARIANT'
+  | 'REENTRANT_CALL'
   | DslErrorCode
   | 'INTERNAL';
 
@@ -212,7 +214,9 @@ export type InvariantSpec =
   | { kind: 'management_only'; roles: string[] }
   /** The actor only grants what they hold, unless they hold the bypass. */
   | { kind: 'no_escalation'; bypass?: Bypass }
-  | { kind: 'forbid'; subject: SubjectMatcher; permissions: string[] };
+  | { kind: 'forbid'; subject: SubjectMatcher; permissions: string[] }
+  /** An invariant registered in the engine's `hooks.invariants`; `name` must be one of them. */
+  | { kind: 'custom'; name: string };
 
 export interface ApplyInput {
   actor: Subject;
@@ -412,6 +416,67 @@ export interface ApplyResult {
   audit?: Record<string, unknown> | null;
 }
 
+/**
+ * What a `hooks.conditions` function gets: the operands of the `call` condition, already resolved
+ * (`{ attr: 'subject.dept' }` becomes the attribute's value). It returns a boolean; anything else, or
+ * a throw, is a condition error: an allow grant does not apply, a deny grant still does, and the
+ * `explain` trace carries the message.
+ */
+export type HostCondition = (args: unknown[]) => boolean;
+
+/** What a host override is asked: the decision request and the environment it runs in. */
+export interface HostOverrideRequest {
+  subject: Subject;
+  permission: string;
+  resource: Resource;
+  env: Record<string, unknown>;
+  /** Decision instant in ms UTC, or `null` when there is none. */
+  now: number | null;
+}
+
+/** What a host override answers; `null` or `undefined` abstain. A throw is `'denied'`. */
+export type HostOverrideOutcome = 'allowed' | 'denied' | 'abstained' | null | undefined;
+
+/** An override written in JavaScript. It runs after the overrides of the spec, in list order. */
+export interface HostOverride {
+  /** Shows in the `explain` trace and as the reason of a decision it settles. */
+  name: string;
+  /** Permissions (and the ones they grant) the override is never consulted for. */
+  except?: string[];
+  evaluate(request: HostOverrideRequest): HostOverrideOutcome;
+}
+
+/** What a host invariant is asked: the change, and the grants before and after it. */
+export interface HostProposal {
+  actor: Subject;
+  mutation: ApplyInput['mutation'];
+  before: Grant[];
+  after: Grant[];
+  now: number | null;
+}
+
+/**
+ * What a host invariant answers: nothing (or `null`, or `true`) to accept; a text, or
+ * `{ message, suggestion? }`, to refuse (a list refuses with its first entry). `suggestion` is a change
+ * the governance re-checks against every invariant before it surfaces in the violation. A throw
+ * refuses with the message of the error.
+ */
+export type HostInvariantResult = void | null | true | string | { message: string; suggestion?: ApplyInput['mutation'] } | Array<string | { message: string; suggestion?: ApplyInput['mutation'] }>;
+
+/**
+ * Functions the engine calls back while it decides or governs. They are synchronous: a returned
+ * promise is not awaited and is refused as a wrong answer. They cannot call the engine nor change a
+ * `Context` while they run: both throw `REENTRANT_CALL`, except a change to the very `Context` under
+ * decision, which the runtime refuses with an error of its own (no stable `code`).
+ */
+export interface EngineHooks {
+  /** Functions of the `call` condition, by `func` name. */
+  conditions?: Record<string, HostCondition>;
+  overrides?: HostOverride[];
+  /** Run by `apply` and `applyTemplate` when `invariants` lists `{ kind: 'custom', name }`. */
+  invariants?: Record<string, (proposal: HostProposal) => HostInvariantResult>;
+}
+
 export declare class Context {
   constructor(init?: { grants?: Grant[]; tuples?: unknown[]; env?: Record<string, unknown>; now?: number | bigint | null; limits?: QueryLimits });
   setGrants(grants: Grant[]): void;
@@ -442,7 +507,7 @@ export declare class Context {
  */
 export declare class Engine {
   /** `EngineSpec` da Strig: catálogo, papéis, relações, estratégia, overrides. */
-  constructor(spec: unknown);
+  constructor(spec: unknown, hooks?: EngineHooks);
   decide(context: Context, request: DecisionRequest, now?: number | bigint): Decision;
   check(context: Context, request: DecisionRequest, now?: number | bigint): boolean;
   /** A decisão com o rastro: overrides, destino de cada grant e árvore das condições. */

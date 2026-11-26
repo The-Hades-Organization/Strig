@@ -435,6 +435,42 @@ client.on('capabilities', () => render());
 client.can('document.edit', resource);
 ```
 
+### Regras escritas em JavaScript
+
+A função da condição `call`, o override próprio e o `Invariant` próprio existem também em JS, como callbacks síncronos passados ao construtor de `Engine`. O motor os chama no meio da decisão ou do `apply`, e eles aparecem como os nativos: o rastro de `explain` nomeia o override, a recusa carrega a sua violação e a auditoria registra como registra as invariantes embutidas.
+
+```js
+const engine = new Engine(spec, {
+  // condições `call`: { op: 'call', func: 'same_dept', args: [{ attr: 'subject.dept' }, { attr: 'resource.dept' }] }
+  conditions: { same_dept: ([a, b]) => a === b },
+  // Decide antes dos grants: 'allowed', 'denied' ou 'abstained' (nada). `except` pula permissões.
+  overrides: [{ name: 'frozen', except: ['project.view'], evaluate: ({ permission }) => (frozen ? 'denied' : undefined) }],
+  invariants: {
+    // O papel de um ambiente nunca excede o global.
+    env_role_within_global({ mutation }) {
+      if (!('assign_role' in mutation)) return;
+      const { subject, role } = mutation.assign_role;
+      if (role.scope?.kind !== 'environment' || rank(role.role) <= globalRank(subject)) return;
+      return { message: `${role.role} no ambiente excede o papel global`, suggestion: downgrade(subject, role) };
+    },
+    // Um papel em uso não se apaga.
+    role_in_use({ mutation, before }) {
+      if (!('remove' in mutation)) return;
+      const grant = before.find((g) => g.id === mutation.remove.id);
+      if (grant?.subject.kind === 'role' && inUse(grant.subject.id)) return `o papel ${grant.subject.id} está em uso`;
+    },
+  },
+});
+
+engine.apply({ actor, current, mutation, invariants: [{ kind: 'custom', name: 'env_role_within_global' }, { kind: 'custom', name: 'role_in_use' }] });
+```
+
+- A função de condição recebe os operandos já resolvidos e devolve um boolean. A invariante recebe `{ actor, mutation, before, after, now }` (a `mutation` tem a forma que o `apply` aceita) e devolve nada para aceitar, ou um texto, ou `{ message, suggestion? }` para recusar. A `suggestion` é uma mudança; a governança a confere contra todas as invariantes antes de ela aparecer.
+- **Um throw nega, nunca derruba.** Condição que lança (ou não devolve boolean) é erro de condição: o grant de allow não vale, o de deny ainda vale, e o rastro traz a mensagem. Override que lança responde `denied`. Invariante que lança recusa com a mensagem do erro.
+- **Os callbacks são síncronos.** Uma promise não é aguardada; é resposta errada e nega como um throw.
+- **Sem reentrada.** Callback que chama o motor, ou muda outro `Context`, recebe `REENTRANT_CALL`; mudar o `Context` em decisão é recusado pelo runtime. Leia o que precisa antes da chamada e guarde na closure.
+- Override próprio é opaco para listagens (`list`), como todo override que não descreve o seu alcance: os recursos que ele pode decidir ficam como resíduo, nunca como permitidos.
+
 ### Tempo real num backend JS
 
 `/server` traz `Hub`, `openSession`, `sseResponse` (Fetch API: Bun.serve, Hono, Deno), `pipeSse` (`http` do Node) e três transportes: `redisTransport` (node-redis e o `RedisClient` do Bun), `ioredisTransport` e `pgTransport` (pacote `pg`). Os avisos usam o formato do `strig-sync`, então instâncias Rust e JS podem dividir o mesmo canal.

@@ -15,6 +15,7 @@ macro_rules! out {
 mod dsl;
 mod error;
 mod exclusive;
+mod host;
 mod query_json;
 
 use std::sync::Arc;
@@ -29,6 +30,7 @@ use strig::{
 
 pub use error::{BindingError, BindingResult};
 pub use exclusive::ExclusiveHandle;
+pub use host::{HostCallbacks, HostFn};
 use query_json::{expr_json, parse_subject_ref, residual_json, shape_json, subject_ref_json, via_json};
 
 #[cfg(feature = "napi")]
@@ -56,7 +58,7 @@ fn integral(value: Value) -> Value {
     }
 }
 
-fn parse<T: for<'de> Deserialize<'de>>(what: &str, value: Value) -> BindingResult<T> {
+pub(crate) fn parse<T: for<'de> Deserialize<'de>>(what: &str, value: Value) -> BindingResult<T> {
     serde_json::from_value(integral(value)).map_err(|e| BindingError::invalid_input(what, e))
 }
 
@@ -199,21 +201,24 @@ impl ContextData {
     }
 
     pub fn set_grants(&mut self, grants: Value) -> BindingResult<()> {
+        host::forbid_reentry()?;
         self.grants = parse("grants", grants)?;
         Ok(())
     }
 
     pub fn add_grant(&mut self, grant: Value) -> BindingResult<()> {
+        host::forbid_reentry()?;
         let grant: Grant = parse("grant", grant)?;
         self.grants.retain(|g| g.id != grant.id);
         self.grants.push(grant);
         Ok(())
     }
 
-    pub fn remove_grant(&mut self, id: &str) -> bool {
+    pub fn remove_grant(&mut self, id: &str) -> BindingResult<bool> {
+        host::forbid_reentry()?;
         let before = self.grants.len();
         self.grants.retain(|g| g.id != id);
-        before != self.grants.len()
+        Ok(before != self.grants.len())
     }
 
     pub fn grants(&self) -> Value {
@@ -225,21 +230,25 @@ impl ContextData {
     }
 
     pub fn add_tuple(&mut self, tuple: Value) -> BindingResult<bool> {
+        host::forbid_reentry()?;
         self.with_tuples = true;
         Ok(self.tuples.insert(parse("tuple", tuple)?))
     }
 
     pub fn remove_tuple(&mut self, tuple: Value) -> BindingResult<bool> {
+        host::forbid_reentry()?;
         Ok(self.tuples.remove(&parse("tuple", tuple)?))
     }
 
     pub fn set_env(&mut self, env: Value) -> BindingResult<()> {
+        host::forbid_reentry()?;
         self.env = parse("env", env)?;
         Ok(())
     }
 
     /// Instante das decisões e das consultas, em milissegundos UTC. `null` o remove.
     pub fn set_now(&mut self, now: Value) -> BindingResult<()> {
+        host::forbid_reentry()?;
         self.now = if now.is_null() {
             None
         } else {
@@ -259,6 +268,7 @@ impl ContextData {
     /// Tetos das consultas reversas: `{ maxParties?, maxDecisions? }`. O que falta fica no padrão;
     /// `null` volta tudo ao padrão.
     pub fn set_limits(&mut self, limits: Value) -> BindingResult<()> {
+        host::forbid_reentry()?;
         if limits.is_null() {
             self.limits = None;
             return Ok(());
@@ -288,6 +298,7 @@ impl ContextData {
 
     /// Troca os grants pelos de um `CapabilitySet` recebido do servidor.
     pub fn load_capabilities(&mut self, set: Value) -> BindingResult<Value> {
+        host::forbid_reentry()?;
         let set: CapabilitySet = parse("capabilities", set)?;
         self.grants = set.grants;
         Ok(to_value(&set.subject))
@@ -395,11 +406,14 @@ struct ListOptions {
 
 pub struct EngineHandle {
     engine: Engine,
+    host: HostCallbacks,
 }
 
 /// Como uma mudança é aplicada: com as invariantes, a auditoria e o instante.
 struct Governed<'a> {
     invariants: &'a [InvariantSpec],
+    host: &'a HostCallbacks,
+    custom: &'a [String],
     audit: Option<&'a AuditInput>,
     tuples: Option<InMemoryTuples>,
     meta: &'a Attributes,
@@ -407,17 +421,20 @@ struct Governed<'a> {
 }
 
 impl Governed<'_> {
-    fn governance(&self, log: Option<&Arc<MemoryAuditLog>>) -> Governance {
-        let governance: Governance = self.invariants.iter().collect();
+    fn governance(&self, log: Option<&Arc<MemoryAuditLog>>) -> BindingResult<Governance> {
+        let mut governance: Governance = self.invariants.iter().collect();
+        for name in self.custom {
+            governance = governance.with(self.host.invariant_named(name)?);
+        }
         let (Some(audit), Some(log)) = (self.audit, log) else {
-            return governance;
+            return Ok(governance);
         };
         let now = self.now;
         let mut auditor = Auditor::new(audit.level, log.clone()).with_clock(move || now);
         if let Some(prev) = &audit.prev_hash {
             auditor = auditor.resume_chain(prev.clone());
         }
-        governance.audited(Arc::new(auditor))
+        Ok(governance.audited(Arc::new(auditor)))
     }
 
     fn store(&self) -> Option<&dyn strig::TupleStore> {
@@ -427,11 +444,21 @@ impl Governed<'_> {
 
 impl EngineHandle {
     pub fn new(spec: Value) -> BindingResult<Self> {
+        Self::with_host(spec, HostCallbacks::default())
+    }
+
+    /// The engine of `spec` plus the functions the host registered: condition functions and
+    /// overrides enter the engine; invariants wait for an `apply` that names them.
+    pub fn with_host(spec: Value, host: HostCallbacks) -> BindingResult<Self> {
         let spec: EngineSpec = parse("spec", spec)?;
-        let engine = spec
+        let builder = spec
+            .builder()
+            .map_err(|e| BindingError::new("INVALID_SPEC", e.to_string()))?;
+        let engine = host
+            .extend(builder)
             .build()
             .map_err(|e| BindingError::new("INVALID_SPEC", e.to_string()))?;
-        Ok(Self { engine })
+        Ok(Self { engine, host })
     }
 
     pub fn engine(&self) -> &Engine {
@@ -439,12 +466,14 @@ impl EngineHandle {
     }
 
     pub fn decide(&self, ctx: &ContextData, request: Value, now: Option<u64>) -> BindingResult<Value> {
+        host::forbid_reentry()?;
         let input: RequestInput = parse("request", request)?;
         let request = Request::new(&input.subject, &input.permission, &input.resource);
         Ok(to_value(&self.engine.decide(&ctx.context_at(now), &request)))
     }
 
     pub fn check(&self, ctx: &ContextData, request: Value, now: Option<u64>) -> BindingResult<bool> {
+        host::forbid_reentry()?;
         let input: RequestInput = parse("request", request)?;
         let request = Request::new(&input.subject, &input.permission, &input.resource);
         Ok(self.engine.check(&ctx.context_at(now), &request))
@@ -452,6 +481,7 @@ impl EngineHandle {
 
     /// A decisão com o rastro completo (`strig::Explanation`).
     pub fn explain(&self, ctx: &ContextData, request: Value, now: Option<u64>) -> BindingResult<Value> {
+        host::forbid_reentry()?;
         let input: RequestInput = parse("request", request)?;
         let request = Request::new(&input.subject, &input.permission, &input.resource);
         Ok(to_value(&self.engine.explain(&ctx.context_at(now), &request)))
@@ -464,6 +494,7 @@ impl EngineHandle {
         scope: Value,
         now: Option<u64>,
     ) -> BindingResult<Value> {
+        host::forbid_reentry()?;
         let subject: Subject = parse("subject", subject)?;
         let scope: Resource = parse("scope", scope)?;
         Ok(to_value(&self.engine.capabilities(
@@ -474,6 +505,7 @@ impl EngineHandle {
     }
 
     pub fn validate_grant(&self, grant: Value) -> BindingResult<()> {
+        host::forbid_reentry()?;
         let grant: Grant = parse("grant", grant)?;
         self.engine
             .validate_grant(&grant)
@@ -498,6 +530,7 @@ impl EngineHandle {
         options: Option<Value>,
         now: Option<u64>,
     ) -> BindingResult<Value> {
+        host::forbid_reentry()?;
         let subject: Subject = parse("subject", subject)?;
         let options: ListOptions = match options {
             Some(v) if !v.is_null() => parse("options", v)?,
@@ -542,6 +575,7 @@ impl EngineHandle {
         resource: Value,
         now: Option<u64>,
     ) -> BindingResult<Value> {
+        host::forbid_reentry()?;
         let resource: Resource = parse("resource", resource)?;
         let who = self.engine.who_can_on(&ctx.query_context(now), permission, &resource)?;
         let entries: Vec<Value> = who
@@ -562,6 +596,7 @@ impl EngineHandle {
     /// # Errors
     /// `QUERY_LIMIT_EXCEEDED` e `RELATION_DEPTH_EXCEEDED`.
     pub fn access_of(&self, ctx: &ContextData, resource: Value, now: Option<u64>) -> BindingResult<Value> {
+        host::forbid_reentry()?;
         let resource: Resource = parse("resource", resource)?;
         let parties = self.engine.access_of(&ctx.query_context(now), &resource)?;
         Ok(Value::Array(
@@ -584,6 +619,7 @@ impl EngineHandle {
         subjects: Value,
         now: Option<u64>,
     ) -> BindingResult<Value> {
+        host::forbid_reentry()?;
         let reference = parse_subject_ref(subject_ref)?;
         let resource: Resource = parse("resource", resource)?;
         let subjects: Vec<Subject> = parse("subjects", subjects)?;
@@ -608,6 +644,9 @@ impl EngineHandle {
     /// registro a gravar quando a entrada pede auditoria. As janelas de validade do ator contam
     /// nesse instante.
     pub fn apply(&self, input: Value, clock: BindingResult<u64>) -> BindingResult<Value> {
+        host::forbid_reentry()?;
+        let mut input = input;
+        let custom = host::take_custom(&mut input)?;
         let input: ApplyInput = parse("apply", input)?;
         let now = match &input.now {
             Some(v) if !v.is_null() => millis_value("now", v)?,
@@ -615,13 +654,15 @@ impl EngineHandle {
         };
         let governed = Governed {
             invariants: &input.invariants,
+            host: &self.host,
+            custom: &custom,
             audit: input.audit.as_ref(),
             tuples: input.tuples.map(|t| t.into_iter().collect()),
             meta: &input.meta,
             now,
         };
         let log = Arc::new(MemoryAuditLog::new());
-        let governance = governed.governance(Some(&log));
+        let governance = governed.governance(Some(&log))?;
         let result = governance.at(now).apply_with(
             &self.engine,
             &input.actor,
@@ -657,6 +698,9 @@ impl EngineHandle {
     /// numa recusa, `ok` é `false`, só a recusa vai à trilha e nada deve ser gravado. Devolve
     /// `{ ok, grants?, violations?, audits }`.
     pub fn apply_template(&self, input: Value, clock: BindingResult<u64>) -> BindingResult<Value> {
+        host::forbid_reentry()?;
+        let mut input = input;
+        let custom = host::take_custom(&mut input)?;
         let input: ApplyTemplateInput = parse("template", input)?;
         let now = match &input.now {
             Some(v) if !v.is_null() => millis_value("now", v)?,
@@ -671,6 +715,8 @@ impl EngineHandle {
         meta.extend(input.meta.clone());
         let governed = Governed {
             invariants: &input.invariants,
+            host: &self.host,
+            custom: &custom,
             audit: input.audit.as_ref(),
             tuples: input.tuples.map(|t| t.into_iter().collect()),
             meta: &meta,
@@ -678,10 +724,10 @@ impl EngineHandle {
         };
         let ordered = materialized.ordered(&self.engine);
         let log = Arc::new(MemoryAuditLog::new());
-        let audited = governed.governance(Some(&log));
+        let audited = governed.governance(Some(&log))?;
 
         // Simulação sem auditoria: a trilha nunca diz `applied` de um lote que será descartado.
-        let silent = governed.governance(None);
+        let silent = governed.governance(None)?;
         let mut grants = input.current.clone();
         for mutation in &ordered {
             match silent.at(now).apply_with(
@@ -1297,5 +1343,130 @@ mod tests {
         assert!(renewed.is_ok(), "ainda vale dentro da janela");
         let err = exclusive.renew(&engine, &ctx, who, slot, 10_000, T0 + 500).unwrap_err();
         assert_eq!(err.code, "EXCLUSIVE_DENIED", "o grant venceu: não renova");
+    }
+
+    fn host_fn(f: impl Fn(Value) -> Result<Value, String> + Send + Sync + 'static) -> Arc<dyn HostFn> {
+        Arc::new(f)
+    }
+
+    fn host_request(permission: &str) -> Value {
+        json!({
+            "subject": {"kind": "user", "id": "u", "roles": [{"role": "member"}]},
+            "permission": permission,
+            "resource": {"path": [{"kind": "project", "id": "p1"}]}
+        })
+    }
+
+    fn host_ctx(condition: Value) -> ContextData {
+        ContextData::new(Some(json!({
+            "grants": [{"id": "g", "subject": {"kind": "role", "id": "member"}, "permission": "project.view",
+                        "target": {"kind": "project"}, "effect": "allow", "condition": condition}]
+        })))
+        .unwrap()
+    }
+
+    #[test]
+    fn host_condition_function_decides_and_a_throw_does_not_allow() {
+        let mut host = HostCallbacks::default();
+        host.condition(
+            "owns",
+            host_fn(|args| match args[0].as_str() {
+                Some("boom") => Err("boom".to_string()),
+                Some(v) => Ok(json!(v == "yes")),
+                None => Ok(json!("not a boolean")),
+            }),
+        );
+        let engine = EngineHandle::with_host(spec(), host).unwrap();
+        let call = |arg: &str| host_ctx(json!({"op": "call", "func": "owns", "args": [arg]}));
+        assert!(engine.check(&call("yes"), host_request("project.view"), None).unwrap());
+        assert!(!engine.check(&call("no"), host_request("project.view"), None).unwrap());
+        assert!(!engine.check(&call("boom"), host_request("project.view"), None).unwrap());
+        let explained = engine
+            .explain(&call("boom"), host_request("project.view"), None)
+            .unwrap();
+        assert!(explained.to_string().contains("callback: boom"));
+        assert!(!engine.check(&call("-"), host_request("project.view"), None).unwrap());
+    }
+
+    #[test]
+    fn host_override_shows_in_the_trace_and_a_throw_denies() {
+        let mut host = HostCallbacks::default();
+        host.override_rule(
+            "frozen",
+            Vec::new(),
+            host_fn(|req| match req["permission"].as_str() {
+                Some("project.edit") => Ok(json!("allowed")),
+                Some("project.view") => Err("down".to_string()),
+                _ => Ok(Value::Null),
+            }),
+        );
+        let engine = EngineHandle::with_host(spec(), host).unwrap();
+        let ctx = ContextData::new(None).unwrap();
+        let allowed = engine.explain(&ctx, host_request("project.edit"), None).unwrap();
+        assert_eq!(allowed["decision"]["effect"], "allow");
+        assert_eq!(allowed["overrides"][0]["name"], "frozen");
+        assert_eq!(allowed["overrides"][0]["outcome"], "allowed");
+        let thrown = engine.decide(&ctx, host_request("project.view"), None).unwrap();
+        assert_eq!(thrown["effect"], "deny");
+        assert_eq!(thrown["reason"]["name"], "frozen");
+    }
+
+    #[test]
+    fn host_invariant_refuses_with_message_and_throw() {
+        let mut host = HostCallbacks::default();
+        host.invariant(
+            "no_edit",
+            host_fn(|input| match input["mutation"]["add"]["permission"].as_str() {
+                Some("project.edit") => Ok(json!({"message": "edit is frozen"})),
+                Some("project.view") => Err("db down".to_string()),
+                _ => Ok(Value::Null),
+            }),
+        );
+        let engine = EngineHandle::with_host(spec(), host).unwrap();
+        let apply = |permission: &str, names: Value| {
+            engine
+                .apply(
+                    json!({
+                        "actor": {"kind": "user", "id": "admin"},
+                        "current": [],
+                        "mutation": {"add": {"id": "g", "subject": {"kind": "any"}, "permission": permission,
+                                             "target": {"kind": "project"}, "effect": "allow"}},
+                        "invariants": names,
+                        "audit": {"level": "forensic"}
+                    }),
+                    Ok(1_700_000_000_000),
+                )
+                .unwrap()
+        };
+        let custom = json!([{"kind": "catalog_conformance"}, {"kind": "custom", "name": "no_edit"}]);
+        let refused = apply("project.edit", custom.clone());
+        assert_eq!(refused["ok"], false);
+        assert_eq!(refused["violations"][0]["invariant"], "no_edit");
+        assert_eq!(refused["violations"][0]["message"], "edit is frozen");
+        assert!(refused["audit"]["hash"].is_string());
+        let thrown = apply("project.view", custom.clone());
+        assert_eq!(thrown["ok"], false);
+        assert_eq!(thrown["violations"][0]["message"], "db down");
+        let clean = json!([{"kind": "custom", "name": "no_edit"}]);
+        assert_eq!(apply("project.other", clean)["ok"], true);
+        let unknown = engine.apply(
+            json!({"actor": {"kind": "user", "id": "a"}, "current": [], "mutation": {"remove": {"id": "g"}},
+                   "invariants": [{"kind": "custom", "name": "nope"}]}),
+            Ok(1),
+        );
+        assert_eq!(unknown.unwrap_err().code, "UNKNOWN_INVARIANT");
+    }
+
+    #[test]
+    fn calls_from_inside_a_callback_are_refused() {
+        assert!(host::forbid_reentry().is_ok());
+        let probe = host_fn(|_| {
+            let mut ctx = ContextData::new(None).map_err(|e| e.message)?;
+            let err = ctx.set_env(json!({})).unwrap_err();
+            assert_eq!(err.code, "REENTRANT_CALL");
+            Ok(json!(host::forbid_reentry().is_err()))
+        });
+        assert_eq!(host::invoke(probe.as_ref(), Value::Null), Ok(json!(true)));
+        assert!(host::forbid_reentry().is_ok());
     }
 }
