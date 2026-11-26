@@ -652,7 +652,7 @@ syntaxes write them the same way, and the JSON `op` is the operator name.
 | `a any_in b` | the list `a` has at least one element that is in the list `b` |
 | `a all_in b` | every element of the list `a` is in the list `b` (an empty `a` holds) |
 | `a ip_in b` | the IPv4 or IPv6 address `a` is inside the CIDR `b`, or inside one CIDR of the list `b` |
-| `time_between "09:00" "17:30"` | the UTC time of day is in `[from, until)`; a window with `from` after `until` crosses midnight, and equal bounds make an empty window |
+| `time_between "09:00" "17:30"` | the time of day (UTC, or in `tz "Zone"`) is in `[from, until)`; a window with `from` after `until` crosses midnight, and equal bounds make an empty window |
 | `weekday_in ["mon", "tue"]` | the UTC weekday is one of the days (`mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`) |
 
 ```strig
@@ -668,12 +668,16 @@ when = time_between "22:00" "06:00" and weekday_in ["mon", "tue", "wed", "thu", 
   checks run on JSON.
 - A wrong operand type or an unreadable operand is an error, like in the comparisons: an `allow` with it does not apply
   and a `deny` with it does.
-- The time conditions read the decision instant, `Context::at` (`setNow` in the Node binding), always in UTC. Without
+- The time conditions read the decision instant, `Context::at` (`setNow` in the Node binding), in UTC, or on the clock of the
+  IANA zone given as `tz "America/Sao_Paulo"` after the arguments. Without
   an instant they cannot be resolved, so a grant that uses them never allows.
 - A condition that reads a `resource.` attribute is not translated to SQL: a listing keeps it as a residue to check
   row by row, and `strig-postgres` never turns it into an allow.
 - `DSL_SCHEMA` goes from 1 to 2. A policy that uses one of these conditions is refused by a reader of schema 1, and a
   policy without them reads the same as before.
+- `DSL_SCHEMA` goes from 2 to 3 for `tz`. The canonical JSON of a policy that names a zone in some condition starts with
+  `"schema": 3`, so a reader of schema 2 refuses it (unknown field) instead of reading the window in UTC; a policy
+  without `tz` carries no `schema` and stays readable by schema 2. This reader takes both and refuses a `schema` above 3.
 
 ### Relations
 

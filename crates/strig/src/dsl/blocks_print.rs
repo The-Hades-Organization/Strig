@@ -237,6 +237,13 @@ fn operand(o: &Operand) -> Printed<String> {
     }
 }
 
+fn tz_clause(tz: Option<&str>) -> Printed<String> {
+    tz.map_or_else(
+        || Ok(String::new()),
+        |name| Ok(format!(" tz {}", value(&Value::Str(name.to_string()))?)),
+    )
+}
+
 /// `parent` says how tightly the surroundings bind: 0 none, 1 under `or`, 2 under `and`/`not`.
 pub(crate) fn condition(c: &Condition, parent: u8) -> Printed<String> {
     let compare =
@@ -264,14 +271,16 @@ pub(crate) fn condition(c: &Condition, parent: u8) -> Printed<String> {
         Condition::AnyIn { left, right } => compare(left, "any_in", right),
         Condition::AllIn { left, right } => compare(left, "all_in", right),
         Condition::IpIn { item, set } => compare(item, "ip_in", set),
-        Condition::TimeBetween { from, until } => Ok(format!(
-            "time_between {} {}",
+        Condition::TimeBetween { from, until, tz } => Ok(format!(
+            "time_between {} {}{}",
             value(&Value::Str(from.clone()))?,
-            value(&Value::Str(until.clone()))?
+            value(&Value::Str(until.clone()))?,
+            tz_clause(tz.as_deref())?
         )),
-        Condition::WeekdayIn { days } => Ok(format!(
-            "weekday_in {}",
-            value(&Value::List(days.iter().cloned().map(Value::Str).collect()))?
+        Condition::WeekdayIn { days, tz } => Ok(format!(
+            "weekday_in {}{}",
+            value(&Value::List(days.iter().cloned().map(Value::Str).collect()))?,
+            tz_clause(tz.as_deref())?
         )),
         Condition::Exists { attr: path } => Ok(format!("exists {}", attr(path)?)),
         Condition::All { of } => group(of, "and", "all", 2),

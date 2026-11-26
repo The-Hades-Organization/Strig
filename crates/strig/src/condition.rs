@@ -96,15 +96,21 @@ pub enum Condition {
         item: Operand,
         set: Operand,
     },
-    /// The UTC time of day of the decision instant is in `[from, until)`, both as `HH:MM`. A window
-    /// with `from` after `until` crosses midnight; equal bounds make an empty window.
+    /// The time of day of the decision instant is in `[from, until)`, both as `HH:MM`. A window
+    /// with `from` after `until` crosses midnight; equal bounds make an empty window. The clock is
+    /// UTC, or the wall clock of the IANA zone `tz` (`America/Sao_Paulo`); see [`Condition::in_tz`].
     TimeBetween {
         from: String,
         until: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tz: Option<String>,
     },
-    /// The UTC weekday of the decision instant is one of `days` (`mon` to `sun`).
+    /// The weekday of the decision instant is one of `days` (`mon` to `sun`), in UTC or in the
+    /// zone `tz`.
     WeekdayIn {
         days: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tz: Option<String>,
     },
     /// The attribute exists.
     Exists {
@@ -184,13 +190,40 @@ impl Condition {
         Self::TimeBetween {
             from: from.into(),
             until: until.into(),
+            tz: None,
         }
     }
 
     pub fn weekday_in<S: Into<String>>(days: impl IntoIterator<Item = S>) -> Self {
         Self::WeekdayIn {
             days: days.into_iter().map(Into::into).collect(),
+            tz: None,
         }
+    }
+
+    /// True when this condition, or one nested in it, names a time zone.
+    pub fn uses_tz(&self) -> bool {
+        match self {
+            Self::TimeBetween { tz, .. } | Self::WeekdayIn { tz, .. } => tz.is_some(),
+            Self::All { of } | Self::Any { of } => of.iter().any(Self::uses_tz),
+            Self::Not { cond } => cond.uses_tz(),
+            _ => false,
+        }
+    }
+
+    /// Reads the clock of an IANA zone (`America/Sao_Paulo`) instead of UTC in `time_between` and
+    /// `weekday_in`; any other condition is returned as it is. An unknown name is refused when a
+    /// policy is loaded and fails the evaluation here.
+    ///
+    /// The instant decides the local time, so a clock change never leaves a time ambiguous: in the
+    /// hour skipped by the spring-forward jump no instant has that local time, so a window that
+    /// lies wholly inside it never holds that day; in the hour repeated by the fall-back both
+    /// passes hold.
+    pub fn in_tz(mut self, zone: impl Into<String>) -> Self {
+        if let Self::TimeBetween { tz, .. } | Self::WeekdayIn { tz, .. } = &mut self {
+            *tz = Some(zone.into());
+        }
+        self
     }
 
     pub fn exists(attr: impl Into<String>) -> Self {
@@ -321,17 +354,17 @@ impl Condition {
                     ))),
                 }
             }
-            Condition::TimeBetween { from, until } => {
+            Condition::TimeBetween { from, until, tz } => {
                 let (from, until) = (parse_clock(from)?, parse_clock(until)?);
-                let at = minute_of_day(now)?;
+                let at = local_time(now, tz.as_deref())?.minute;
                 Ok(if from <= until {
                     from <= at && at < until
                 } else {
                     at >= from || at < until
                 })
             }
-            Condition::WeekdayIn { days } => {
-                let today = weekday_of(now)?;
+            Condition::WeekdayIn { days, tz } => {
+                let today = local_time(now, tz.as_deref())?.weekday;
                 for day in days {
                     if parse_weekday(day)? == today {
                         return Ok(true);
@@ -544,18 +577,87 @@ pub(crate) fn parse_weekday(text: &str) -> Result<u8, ConditionError> {
         .ok_or_else(|| bad_value("dia da semana (mon a sun)", text))
 }
 
-const MS_PER_MINUTE: u64 = 60_000;
-const MS_PER_DAY: u64 = 86_400_000;
+const MS_PER_MINUTE: i64 = 60_000;
+const MS_PER_DAY: i64 = 86_400_000;
 
-fn minute_of_day(now: Option<u64>) -> Result<u32, ConditionError> {
-    let now = now.ok_or_else(|| ConditionError::MissingAttribute("now".to_string()))?;
-    u32::try_from(now % MS_PER_DAY / MS_PER_MINUTE).map_err(|_| ConditionError::BadPath("now".to_string()))
+/// The wall clock of an instant: minutes since local midnight and weekday (0 = Monday).
+pub(crate) struct LocalTime {
+    pub(crate) minute: u32,
+    pub(crate) weekday: u8,
+    offset_seconds: i64,
 }
 
-fn weekday_of(now: Option<u64>) -> Result<u8, ConditionError> {
+impl LocalTime {
+    /// `09:30 UTC` or `06:30 America/Sao_Paulo (UTC-03:00)`, for the trace.
+    pub(crate) fn describe(&self, tz: Option<&str>) -> String {
+        let clock = format!("{:02}:{:02}", self.minute / 60, self.minute % 60);
+        let Some(zone) = tz else {
+            return format!("{clock} UTC");
+        };
+        let sign = if self.offset_seconds < 0 { '-' } else { '+' };
+        let minutes = self.offset_seconds.abs() / 60;
+        format!("{clock} {zone} (UTC{sign}{:02}:{:02})", minutes / 60, minutes % 60)
+    }
+}
+
+/// The clock a time condition reads, for the trace: the zone alone, or with the local time of `now`.
+pub(crate) fn clock_label(now: Option<u64>, tz: Option<&str>, weekday: bool) -> String {
+    let zone = tz.unwrap_or("UTC");
+    let Some(local) = now.and_then(|now| local_time(Some(now), tz).ok()) else {
+        return zone.to_string();
+    };
+    if weekday {
+        const DAYS: [&str; 7] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+        return format!("{zone} ({})", DAYS[usize::from(local.weekday)]);
+    }
+    local.describe(tz)
+}
+
+/// Whether `name` is a zone the engine can read; the message is fit for a diagnostic.
+#[cfg_attr(
+    not(feature = "dsl"),
+    allow(dead_code, reason = "only the policy language checks zones at load")
+)]
+pub(crate) fn check_tz(name: &str) -> Result<(), String> {
+    zone_offset(name, 0).map(|_| ())
+}
+
+#[cfg(feature = "tz")]
+fn zone_offset(name: &str, now_ms: u64) -> Result<i64, String> {
+    use chrono::{DateTime, Offset, TimeZone};
+    use chrono_tz::Tz;
+    let zone: Tz = name
+        .parse()
+        .map_err(|_| format!("`{name}` is not an IANA time zone name"))?;
+    let instant = i64::try_from(now_ms)
+        .ok()
+        .and_then(DateTime::from_timestamp_millis)
+        .ok_or_else(|| "the decision instant is out of range".to_string())?;
+    let offset = zone.offset_from_utc_datetime(&instant.naive_utc()).fix();
+    Ok(i64::from(offset.local_minus_utc()))
+}
+
+#[cfg(not(feature = "tz"))]
+fn zone_offset(name: &str, _now_ms: u64) -> Result<i64, String> {
+    Err(format!("`{name}`: this build has no time zone database (feature `tz`)"))
+}
+
+fn local_time(now: Option<u64>, tz: Option<&str>) -> Result<LocalTime, ConditionError> {
     let now = now.ok_or_else(|| ConditionError::MissingAttribute("now".to_string()))?;
-    // Day 0 of the epoch, 1970-01-01, was a Thursday.
-    u8::try_from((now / MS_PER_DAY + 3) % 7).map_err(|_| ConditionError::BadPath("now".to_string()))
+    let offset_seconds = match tz {
+        None => 0,
+        Some(name) => zone_offset(name, now).map_err(ConditionError::Function)?,
+    };
+    let local = i64::try_from(now)
+        .map_err(|_| ConditionError::BadPath("now".to_string()))?
+        .saturating_add(offset_seconds * 1_000);
+    let (day, in_day) = (local.div_euclid(MS_PER_DAY), local.rem_euclid(MS_PER_DAY));
+    Ok(LocalTime {
+        minute: u32::try_from(in_day / MS_PER_MINUTE).map_err(|_| ConditionError::BadPath("now".to_string()))?,
+        // Day 0 of the epoch, 1970-01-01, was a Thursday.
+        weekday: u8::try_from((day + 3).rem_euclid(7)).map_err(|_| ConditionError::BadPath("now".to_string()))?,
+        offset_seconds,
+    })
 }
 
 pub type ConditionFn = Arc<dyn Fn(&[Value]) -> Result<bool, ConditionError> + Send + Sync>;
@@ -954,6 +1056,185 @@ mod tests {
         for json in cases {
             let cond: Condition = serde_json::from_str(json).unwrap();
             assert_eq!(serde_json::to_string(&cond).unwrap(), json);
+        }
+    }
+
+    #[cfg(feature = "tz")]
+    mod zones {
+        use super::*;
+
+        const NEW_YORK: &str = "America/New_York";
+        const SAO_PAULO: &str = "America/Sao_Paulo";
+        // 2024-03-10 00:00 UTC; New York jumped from 02:00 EST to 03:00 EDT at 07:00 UTC.
+        const SPRING_DAY: u64 = MONDAY + 69 * DAY;
+        // 2024-11-03 00:00 UTC; New York fell back from 02:00 EDT to 01:00 EST at 06:00 UTC.
+        const FALL_DAY: u64 = MONDAY + 307 * DAY;
+
+        fn zoned(from: &str, until: &str, zone: &str) -> Condition {
+            Condition::time_between(from, until).in_tz(zone)
+        }
+
+        fn minutes_holding(c: &Condition, from: u64, until: u64) -> Vec<u64> {
+            (from..until)
+                .step_by(MINUTE as usize)
+                .filter(|at| holds_at(c, *at) == Ok(true))
+                .collect()
+        }
+
+        #[test]
+        fn sao_paulo_is_three_hours_behind_utc_all_year() {
+            let c = zoned("09:00", "18:00", SAO_PAULO);
+            assert_eq!(holds_at(&c, MONDAY + 11 * HOUR + 59 * MINUTE), Ok(false));
+            assert_eq!(holds_at(&c, MONDAY + 12 * HOUR), Ok(true));
+            assert_eq!(holds_at(&c, MONDAY + 20 * HOUR + 59 * MINUTE), Ok(true));
+            assert_eq!(holds_at(&c, MONDAY + 21 * HOUR), Ok(false));
+            let july = MONDAY + 182 * DAY;
+            assert_eq!(
+                holds_at(&c, july + 12 * HOUR),
+                Ok(true),
+                "no daylight saving time since 2019"
+            );
+            assert_eq!(holds_at(&c, july + 11 * HOUR + 59 * MINUTE), Ok(false));
+        }
+
+        #[test]
+        fn the_weekday_follows_the_local_date() {
+            let sunday_night = MONDAY + 2 * HOUR;
+            assert_eq!(holds_at(&Condition::weekday_in(["mon"]), sunday_night), Ok(true));
+            let local = Condition::weekday_in(["sun"]).in_tz(SAO_PAULO);
+            assert_eq!(holds_at(&local, sunday_night), Ok(true), "23:00 on Sunday in Sao Paulo");
+            assert_eq!(
+                holds_at(&Condition::weekday_in(["mon"]).in_tz(SAO_PAULO), sunday_night),
+                Ok(false)
+            );
+            let east = Condition::weekday_in(["tue"]).in_tz("Pacific/Auckland");
+            assert_eq!(
+                holds_at(&east, MONDAY + 12 * HOUR),
+                Ok(true),
+                "01:00 on Tuesday, UTC+13 in January"
+            );
+        }
+
+        #[test]
+        fn a_window_crossing_midnight_reads_the_local_clock() {
+            let c = zoned("22:00", "06:00", SAO_PAULO);
+            assert_eq!(holds_at(&c, MONDAY + HOUR), Ok(true), "22:00 local");
+            assert_eq!(holds_at(&c, MONDAY + 8 * HOUR + 59 * MINUTE), Ok(true), "05:59 local");
+            assert_eq!(holds_at(&c, MONDAY + 9 * HOUR), Ok(false), "06:00 local");
+            assert_eq!(holds_at(&c, MONDAY + 12 * HOUR), Ok(false));
+        }
+
+        #[test]
+        fn the_hour_skipped_by_spring_forward_never_holds() {
+            let skipped = zoned("02:00", "03:00", NEW_YORK);
+            assert!(minutes_holding(&skipped, SPRING_DAY, SPRING_DAY + DAY).is_empty());
+            assert_eq!(
+                minutes_holding(&skipped, SPRING_DAY - DAY, SPRING_DAY).len(),
+                60,
+                "the day before"
+            );
+        }
+
+        #[test]
+        fn a_window_over_the_spring_jump_loses_the_skipped_hour() {
+            let c = zoned("01:00", "04:00", NEW_YORK);
+            assert_eq!(
+                holds_at(&c, SPRING_DAY + 5 * HOUR + 59 * MINUTE),
+                Ok(false),
+                "00:59 EST"
+            );
+            assert_eq!(holds_at(&c, SPRING_DAY + 6 * HOUR), Ok(true), "01:00 EST");
+            assert_eq!(holds_at(&c, SPRING_DAY + 6 * HOUR + 59 * MINUTE), Ok(true), "01:59 EST");
+            assert_eq!(
+                holds_at(&c, SPRING_DAY + 7 * HOUR),
+                Ok(true),
+                "03:00 EDT, right after 01:59"
+            );
+            assert_eq!(holds_at(&c, SPRING_DAY + 7 * HOUR + 59 * MINUTE), Ok(true), "03:59 EDT");
+            assert_eq!(holds_at(&c, SPRING_DAY + 8 * HOUR), Ok(false), "04:00 EDT");
+            assert_eq!(
+                minutes_holding(&c, SPRING_DAY, SPRING_DAY + DAY).len(),
+                2 * 60,
+                "two real hours"
+            );
+        }
+
+        #[test]
+        fn the_hour_repeated_by_fall_back_holds_both_times() {
+            let c = zoned("01:00", "02:00", NEW_YORK);
+            assert_eq!(holds_at(&c, FALL_DAY + 4 * HOUR + 59 * MINUTE), Ok(false), "00:59 EDT");
+            assert_eq!(holds_at(&c, FALL_DAY + 5 * HOUR + 30 * MINUTE), Ok(true), "01:30 EDT");
+            assert_eq!(holds_at(&c, FALL_DAY + 6 * HOUR + 30 * MINUTE), Ok(true), "01:30 EST");
+            assert_eq!(holds_at(&c, FALL_DAY + 7 * HOUR), Ok(false), "02:00 EST");
+            assert_eq!(
+                minutes_holding(&c, FALL_DAY, FALL_DAY + DAY).len(),
+                2 * 60,
+                "both passes"
+            );
+        }
+
+        #[test]
+        fn the_offset_changes_the_utc_hour_of_a_fixed_local_window() {
+            let c = zoned("09:00", "17:00", NEW_YORK);
+            assert_eq!(holds_at(&c, SPRING_DAY - DAY + 14 * HOUR), Ok(true), "09:00 EST");
+            assert_eq!(
+                holds_at(&c, SPRING_DAY + 12 * HOUR + 59 * MINUTE),
+                Ok(false),
+                "08:59 EDT"
+            );
+            assert_eq!(holds_at(&c, SPRING_DAY + 13 * HOUR), Ok(true), "09:00 EDT");
+        }
+
+        #[test]
+        fn an_unknown_zone_is_refused_up_front_and_fails_the_evaluation() {
+            assert!(check_tz(SAO_PAULO).is_ok());
+            assert!(check_tz("UTC").is_ok());
+            for bad in ["Mars/Olympus", "", "sao paulo", "america/sao_paulo "] {
+                assert!(check_tz(bad).unwrap_err().contains("IANA"), "{bad}");
+            }
+            let c = zoned("09:00", "17:00", "Mars/Olympus");
+            assert!(matches!(holds_at(&c, MONDAY), Err(ConditionError::Function(_))));
+        }
+
+        #[test]
+        fn in_tz_touches_only_the_two_time_conditions() {
+            let other = Condition::exists("subject.id");
+            assert_eq!(other.clone().in_tz(NEW_YORK), other);
+            assert_eq!(
+                Condition::time_between("09:00", "17:00").in_tz("UTC"),
+                zoned("09:00", "17:00", "UTC")
+            );
+        }
+
+        #[test]
+        fn the_zone_is_optional_in_the_json_and_kept_when_given() {
+            let plain: Condition =
+                serde_json::from_str(r#"{"op":"time_between","from":"09:00","until":"17:00"}"#).unwrap();
+            assert_eq!(plain, Condition::time_between("09:00", "17:00"));
+            for json in [
+                r#"{"op":"time_between","from":"09:00","until":"17:00","tz":"America/Sao_Paulo"}"#,
+                r#"{"op":"weekday_in","days":["mon"],"tz":"Europe/Lisbon"}"#,
+            ] {
+                let cond: Condition = serde_json::from_str(json).unwrap();
+                assert_eq!(serde_json::to_string(&cond).unwrap(), json);
+            }
+        }
+
+        #[test]
+        fn the_trace_label_names_the_local_time() {
+            let at = MONDAY + 15 * HOUR + 30 * MINUTE;
+            assert_eq!(
+                clock_label(Some(at), Some(SAO_PAULO), false),
+                "12:30 America/Sao_Paulo (UTC-03:00)"
+            );
+            assert_eq!(clock_label(Some(at), None, false), "15:30 UTC");
+            assert_eq!(clock_label(Some(at), Some(SAO_PAULO), true), "America/Sao_Paulo (mon)");
+            assert_eq!(clock_label(None, Some(SAO_PAULO), false), "America/Sao_Paulo");
+            assert_eq!(clock_label(None, None, true), "UTC");
+            assert_eq!(
+                clock_label(Some(at), Some("Asia/Kolkata"), false),
+                "21:00 Asia/Kolkata (UTC+05:30)"
+            );
         }
     }
 }
