@@ -40,6 +40,7 @@ pub mod explain;
 pub mod governance;
 pub mod grant;
 pub mod overrides;
+pub mod pending;
 pub mod query;
 pub mod rbac;
 pub mod rebac;
@@ -54,8 +55,8 @@ pub use attr::{Attributes, Value};
 #[cfg(feature = "audit")]
 pub use audit::{
     AuditAction, AuditError, AuditLevel, AuditOutcome, AuditRecord, AuditSink, AuditStats, AuditStatus, Auditor,
-    ChainError, DropHook, DroppedRecord, Emitted, FailMode, JsonLinesAudit, MemoryAuditLog, PendingQueue, Redactor,
-    RetryPolicy, RoleChange, chain_head, mask_attributes, verify_chain, verify_chain_anchored,
+    ChainError, DropHook, DroppedRecord, Emitted, FailMode, JsonLinesAudit, MemoryAuditLog, PendingQueue, PendingRef,
+    Redactor, RetryPolicy, RoleChange, chain_head, mask_attributes, verify_chain, verify_chain_anchored,
 };
 pub use catalog::{
     Catalog, CatalogBuilder, CatalogError, CatalogErrors, CatalogExport, CatalogRule, FnRule, PermissionDef,
@@ -74,12 +75,17 @@ pub use explain::{
     trace_condition, trace_condition_at,
 };
 pub use governance::{
-    Bypass, CatalogConformance, Forbid, Governance, GovernanceAt, Invariant, ManagementOnly, Mutation, NoEscalation,
-    NoLockout, NoSelfManagement, NonDelegable, Prerequisites, Proposal, RequirePermission, Suggestion, Violation,
+    Bypass, CatalogConformance, Forbid, Governance, GovernanceAt, Invariant, ManagementOnly, Mutation, MutationKind,
+    NoEscalation, NoLockout, NoSelfManagement, NonDelegable, Prerequisites, Proposal, RequirePermission, Suggestion,
+    Violation,
 };
 pub use grant::{Effect, Grant, GrantIndex, GrantSource, SubjectMatcher, TargetSelector};
 pub use overrides::{
     FnOverride, Override, OverrideGate, OverrideReach, PermissionHolder, ReachRequest, ResourceOwner, SubjectsRequest,
+};
+pub use pending::{
+    ApprovalError, ApprovalPolicy, ApprovalRule, Approvals, Approved, MemoryPendingStore, PendingError, PendingRequest,
+    PendingStatus, PendingStore, Proposed, Review,
 };
 pub use query::{
     AccessFilter, AccessVia, CheckAnswer, Expr, FilterOutcome, FilterResidual, FilterResolution, FilterShape,

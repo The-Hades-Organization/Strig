@@ -24,6 +24,7 @@
     "./fastify": { "types": "./dist/fastify.d.ts", "default": "./dist/fastify.js" },
     "./types": { "types": "./dist/types-gen.d.ts", "default": "./dist/types-gen.js" },
     "./nestjs": { "types": "./dist/nestjs.d.ts", "default": "./dist/nestjs.js" },
+    "./approvals": { "types": "./dist/approvals.d.ts", "default": "./dist/approvals.js" },
     "./store": { "types": "./dist/store.d.ts", "default": "./dist/store.js" },
     "./testing": { "types": "./dist/testing.d.ts", "default": "./dist/testing.js" }
   },

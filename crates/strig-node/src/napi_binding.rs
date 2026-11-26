@@ -326,6 +326,30 @@ impl JsEngine {
             .map_err(err)
     }
 
+    /// Proposes a change: applied at once, or kept as a pending request when the approval policy asks for it.
+    #[napi]
+    pub fn propose(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
+        self.inner
+            .propose(json(env, input)?, crate::clock_ms(std::time::SystemTime::now()))
+            .map_err(err)
+    }
+
+    /// Approves or refuses a pending request.
+    #[napi]
+    pub fn resolve(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
+        self.inner
+            .resolve(json(env, input)?, crate::clock_ms(std::time::SystemTime::now()))
+            .map_err(err)
+    }
+
+    /// Closes the pending requests whose expiry has come.
+    #[napi]
+    pub fn expire(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
+        self.inner
+            .expire(json(env, input)?, crate::clock_ms(std::time::SystemTime::now()))
+            .map_err(err)
+    }
+
     /// Tries to write the audit records waiting in the retry queue and answers its counters.
     #[napi]
     pub fn flush_audit(&self) -> Result<Value> {
