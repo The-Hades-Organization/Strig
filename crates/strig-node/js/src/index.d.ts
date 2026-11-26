@@ -87,7 +87,8 @@ export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 
 /**
  * A condition stored with a grant. `time_between` and `weekday_in` read the decision instant
- * (`now` of the context) in UTC; without one they cannot be resolved, so a grant with them never allows.
+ * (`now` of the context) in UTC, or on the wall clock of the IANA zone in `tz`; without an instant
+ * they cannot be resolved, so a grant with them never allows.
  */
 export type Condition =
   | { op: 'eq' | 'ne' | 'lt' | 'le' | 'gt' | 'ge'; left: ConditionOperand; right: ConditionOperand }
@@ -104,10 +105,13 @@ export type Condition =
   | { op: 'all_in'; left: ConditionOperand; right: ConditionOperand }
   /** IPv4 or IPv6 address inside a CIDR, or inside any CIDR of a list. */
   | { op: 'ip_in'; item: ConditionOperand; set: ConditionOperand }
-  /** UTC time of day in `[from, until)`, as `HH:MM`; `from` after `until` crosses midnight. */
-  | { op: 'time_between'; from: string; until: string }
-  /** UTC weekday of the decision instant. */
-  | { op: 'weekday_in'; days: Weekday[] }
+  /**
+   * Time of day in `[from, until)`, as `HH:MM`; `from` after `until` crosses midnight. UTC, or the
+   * wall clock of the IANA zone `tz` (`America/Sao_Paulo`), daylight saving time included.
+   */
+  | { op: 'time_between'; from: string; until: string; tz?: string }
+  /** Weekday of the decision instant, in UTC or in the IANA zone `tz`. */
+  | { op: 'weekday_in'; days: Weekday[]; tz?: string }
   | { op: 'exists'; attr: string }
   | { op: 'all' | 'any'; of: Condition[] }
   | { op: 'not'; cond: Condition }

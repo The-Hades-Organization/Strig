@@ -169,11 +169,20 @@ Uma condição ou relação que não pode ser avaliada (atributo ausente, motor 
 | `starts_with`, `ends_with`, `contains` | Texto (`contains` também testa se um item está numa lista) |
 | `any_in`, `all_in` | Listas |
 | `ip_in` | Um endereço num CIDR ou numa lista de CIDRs |
-| `time_between`, `weekday_in` | O instante da decisão, em UTC |
+| `time_between`, `weekday_in` | O instante da decisão, em UTC ou no fuso IANA `tz` |
 | `all`, `any`, `not` | Outras condições |
 | `call` | Uma função sua, registrada com `ConditionRegistry::register` |
 
 As condições de tempo leem o instante dado por `Context::at`; sem ele não dá para resolvê-las, então o `allow` não vale. Não existe condição de expressão regular. `Engine::validate_grant` confere se cada `call` aponta para uma função registrada.
+
+#### Fusos horários
+
+Horário comercial é local, então `time_between` e `weekday_in` aceitam um fuso IANA opcional: `Condition::time_between("09:00", "18:00").in_tz("America/Sao_Paulo")` em Rust, `{"op": "time_between", "from": "09:00", "until": "18:00", "tz": "America/Sao_Paulo"}` em JSON ou JavaScript, e `time_between "09:00" "18:00" tz "America/Sao_Paulo"` ou `weekday_in ["mon", "tue"] tz "Europe/Lisbon"` na linguagem de política. Sem `tz` o relógio é UTC, como antes.
+
+- **Horário de verão.** O instante decide a hora local. Uma janela dentro da hora que o avanço do relógio pula nunca vale naquele dia; a hora que a volta repete vale nas duas passagens. A janela que cruza a meia-noite (`"22:00"` a `"06:00"`) e o dia da semana seguem a data local.
+- **Nomes desconhecidos.** O validador recusa um fuso que não conhece quando a política é carregada, com posição e dica. Uma condição montada sem validação falha na avaliação, e um `allow` com erro nunca se aplica.
+- **Rastro.** O `explain` mostra a hora local usada, por exemplo `12:30 America/Sao_Paulo (UTC-03:00)`.
+- **Custo.** O banco de fusos é a feature `tz`, ligada por padrão, do crate `strig` (`chrono-tz`) e soma cerca de 0,9 MB (0,13 MB com gzip) ao `.wasm`. Sem a feature, um `tz` é recusado na carga.
 
 ### ReBAC
 
@@ -515,6 +524,28 @@ engine.apply({ actor, current, mutation, invariants: [{ kind: 'custom', name: 'e
 
 `/server` traz `Hub`, `openSession`, `sseResponse` (Fetch API: Bun.serve, Hono, Deno), `pipeSse` (`http` do Node) e três transportes: `redisTransport` (node-redis e o `RedisClient` do Bun), `ioredisTransport` e `pgTransport` (pacote `pg`). Os avisos usam o formato do `strig-sync`, então instâncias Rust e JS podem dividir o mesmo canal.
 
+### Grants e papéis em arquivo JSON
+
+Para um sistema sem Postgres nem Redis, `/store` guarda os grants e as atribuições de papel num arquivo JSON (Node e Bun):
+
+```ts
+import { openJsonStore } from '@the-hades-organization/strig/store';
+
+const store = await openJsonStore({ path: './strig.json', createIfMissing: true });
+const provider = engineProvider({ engine, Context, loadGrants: store.loadGrants }); // a fonte de grants
+const subject = store.subject({ kind: 'user', id: 'ana' });                          // + os papéis do arquivo
+
+const result = await store.apply(engine, { actor, mutation: { assign_role: { subject, role: { role: 'admin' } } }, invariants });
+// aceita: os novos grants e papéis são gravados; recusada: nada é gravado
+```
+
+- **Arquivo:** `{ "version": 1, "grants": [...], "roles": { "<id do sujeito>": [<atribuição>, ...] } }`. Os papéis em si (a hierarquia) ficam na spec do motor; o arquivo guarda quem tem qual.
+- **Falha fechado.** Arquivo ausente, JSON inválido, id de grant repetido ou `version` diferente de 1 lança `JsonStoreError` (`STORE_NOT_FOUND`, `STORE_CORRUPT`, `STORE_VERSION`) na carga. O store nunca começa vazio sozinho; `createIfMissing` é o jeito explícito de começar um.
+- **Escrita atômica e serializada.** Arquivo temporário no mesmo diretório, `fsync`, `rename` e `fsync` do diretório. Chamadas no mesmo processo entram numa fila; entre processos vale um `<arquivo>.lock` (criado com `O_EXCL`), e o lock cujo dono morreu neste host, ou mais velho que `lockStaleMs` (30 s), é tomado. Cada mudança relê o arquivo sob o lock, então processos não se sobrescrevem. `STORE_LOCK_TIMEOUT` depois de `lockTimeoutMs` (5 s).
+- **Mudanças:** `addGrant`, `updateGrant`, `removeGrant`, `assignRole`, `revokeRole`, `setRoles`, ou `apply(engine, input)`, que roda a governança sobre os grants que o arquivo tem agora e grava o que ela aceita.
+- **Recarga:** `reload()` depois de uma edição de fora, ou `watch()` para recarregar sozinho (observa o diretório, porque o rename troca o arquivo). Arquivo ruim na recarga mantém o último snapshot bom, lança em `reload()` e vai para `onError` no `watch()`. `onChange` dispara a cada recarga e gravação.
+- Fora daqui: registros de auditoria e uma versão só em Rust.
+
 ### Express, Fastify e NestJS
 
 As três integrações recebem as mesmas opções e decidem em cada rota:
@@ -624,7 +655,7 @@ kinds org
 permission org.read on org
 ```
 
-As condições de `when` se escrevem igual nas três sintaxes, por exemplo `a starts_with b`, `env.ip ip_in "10.0.0.0/8"`, `time_between "09:00" "17:30"` e `weekday_in ["mon", "tue"]`. O validador recusa CIDR, horário ou dia da semana que não consegue ler. Quando um nome está a um erro de digitação de uma permissão, papel ou pai declarado, a dica acrescenta ``did you mean `x`?``.
+As condições de `when` se escrevem igual nas três sintaxes, por exemplo `a starts_with b`, `env.ip ip_in "10.0.0.0/8"`, `time_between "09:00" "17:30"` e `weekday_in ["mon", "tue"]`. O validador recusa CIDR, horário, dia da semana ou fuso horário que não consegue ler. Quando um nome está a um erro de digitação de uma permissão, papel ou pai declarado, a dica acrescenta ``did you mean `x`?``.
 
 - **Formatação.** `strig::dsl::format` e `is_formatted` reescrevem uma fonte no layout canônico da sintaxe dela e mantêm os comentários. `strig-inspect fmt [--check] <arquivo|dir>` faz o mesmo com arquivos `.strig`; `--check` lista os que mudariam e sai com 1.
 - **Arquivos.** Com `dsl-fs`, `strig::dsl::fs::read_dir` lê todos os `*.strig` de um diretório num `Project`, e `write_file` grava uma política de volta.

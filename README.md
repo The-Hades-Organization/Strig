@@ -169,11 +169,20 @@ A condition or relation that cannot be evaluated (missing attribute, engine with
 | `starts_with`, `ends_with`, `contains` | Text (`contains` also tests list membership) |
 | `any_in`, `all_in` | Lists |
 | `ip_in` | An address in a CIDR or a list of CIDRs |
-| `time_between`, `weekday_in` | The decision instant, in UTC |
+| `time_between`, `weekday_in` | The decision instant, in UTC or in the IANA zone `tz` |
 | `all`, `any`, `not` | Other conditions |
 | `call` | Your own function, registered with `ConditionRegistry::register` |
 
 The time conditions read the instant given by `Context::at`; without it they cannot be resolved, so the `allow` does not apply. There is no regular-expression condition. `Engine::validate_grant` checks that every `call` names a registered function.
+
+#### Time zones
+
+Office hours are local, so `time_between` and `weekday_in` take an optional IANA zone: `Condition::time_between("09:00", "18:00").in_tz("America/Sao_Paulo")` in Rust, `{"op": "time_between", "from": "09:00", "until": "18:00", "tz": "America/Sao_Paulo"}` in JSON or JavaScript, and `time_between "09:00" "18:00" tz "America/Sao_Paulo"` or `weekday_in ["mon", "tue"] tz "Europe/Lisbon"` in the policy language. Without `tz` the clock is UTC, as before.
+
+- **Daylight saving time.** The instant decides the local time. A window inside the hour that a spring-forward jump skips never holds that day; the hour that a fall-back repeats holds on both passes. A window that crosses midnight (`"22:00"` to `"06:00"`) and the weekday follow the local date.
+- **Unknown names.** The validator refuses a zone it does not know when the policy loads, with position and hint. A condition built without validation fails when evaluated, and an `allow` with an error never applies.
+- **Trace.** `explain` shows the local time it used, for example `12:30 America/Sao_Paulo (UTC-03:00)`.
+- **Cost.** The zone database is the default feature `tz` of the `strig` crate (`chrono-tz`) and adds about 0.9 MB (0.13 MB gzipped) to the `.wasm`. Without the feature a `tz` is refused at load.
 
 ### ReBAC
 
@@ -515,6 +524,28 @@ engine.apply({ actor, current, mutation, invariants: [{ kind: 'custom', name: 'e
 
 `/server` has `Hub`, `openSession`, `sseResponse` (Fetch API: Bun.serve, Hono, Deno), `pipeSse` (Node's `http`) and three transports: `redisTransport` (node-redis and Bun's `RedisClient`), `ioredisTransport` and `pgTransport` (the `pg` package). Notices use the `strig-sync` format, so Rust and JS instances can share a channel.
 
+### Grants and roles in a JSON file
+
+For a system with neither Postgres nor Redis, `/store` keeps the grants and the role assignments in one JSON file (Node and Bun):
+
+```ts
+import { openJsonStore } from '@the-hades-organization/strig/store';
+
+const store = await openJsonStore({ path: './strig.json', createIfMissing: true });
+const provider = engineProvider({ engine, Context, loadGrants: store.loadGrants }); // the grant source
+const subject = store.subject({ kind: 'user', id: 'ana' });                          // + the roles in the file
+
+const result = await store.apply(engine, { actor, mutation: { assign_role: { subject, role: { role: 'admin' } } }, invariants });
+// accepted: the new grants and roles are written; refused: nothing is written
+```
+
+- **File:** `{ "version": 1, "grants": [...], "roles": { "<subject id>": [<assignment>, ...] } }`. Roles themselves (the hierarchy) stay in the engine spec; the file holds who has which.
+- **Fails closed.** A missing file, invalid JSON, a repeated grant id or a `version` other than 1 throws `JsonStoreError` (`STORE_NOT_FOUND`, `STORE_CORRUPT`, `STORE_VERSION`) on load. The store never starts empty on its own; `createIfMissing` is the explicit way to start one.
+- **Writes are atomic and serialised.** Temp file in the same directory, `fsync`, `rename`, then `fsync` of the directory. Calls in one process queue up; between processes a `<file>.lock` (created with `O_EXCL`) is held, and a lock whose owner died on this host, or that is older than `lockStaleMs` (30 s), is taken over. Each change re-reads the file under the lock, so processes do not overwrite each other. `STORE_LOCK_TIMEOUT` after `lockTimeoutMs` (5 s).
+- **Changes:** `addGrant`, `updateGrant`, `removeGrant`, `assignRole`, `revokeRole`, `setRoles`, or `apply(engine, input)`, which runs the governance over the grants the file holds right now and persists what it accepts.
+- **Reload:** `reload()` after an outside edit, or `watch()` to reload on its own (it watches the directory, since the rename replaces the file). A bad file on reload keeps the last good snapshot, throws from `reload()` and goes to `onError` from `watch()`. `onChange` fires after every reload and write.
+- Not here: audit records and a Rust-only store.
+
 ### Express, Fastify and NestJS
 
 The three integrations take the same options and decide on each route:
@@ -624,7 +655,7 @@ kinds org
 permission org.read on org
 ```
 
-Conditions in `when` read the same in the three syntaxes, for example `a starts_with b`, `env.ip ip_in "10.0.0.0/8"`, `time_between "09:00" "17:30"` and `weekday_in ["mon", "tue"]`. The validator refuses a CIDR, a time of day or a weekday it cannot read. When a name is one typo away from a declared permission, role or parent, the hint adds ``did you mean `x`?``.
+Conditions in `when` read the same in the three syntaxes, for example `a starts_with b`, `env.ip ip_in "10.0.0.0/8"`, `time_between "09:00" "17:30"` and `weekday_in ["mon", "tue"]`. The validator refuses a CIDR, a time of day, a weekday or a time zone it cannot read. When a name is one typo away from a declared permission, role or parent, the hint adds ``did you mean `x`?``.
 
 - **Formatting.** `strig::dsl::format` and `is_formatted` rewrite a source in the canonical layout of its syntax and keep the comments. `strig-inspect fmt [--check] <file|dir>` does the same for `.strig` files; `--check` lists the files that would change and exits with 1.
 - **Files.** With `dsl-fs`, `strig::dsl::fs::read_dir` reads every `*.strig` file of a directory into a `Project`, and `write_file` writes a policy back.

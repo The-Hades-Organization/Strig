@@ -13,6 +13,6 @@ user:ana has attr team = "docs"
 // Names, tags and addresses.
 g-names: allow principal ana to document.view on document when resource.name starts_with "draft-" and resource.name ends_with ".md" and resource.name contains "-v"
 g-sets: allow principal ana to document.edit on document when subject.tags any_in ["a", "z"] and subject.tags all_in ["a", "b", "c"] and subject.tags contains "b"
-g-night: allow principal ana to document.view on document:runbook when time_between "22:00" "06:00" or env.ip ip_in "192.168.0.0/16"
+g-night: allow principal ana to document.view on document:runbook when time_between "22:00" "06:00" tz "America/Sao_Paulo" or env.ip ip_in "192.168.0.0/16"
 // Office network, working hours, weekdays only.
-g-network: deny anyone to document.edit on document:ledger when not (env.ip ip_in ["10.0.0.0/8", "2001:db8::/32"]) or not (time_between "09:00" "17:30" and weekday_in ["mon", "tue", "wed", "thu", "fri"])
+g-network: deny anyone to document.edit on document:ledger when not (env.ip ip_in ["10.0.0.0/8", "2001:db8::/32"]) or not (time_between "09:00" "17:30" and weekday_in ["mon", "tue", "wed", "thu", "fri"] tz "Europe/Lisbon")

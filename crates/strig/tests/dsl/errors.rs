@@ -115,6 +115,8 @@ fn a_bad_cidr_time_or_day_is_pointed_at_with_a_hint_in_every_syntax() {
             "time of day",
         ),
         (r#""thu", "fri""#, r#""thu", "friday""#, "day of the week"),
+        (r#"tz "America/Sao_Paulo""#, r#"tz "Mars/Olympus""#, "IANA time zone"),
+        (r#"tz "Europe/Lisbon""#, r#"tz "Lisbon""#, "IANA time zone"),
     ];
     for language in LANGUAGES {
         for (good, bad, what) in cases {

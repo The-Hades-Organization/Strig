@@ -13,9 +13,11 @@ homepage.workspace = true
 authors.workspace = true
 
 [features]
-default = ["audit"]
+default = ["audit", "tz"]
 ## Trilha de auditoria das mudanças de permissão, com níveis de detalhe e cadeia de hashes.
 audit = ["dep:sha2"]
+## IANA time zones (`tz`) for `time_between` and `weekday_in`, through the bundled `chrono-tz` database. Without it a `tz` is refused at load.
+tz = ["dep:chrono-tz", "dep:chrono"]
 ## Posse exclusiva de recurso com prioridade, preempção e prazo.
 exclusive = []
 ## Policy language: lexer, validator, Blocks syntax, `Project` and the canonical JSON. Pure (no IO, no clock) and wasm-friendly.
@@ -26,6 +28,8 @@ dsl-fs = ["dsl"]
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+chrono = { version = "0.4", default-features = false, optional = true }
+chrono-tz = { version = "0.10", default-features = false, optional = true }
 sha2 = { version = "0.11", optional = true }
 thiserror.workspace = true
 
