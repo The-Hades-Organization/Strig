@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- A central route table for the JS integrations, deny by default: `authorizeRoutes(options)` for Express and Fastify and `StrigRouteGuard` for NestJS map method and route (`/doc/:id`) to a permission and resource, refuse any route the table does not cover and open a route only with `public: true`. In NestJS a `@Can` on the handler adds a check on top of the table and never opens what the table denies. The new `/testing` subpath (`expressRoutes`, `nestRoutes`, `collectFastifyRoutes`, `auditRoutes`, `assertRoutesCovered`) lists routes with no rule and rules with no route so the host's tests fail when they drift.
+
 ### Changed
 
 - The playground editor tells the roles of a word apart by hue, not only by shade: keywords stay wine (rose in dark), relations are blue, who and where are gold, numbers teal, strings green and comments neutral grey. Every code colour reaches at least 7:1 against the editor background in both themes (it was one brown for four roles).

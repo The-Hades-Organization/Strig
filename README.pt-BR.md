@@ -475,6 +475,36 @@ A requisição só passa quando a decisão permite:
 - **Fastify** (`/fastify`): o mesmo `authorize`, mais um `plugin` que acrescenta `fastify.strigCan`.
 - **NestJS** (`/nestjs`): `@Can('document.view')` num handler ou controller, com `new StrigGuard(options)` como guard.
 
+#### Uma tabela de rotas, nega por padrão
+
+Para manter todas as regras num só lugar, dê à integração uma tabela em vez de uma permissão por handler. Uma requisição que nenhuma regra cobre é recusada (`denyStatus`, 403); uma rota só é pública quando a regra diz `public: true`.
+
+```js
+import { authorizeRoutes } from '@the-hades-organization/strig/express';
+
+const routes = [
+  { method: 'GET', path: '/health', public: true },
+  { method: 'GET', path: '/doc/:id', permission: 'document.view', resource: (req, params) => docScope(params.id) },
+  { method: ['PUT', 'DELETE'], path: '/doc/:id', permission: 'document.edit', resource: (req, params) => docScope(params.id) },
+];
+app.use(authorizeRoutes({ subject, local: { engine, context }, routes })); // antes dos routers
+```
+
+Os caminhos usam a sintaxe do framework: segmentos literais, `:nome` para um segmento e um `*` final para um ou mais. A primeira regra que casa decide, então escreva as específicas primeiro; a comparação diferencia maiúsculas, `HEAD` cai nas regras de `GET` e `*` como método vale para qualquer um. Cada regra tem `permission` ou `public: true` (tabela inválida lança na subida). `resource` recebe a requisição e os `params` casados: no nível do app o Express ainda não preencheu `req.params`.
+
+- **Express** (`/express`) e **Fastify** (`/fastify`): `authorizeRoutes(options)` é um middleware global ou hook `onRequest` (`fastify.addHook('onRequest', ...)`). Também responde 403 para URLs sem rota, e o preflight de CORS precisa de uma regra ou de ser respondido antes dele.
+- **NestJS** (`/nestjs`): `{ provide: APP_GUARD, useValue: new StrigRouteGuard(options) }`. A tabela decide primeiro. Se ela libera, um `@Can` no handler soma uma segunda checagem que também precisa passar: `@Can` restringe, nunca libera o que a tabela nega (e vale também numa regra `public`). Handler sem `@Can` não precisa de mais nada.
+
+Coloque a tabela sob teste para que ela não se afaste do app (`/testing`):
+
+```js
+import { expressRoutes, assertRoutesCovered } from '@the-hades-organization/strig/testing';
+
+assertRoutesCovered(expressRoutes(app), routes); // lança listando rotas sem regra e regras sem rota
+```
+
+`expressRoutes(app)` lê um app ou router do Express 4 ou 5 (routers aninhados incluídos, sub-apps montados não); `nestRoutes(app)` faz o mesmo para um app Nest no adaptador Express depois de `app.init()`; no Fastify chame `collectFastifyRoutes(fastify)` antes de registrar as rotas e use o array devolvido com o app pronto. `auditRoutes(routes, tabela)` devolve `{ uncovered, unusedRules, ok }` se preferir asserir por conta própria.
+
 Express, Fastify e NestJS são peer dependencies opcionais. Uma integração que você não importa não custa nada, e importar uma cujo peer falta lança `MissingPeerError`.
 
 Para obter as decisões de um [servidor de decisão](#servidor-de-decisão-e-cliente-remoto), passe um `RemoteClient` (`/remote`) como `remote`. Ele tem timeout e breaker, e nega quando não há resposta:

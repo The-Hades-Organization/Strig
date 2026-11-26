@@ -2,8 +2,11 @@
 import type { Resource } from './protocol.js';
 import { createAuthorizer } from './web-core.js';
 import type { AuthorizerOptions, Outcome, Override } from './web-core.js';
+import { createRouteDecider } from './route-table.js';
+import type { RouteTableOptions } from './route-table.js';
 
 export type { AuthorizerOptions, LocalMode, Outcome, ErrorBody } from './web-core.js';
+export type { RouteRule, RouteTableOptions, RouteParams } from './route-table.js';
 
 type Next = (error?: unknown) => void;
 
@@ -31,6 +34,18 @@ export function createCan<Req = any>(
     if (typeof permission !== 'string' || permission === '') throw new TypeError('permission must be a non-empty text');
     return middleware(decide, { permission, resource });
   };
+}
+
+/**
+ * Global middleware for a central route table, deny by default: `app.use(authorizeRoutes({ routes, subject, local }))`
+ * before the routers. A request no rule covers answers 403 (also for URLs that have no route: 404 becomes 403), a
+ * `public: true` rule passes without reading the subject, any other rule runs the usual decision. It matches
+ * `req.originalUrl`, so mounting under routers does not shift the paths. Answer CORS preflights (`OPTIONS`) before it
+ * or give them a public rule. Per-route `can()` still works and runs after it, so it only narrows.
+ */
+export function authorizeRoutes<Req = any>(options: RouteTableOptions<Req>): Handler<Req> {
+  const decide = createRouteDecider<Req>(options, (req: any) => ({ method: req.method, url: req.originalUrl ?? req.url }));
+  return middleware(decide);
 }
 
 // Express 4 does not catch a rejected promise: anything that escapes goes to `next(error)`, which refuses the request.
