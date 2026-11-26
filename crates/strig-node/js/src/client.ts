@@ -15,7 +15,7 @@ export interface PermissionClientOptions {
   /** resultado de `load()` */
   strig: Pick<Strig, 'Context'>;
   /** motor montado com a mesma spec do servidor */
-  engine: Engine;
+  engine: Engine<string>;
   headers?: Record<string, string>;
   fetch?: typeof fetch;
   WebSocket?: typeof WebSocket;
@@ -50,7 +50,7 @@ export class PermissionClient<P extends string = string> {
   readonly transport: 'sse' | 'websocket';
   scopes: Resource[];
   readonly strig: Pick<Strig, 'Context'>;
-  readonly engine: Engine<P>;
+  readonly engine: Engine<string>;
   readonly headers: Record<string, string>;
   readonly fetch: typeof fetch;
   readonly WebSocket: typeof WebSocket;
