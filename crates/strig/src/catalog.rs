@@ -18,6 +18,12 @@ pub struct PermissionDef {
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Display name per locale (`"pt-BR"` -> `"Editar"`); `label` stays the default text.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub labels: BTreeMap<String, String>,
+    /// Description per locale; `description` stays the default text.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub descriptions: BTreeMap<String, String>,
     /// More general permissions that grant this one. A grant on any of them holds here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub implied_by: Vec<String>,
@@ -51,6 +57,8 @@ impl PermissionDef {
             targets: Vec::new(),
             label: None,
             description: None,
+            labels: BTreeMap::new(),
+            descriptions: BTreeMap::new(),
             implied_by: Vec::new(),
             depends_on: Vec::new(),
             non_delegable: false,
@@ -71,6 +79,16 @@ impl PermissionDef {
 
     pub fn label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
+        self
+    }
+
+    pub fn localized_label(mut self, locale: impl Into<String>, label: impl Into<String>) -> Self {
+        self.labels.insert(locale.into(), label.into());
+        self
+    }
+
+    pub fn localized_description(mut self, locale: impl Into<String>, description: impl Into<String>) -> Self {
+        self.descriptions.insert(locale.into(), description.into());
         self
     }
 
@@ -692,6 +710,26 @@ mod tests {
         let json = serde_json::to_string(&cat.export()).unwrap();
         let back = Catalog::from_export(serde_json::from_str(&json).unwrap()).unwrap();
         assert_eq!(back.export(), cat.export());
+    }
+
+    #[test]
+    fn locale_texts_survive_export_round_trip() {
+        let cat = base()
+            .permission(
+                PermissionDef::new("a.edit")
+                    .targets(["project"])
+                    .label("Edit")
+                    .localized_label("pt-BR", "Editar")
+                    .localized_description("pt-BR", "Edita o projeto"),
+            )
+            .permission(PermissionDef::new("a.view").targets(["project"]))
+            .build()
+            .unwrap();
+        let json = serde_json::to_string(&cat.export()).unwrap();
+        assert!(json.contains("\"labels\":{\"pt-BR\":\"Editar\"}"));
+        assert_eq!(json.matches("labels").count(), 1);
+        let back = Catalog::from_export(serde_json::from_str(&json).unwrap()).unwrap();
+        assert_eq!(back.get("a.edit").unwrap().descriptions["pt-BR"], "Edita o projeto");
     }
 
     #[test]

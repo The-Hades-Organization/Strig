@@ -9,6 +9,7 @@ import './binding040.js';
 import './hooks.js';
 import './audit.js';
 import './dsl.js';
+import './types-gen.js';
 import './web-core.js';
 import './web-express.js';
 import './web-fastify.js';

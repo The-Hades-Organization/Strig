@@ -1,0 +1,15 @@
+{
+  "targetKinds": ["org", "project"],
+  "permissions": [
+    {
+      "key": "users:write",
+      "targets": ["org"],
+      "label": "Edit users",
+      "labels": { "pt-BR": "Editar usuários", "es": "Editar usuarios" },
+      "description": "Create and change users",
+      "descriptions": { "pt-BR": "Criar e alterar usuários" }
+    },
+    { "key": "users:read", "targets": ["org"], "label": "View users", "labels": { "pt-BR": "Ver usuários" } },
+    { "key": "it's:odd", "targets": ["project"] }
+  ]
+}

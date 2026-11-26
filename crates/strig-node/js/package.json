@@ -5,6 +5,7 @@
   "license": "MIT",
   "type": "module",
   "repository": { "type": "git", "url": "git+https://github.com/The-Hades-Organization/Strig.git", "directory": "crates/strig-node/js" },
+  "bin": { "strig-types": "./dist/types-cli.js" },
   "files": ["dist/", "wasm/", "README.md"],
   "exports": {
     ".": {
@@ -21,6 +22,7 @@
     "./remote": { "types": "./dist/remote.d.ts", "default": "./dist/remote.js" },
     "./express": { "types": "./dist/express.d.ts", "default": "./dist/express.js" },
     "./fastify": { "types": "./dist/fastify.d.ts", "default": "./dist/fastify.js" },
+    "./types": { "types": "./dist/types-gen.d.ts", "default": "./dist/types-gen.js" },
     "./nestjs": { "types": "./dist/nestjs.d.ts", "default": "./dist/nestjs.js" },
     "./store": { "types": "./dist/store.d.ts", "default": "./dist/store.js" },
     "./testing": { "types": "./dist/testing.d.ts", "default": "./dist/testing.js" }
