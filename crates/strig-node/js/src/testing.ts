@@ -46,12 +46,12 @@ function sample(path: string): string {
   return `/${concrete.join('/')}`;
 }
 
-export function auditRoutes<Req = any>(routes: readonly RouteInfo[], table: readonly RouteRule<Req>[]): RouteAudit<Req> {
+export function auditRoutes<Req = any>(routes: readonly RouteInfo[], table: readonly RouteRule<Req>[], options: { caseSensitive?: boolean } = {}): RouteAudit<Req> {
   const compiled = compileRoutes(table);
   const used = new Set<RouteRule<Req>>();
   const uncovered: RouteInfo[] = [];
   for (const route of routes) {
-    const match = compiled.match(route.method, sample(route.path));
+    const match = compiled.match(route.method, sample(route.path), options.caseSensitive);
     if (match) used.add(match.rule);
     else uncovered.push(route);
   }
@@ -59,9 +59,9 @@ export function auditRoutes<Req = any>(routes: readonly RouteInfo[], table: read
   return { uncovered, unusedRules, ok: uncovered.length === 0 && unusedRules.length === 0 };
 }
 
-/** Throws `RouteTableAuditError` (with the full `audit`) unless every route has a rule and every rule has a route. */
-export function assertRoutesCovered<Req = any>(routes: readonly RouteInfo[], table: readonly RouteRule<Req>[]): void {
-  const audit = auditRoutes(routes, table);
+/** Throws `RouteTableAuditError` (with the full `audit`) unless every route has a rule and every rule has a route. Pass `caseSensitive: false` for an Express app, so the check compares the way its requests are matched. */
+export function assertRoutesCovered<Req = any>(routes: readonly RouteInfo[], table: readonly RouteRule<Req>[], options: { caseSensitive?: boolean } = {}): void {
+  const audit = auditRoutes(routes, table, options);
   if (!audit.ok) throw new RouteTableAuditError(audit);
 }
 

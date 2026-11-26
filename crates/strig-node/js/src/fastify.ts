@@ -50,10 +50,10 @@ export function createCan<Req = any>(
 /**
  * Global hook for a central route table, deny by default: `fastify.addHook('onRequest', authorizeRoutes(options))`
  * before the routes. A request no rule covers answers 403 (unknown URLs included), a `public: true` rule passes
- * without reading the subject. Per-route `can()` still runs after it, so it only narrows.
+ * without reading the subject. Literals are compared case sensitive and percent-decoded, like Fastify routes (`caseSensitive: false` if you turned its option off). Per-route `can()` still runs after it, so it only narrows.
  */
 export function authorizeRoutes<Req = any>(options: RouteTableOptions<Req>): PreHandler<Req> {
-  const decide = createRouteDecider<Req>(options, (request: any) => ({ method: request.method, url: request.url }));
+  const decide = createRouteDecider<Req>(options, (request: any) => ({ method: request.method, url: request.url, caseSensitive: true }));
   return async function strigRouteHook(request, reply) {
     const outcome = await decide(request);
     if (outcome.kind === 'allow') return;

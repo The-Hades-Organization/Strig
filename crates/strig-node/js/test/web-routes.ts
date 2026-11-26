@@ -212,3 +212,63 @@ await test('audit: a route for every method and a wildcard route need a matching
   assert.throws(() => expressRoutes({}), TypeError);
   assert.throws(() => nestRoutes({ getHttpAdapter: () => ({ getInstance: () => ({ addHook() {} }) }) }), /collectFastifyRoutes/);
 });
+
+// ---- The table matches the way the framework routes ----
+// A broad public rule after the protected one is what a bypass needs: the request must not slip past `/admin/:id`.
+const guarded: RouteRule[] = [
+  { method: 'GET', path: '/admin/:id', permission: 'project.edit', resource: docOf },
+  { method: 'GET', path: '/*', public: true },
+];
+
+await test('matching: escapes are decoded per segment, %2F stays inside its segment, case is an option', () => {
+  const t = compileRoutes(guarded);
+  assert.equal(t.match('GET', '/%61dmin/1')?.rule.permission, 'project.edit');
+  assert.equal(t.match('GET', '/admin%2F1')?.rule.public, true, 'one segment "admin/1" is not /admin/:id');
+  assert.equal(t.match('GET', '/%E0%A4%A/1'), undefined, 'a malformed escape matches nothing');
+  assert.equal(compileRoutes(table).match('GET', '/doc/a%2Fb')?.params.id, 'a/b');
+  assert.equal(t.match('GET', '/ADMIN/1')?.rule.public, true, 'case sensitive by default');
+  assert.equal(t.match('GET', '/ADMIN/1', false)?.rule.permission, 'project.edit');
+});
+
+await test('express: /ADMIN/1 and /%61dmin/1 hit the protected rule, not the public one after it', async () => {
+  const app = express();
+  app.use(authorizeRoutes({ subject: subjectOf, local: await localMode(), routes: guarded }));
+  app.get('/admin/:id', (_req, res) => res.json({ admin: true }));
+  const server = await listen(app);
+  try {
+    for (const path of ['/admin/1', '/ADMIN/1', '/%61dmin/1', '/Admin/1']) assert.equal((await server.get(path)).status, 401, path);
+    assert.equal((await server.get('/ADMIN/1', 'ana')).status, 403, 'a member is denied project.edit');
+  } finally {
+    await server.close();
+  }
+});
+
+await test('fastify: /%61dmin/1 hits the protected rule; case follows the Fastify option', async () => {
+  const run = async (caseSensitive: boolean | undefined, fastifyOption: boolean) => {
+    const app = Fastify({ caseSensitive: fastifyOption });
+    app.addHook('onRequest', fastifyAuthorize({ subject: subjectOf, local: await localMode(), routes: guarded, caseSensitive }));
+    app.get('/admin/:id', async () => ({ admin: true }));
+    await app.ready();
+    const code = async (url: string) => (await app.inject({ method: 'GET', url })).statusCode;
+    const out = { plain: await code('/admin/1'), escaped: await code('/%61dmin/1'), upper: await code('/ADMIN/1') };
+    await app.close();
+    return out;
+  };
+  assert.deepEqual(await run(undefined, true), { plain: 401, escaped: 401, upper: 404 }, 'Fastify default: /ADMIN/1 has no route');
+  assert.deepEqual(await run(false, false), { plain: 401, escaped: 401, upper: 401 }, 'Fastify caseSensitive: false');
+});
+
+await test('nestjs: the guard follows the platform and escapes are decoded', async () => {
+  const guard = new StrigRouteGuard({ subject: subjectOf, local: await localMode(), routes: guarded });
+  const at = (url: string, raw?: object) => ({
+    getHandler: () => Controller.prototype.doc,
+    getClass: () => Controller,
+    getType: () => 'http',
+    switchToHttp: () => ({ getRequest: () => ({ method: 'GET', originalUrl: url, headers: {}, raw }) }),
+  });
+  for (const url of ['/admin/1', '/ADMIN/1', '/%61dmin/1']) await assert.rejects(guard.canActivate(at(url)), (e) => status(e) === 401, `express platform ${url}`);
+  await assert.rejects(guard.canActivate(at('/%61dmin/1', {})), (e) => status(e) === 401, 'fastify platform, escaped');
+  assert.equal(await guard.canActivate(at('/ADMIN/1', {})), true, 'fastify platform: another path, public');
+  const forced = new StrigRouteGuard({ subject: subjectOf, local: await localMode(), routes: guarded, caseSensitive: false });
+  await assert.rejects(forced.canActivate(at('/ADMIN/1', {})), (e) => status(e) === 401);
+});

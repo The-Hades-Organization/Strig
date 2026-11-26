@@ -22,6 +22,12 @@ export interface RouteRule<Req = any> {
 }
 
 export type RouteTableOptions<Req = any> = Omit<AuthorizerOptions<Req>, 'permission'> & {
+  /**
+   * Compare literal segments ignoring case. The default follows the framework's own router, because a table that
+   * disagrees with it can send a request to a protected handler through a looser rule: Express false (its default),
+   * Fastify true (its default; set this to false if you turned its `caseSensitive` off), Nest by platform.
+   */
+  caseSensitive?: boolean;
   /** The table. The first rule that matches a request decides it, so write the specific ones first. */
   routes: readonly RouteRule<Req>[];
 };
@@ -33,8 +39,11 @@ export interface RouteMatch<Req = any> {
 
 export interface CompiledRoutes<Req = any> {
   rules: readonly RouteRule<Req>[];
-  /** The first rule that covers `method` and `url` (path with an optional query), or `undefined`. */
-  match(method: string, url: string): RouteMatch<Req> | undefined;
+  /**
+   * The first rule that covers `method` and `url` (path with an optional query), or `undefined`. Every segment is
+   * percent-decoded before it is compared, as the frameworks do before routing; `caseSensitive` is true unless given.
+   */
+  match(method: string, url: string, caseSensitive?: boolean): RouteMatch<Req> | undefined;
 }
 
 interface Compiled<Req> {
@@ -82,21 +91,24 @@ function requestSegments(url: string): string[] | undefined {
   return parts.includes('') ? undefined : parts;
 }
 
-function matchPath(entry: Compiled<any>, parts: readonly string[]): RouteParams | undefined {
+// Decoded one segment at a time, so an escaped slash (`%2F`) stays inside its segment. A malformed escape gives
+// `undefined`: no rule matches and the request is refused.
+function decodeSegments(parts: readonly string[]): string[] | undefined {
+  try {
+    return parts.map((part) => decodeURIComponent(part));
+  } catch {
+    return undefined;
+  }
+}
+
+function matchPath(entry: Compiled<any>, parts: readonly string[], caseSensitive: boolean): RouteParams | undefined {
   const { segments, wildcard } = entry;
   if (wildcard ? parts.length <= segments.length : parts.length !== segments.length) return undefined;
   const params: RouteParams = {};
   for (let i = 0; i < segments.length; i += 1) {
     const segment = segments[i]!;
-    if (segment.startsWith(':')) {
-      try {
-        params[segment.slice(1)] = decodeURIComponent(parts[i]!);
-      } catch {
-        return undefined; // a malformed escape never matches: the request is refused
-      }
-    } else if (segment !== parts[i]) {
-      return undefined;
-    }
+    if (segment.startsWith(':')) params[segment.slice(1)] = parts[i]!;
+    else if (caseSensitive ? segment !== parts[i] : segment.toLowerCase() !== parts[i]!.toLowerCase()) return undefined;
   }
   if (wildcard) params[ANY] = parts.slice(segments.length).join('/');
   return params;
@@ -108,13 +120,14 @@ export function compileRoutes<Req = any>(rules: readonly RouteRule<Req>[]): Comp
   const entries = rules.map(compile<Req>);
   return {
     rules,
-    match(method, url) {
-      const parts = requestSegments(url);
+    match(method, url, caseSensitive = true) {
+      const raw = requestSegments(url);
+      const parts = raw && decodeSegments(raw);
       if (!parts) return undefined;
       const verb = method.toUpperCase();
       for (const entry of entries) {
         const verbOk = entry.methods.some((m) => m === ANY || m === verb || (verb === 'HEAD' && m === 'GET'));
-        const params = verbOk ? matchPath(entry, parts) : undefined;
+        const params = verbOk ? matchPath(entry, parts, caseSensitive) : undefined;
         if (params) return { rule: entry.rule, params };
       }
       return undefined;
@@ -131,17 +144,17 @@ const refusal = (status: number, code: string, message: string): Outcome => ({ k
  */
 export function createRouteDecider<Req = any>(
   options: RouteTableOptions<Req>,
-  locate: (request: Req) => { method: string; url: string },
+  locate: (request: Req) => { method: string; url: string; caseSensitive?: boolean },
 ): (request: Req) => Promise<Outcome> {
-  const { routes, ...rest } = options ?? ({} as RouteTableOptions<Req>);
+  const { routes, caseSensitive: _caseSensitive, ...rest } = options ?? ({} as RouteTableOptions<Req>);
   const table = compileRoutes(routes);
   const decide = createAuthorizer<Req>(rest);
   const denied = refusal(rest.denyStatus ?? 403, 'forbidden', 'access is denied');
   return async (request) => {
     let match: RouteMatch<Req> | undefined;
     try {
-      const { method, url } = locate(request);
-      match = table.match(method, url);
+      const { method, url, caseSensitive } = locate(request);
+      match = table.match(method, url, options.caseSensitive ?? caseSensitive);
     } catch (error) {
       try {
         rest.onError?.(error, request);

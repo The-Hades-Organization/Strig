@@ -86,7 +86,8 @@ export class StrigGuard {
  * deny by default. Precedence: the table decides first, and a route it does not cover or denies is refused whatever
  * `@Can` says. When the table allows, a `@Can` on the handler or controller adds a second check that must also pass
  * (so `@Can` narrows, never opens), even on a `public` rule. A handler with no `@Can` is fine: the table is enough.
- * Same HTTP-only limit as `StrigGuard`.
+ * Case follows the platform: Fastify (a request with `raw`) compares literals case sensitive, Express ignores case; set
+ * `caseSensitive` to override. Same HTTP-only limit as `StrigGuard`.
  */
 export class StrigRouteGuard {
   private readonly options: RouteTableOptions;
@@ -96,8 +97,8 @@ export class StrigRouteGuard {
   constructor(options: RouteTableOptions) {
     peer();
     this.options = options;
-    this.byTable = createRouteDecider(options, (request: any) => ({ method: request.method, url: request.originalUrl ?? request.url }));
-    const { routes: _routes, ...rest } = options;
+    this.byTable = createRouteDecider(options, (request: any) => ({ method: request.method, url: request.originalUrl ?? request.url, caseSensitive: request.raw ? true : false }));
+    const { routes: _routes, caseSensitive: _caseSensitive, ...rest } = options;
     this.byCan = createAuthorizer(rest);
   }
 

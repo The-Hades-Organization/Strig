@@ -40,11 +40,11 @@ export function createCan<Req = any>(
  * Global middleware for a central route table, deny by default: `app.use(authorizeRoutes({ routes, subject, local }))`
  * before the routers. A request no rule covers answers 403 (also for URLs that have no route: 404 becomes 403), a
  * `public: true` rule passes without reading the subject, any other rule runs the usual decision. It matches
- * `req.originalUrl`, so mounting under routers does not shift the paths. Answer CORS preflights (`OPTIONS`) before it
+ * `req.originalUrl`, so mounting under routers does not shift the paths, and ignores case in literals like Express does (`caseSensitive: true` if you turned its `case sensitive routing` on). Answer CORS preflights (`OPTIONS`) before it
  * or give them a public rule. Per-route `can()` still works and runs after it, so it only narrows.
  */
 export function authorizeRoutes<Req = any>(options: RouteTableOptions<Req>): Handler<Req> {
-  const decide = createRouteDecider<Req>(options, (req: any) => ({ method: req.method, url: req.originalUrl ?? req.url }));
+  const decide = createRouteDecider<Req>(options, (req: any) => ({ method: req.method, url: req.originalUrl ?? req.url, caseSensitive: false }));
   return middleware(decide);
 }
 
