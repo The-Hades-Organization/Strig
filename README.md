@@ -252,7 +252,7 @@ Two more tools:
 
 ## Auditing
 
-With the `audit` feature, every change that goes through governance becomes an `AuditRecord`, applied or refused. Record ReBAC tuples and role assignments with `Auditor::tuple_change` and `Auditor::role_change`. If the sink fails to write, governance refuses the change with the `audit` violation: no record, no change.
+With the `audit` feature, every change that goes through governance becomes an `AuditRecord`, applied or refused. Record ReBAC tuples and role assignments with `Auditor::tuple_change` and `Auditor::role_change`. If the sink fails to write, governance refuses the change with the `audit` violation: no record, no change (unless you choose `FailMode::Open`, below).
 
 ```rust
 let auditor = Arc::new(Auditor::new(AuditLevel::Standard, Arc::new(JsonLinesAudit::new(file))));
@@ -287,6 +287,36 @@ The numbers are checked: the `estimates_match_reference_records` and `decision_e
 ### Hash chain
 
 At the `forensic` level each record carries the hash of the previous one. `audit::verify_chain` detects an edited or removed record, and `Auditor::resume_chain` continues the chain after a restart.
+
+The exact bytes of a record and the hash computation, with a test vector another language can reproduce, are in [docs/audit-format.md](docs/audit-format.md). The same page explains how to take only the records and chain them in your own log, and how to anchor the head of the chain outside (`Auditor::chain_head`, then `verify_chain_anchored(&records, start, head)`), which is what catches records cut off the end.
+
+### When the sink fails
+
+By default a sink that fails refuses the change (`FailMode::Closed`). With `FailMode::Open` the change goes ahead and the record waits in an in-memory retry queue, in order, with a capacity and a backoff you set (`RetryPolicy`); `AuditStatus::Pending` says it is waiting and `Auditor::stats()` counts what is waiting or was dropped. The mode is chosen per call (`governance.at(now).fail_mode(..)`, `Auditor::grant_mutation_with`), per permission (`with_permission_fail_mode`) or as the auditor's default (`with_fail_mode`), in that order of precedence.
+
+```rust
+let auditor = Auditor::new(AuditLevel::Forensic, sink)
+    .with_fail_mode(FailMode::Closed)
+    .with_permission_fail_mode("report.view", FailMode::Open)
+    .with_retry(RetryPolicy { capacity: 500, ..RetryPolicy::default() })
+    .with_redactor(mask_attributes(["ip", "email"], "[redacted]"));
+```
+
+`with_redactor` masks attributes before the record is hashed and written, so the hash covers the masked version.
+
+In JS the sink is a synchronous function; a throw is a failure of the sink:
+
+```js
+const engine = new Engine(spec, {
+  auditSink: (record) => log.append(record),
+  auditPolicy: { failMode: 'closed', permissions: { 'report.view': 'open' }, capacity: 500 },
+  onAuditDrop: (record) => spill.write(record),
+});
+const out = engine.apply({ actor, current, mutation, audit: { level: 'forensic', prevHash, failMode: 'open' } });
+out.auditStatus;                 // 'written' | 'pending' | 'dropped'
+engine.flushAudit();             // retries the queue, answers { pending, writtenLate, dropped, failures, nextRetryAt }
+verifyAuditChain(records, { start, head }); // { ok: true, head } or { ok: false, code }
+```
 
 ## Validity windows
 

@@ -9,6 +9,7 @@
 //! the hash of the previous one, so deleting or editing a record breaks verification
 //! ([`verify_chain`]).
 
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::io::Write;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -284,6 +285,280 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// What happens to a change when its audit record cannot be written.
+///
+/// The mode of a record is resolved in this order: the mode given for the call
+/// ([`Auditor::grant_mutation_with`], [`GovernanceAt::fail_mode`](crate::governance::GovernanceAt::fail_mode)),
+/// then the mode set for the record's permission ([`Auditor::with_permission_fail_mode`]), then
+/// the auditor's default ([`Auditor::with_fail_mode`]), then [`FailMode::Closed`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailMode {
+    /// No record, no change: the change is refused with the `audit` violation.
+    #[default]
+    Closed,
+    /// The change goes ahead and the record waits in the retry queue ([`RetryPolicy`]).
+    Open,
+}
+
+/// Where a record ended up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditStatus {
+    /// The sink took it.
+    Written,
+    /// The sink failed in `open` mode; the record waits in the retry queue, in order.
+    Pending,
+    /// The sink failed in `open` mode and the queue was full: the record was not kept. Its
+    /// hash is not part of the chain, so the chain of the written records still verifies.
+    Dropped,
+}
+
+/// A record the retry queue could not keep.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DroppedRecord {
+    pub record: AuditRecord,
+}
+
+/// Called, outside any lock, for each record dropped because the queue was full.
+pub type DropHook = Arc<dyn Fn(&DroppedRecord) + Send + Sync>;
+
+/// Limits of the retry queue that `open` mode feeds.
+#[derive(Clone)]
+pub struct RetryPolicy {
+    /// Records kept waiting; past it a new record is dropped (the older ones keep their place).
+    pub capacity: usize,
+    /// Wait after the first failure, doubled on each consecutive failure up to `max_delay_ms`.
+    pub base_delay_ms: u64,
+    pub max_delay_ms: u64,
+    pub on_drop: Option<DropHook>,
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            capacity: 1024,
+            base_delay_ms: 100,
+            max_delay_ms: 30_000,
+            on_drop: None,
+        }
+    }
+}
+
+impl fmt::Debug for RetryPolicy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RetryPolicy")
+            .field("capacity", &self.capacity)
+            .field("base_delay_ms", &self.base_delay_ms)
+            .field("max_delay_ms", &self.max_delay_ms)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Counters of the retry queue, for a metric or a health check.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuditStats {
+    /// Records waiting for the sink.
+    pub pending: usize,
+    /// Records the sink took after waiting in the queue.
+    pub written_late: u64,
+    /// Records dropped because the queue was full.
+    pub dropped: u64,
+    /// Failed writes (each retry that fails counts).
+    pub failures: u64,
+    /// Earliest instant (the auditor's clock) at which a write is retried by itself.
+    pub next_retry_at: Option<u64>,
+}
+
+#[derive(Default)]
+struct QueueState {
+    items: VecDeque<AuditRecord>,
+    attempts: u32,
+    next_at: u64,
+    last_error: String,
+    stats: AuditStats,
+}
+
+/// The retry queue of `open` mode. Records leave it in the order they entered, and nothing is
+/// written ahead of the record at the head, so the sink always sees the hash chain in order. Share
+/// one queue between short-lived [`Auditor`]s with [`Auditor::with_queue`].
+#[derive(Default)]
+pub struct PendingQueue {
+    policy: RetryPolicy,
+    state: Mutex<QueueState>,
+}
+
+impl fmt::Debug for PendingQueue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PendingQueue")
+            .field("policy", &self.policy)
+            .field("stats", &self.stats())
+            .finish()
+    }
+}
+
+impl PendingQueue {
+    pub fn new(policy: RetryPolicy) -> Self {
+        Self {
+            policy,
+            state: Mutex::default(),
+        }
+    }
+
+    pub fn stats(&self) -> AuditStats {
+        let state = lock(&self.state);
+        let mut stats = state.stats;
+        stats.pending = state.items.len();
+        stats.next_retry_at = (!state.items.is_empty()).then_some(state.next_at);
+        stats
+    }
+
+    /// The records still waiting, oldest first.
+    pub fn pending(&self) -> Vec<AuditRecord> {
+        lock(&self.state).items.iter().cloned().collect()
+    }
+
+    /// Tries to write the waiting records now (or only if the backoff has passed, when `force` is
+    /// false) and returns how many are still waiting.
+    pub fn flush(&self, sink: &dyn AuditSink, now: u64, force: bool) -> usize {
+        let mut state = lock(&self.state);
+        if force || now >= state.next_at {
+            self.drain(&mut state, sink, now);
+        }
+        state.items.len()
+    }
+
+    fn drain(&self, state: &mut QueueState, sink: &dyn AuditSink, now: u64) {
+        while let Some(head) = state.items.front() {
+            match sink.write(head) {
+                Ok(()) => {
+                    state.items.pop_front();
+                    state.stats.written_late += 1;
+                    state.attempts = 0;
+                    state.next_at = 0;
+                }
+                Err(error) => {
+                    self.failed(state, now, &error);
+                    return;
+                }
+            }
+        }
+    }
+
+    fn failed(&self, state: &mut QueueState, now: u64, error: &AuditError) {
+        state.attempts = state.attempts.saturating_add(1);
+        state.stats.failures += 1;
+        state.last_error = error.to_string();
+        let shift = (state.attempts - 1).min(32);
+        let delay = self
+            .policy
+            .base_delay_ms
+            .saturating_mul(1u64 << shift)
+            .min(self.policy.max_delay_ms);
+        state.next_at = now.saturating_add(delay);
+    }
+
+    /// Writes `record` after everything already waiting, or queues it (`open`) or refuses it
+    /// (`closed`) if the sink fails.
+    fn submit(
+        &self,
+        sink: &dyn AuditSink,
+        record: &AuditRecord,
+        mode: FailMode,
+        now: u64,
+    ) -> Result<AuditStatus, AuditError> {
+        let status = {
+            let mut state = lock(&self.state);
+            if !state.items.is_empty() && (mode == FailMode::Closed || now >= state.next_at) {
+                self.drain(&mut state, sink, now);
+            }
+            if !state.items.is_empty() {
+                if mode == FailMode::Closed {
+                    let waiting = state.items.len();
+                    return Err(AuditError::Sink(format!(
+                        "{waiting} earlier records still pending: {}",
+                        state.last_error
+                    )));
+                }
+                self.enqueue(&mut state, record)
+            } else {
+                match sink.write(record) {
+                    Ok(()) => AuditStatus::Written,
+                    Err(error) if mode == FailMode::Closed => return Err(error),
+                    Err(error) => {
+                        self.failed(&mut state, now, &error);
+                        self.enqueue(&mut state, record)
+                    }
+                }
+            }
+        };
+        if status == AuditStatus::Dropped
+            && let Some(hook) = &self.policy.on_drop
+        {
+            hook(&DroppedRecord { record: record.clone() });
+        }
+        Ok(status)
+    }
+
+    fn enqueue(&self, state: &mut QueueState, record: &AuditRecord) -> AuditStatus {
+        if state.items.len() >= self.policy.capacity {
+            state.stats.dropped += 1;
+            return AuditStatus::Dropped;
+        }
+        state.items.push_back(record.clone());
+        AuditStatus::Pending
+    }
+}
+
+/// A record and where it ended up.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Emitted {
+    pub record: AuditRecord,
+    pub status: AuditStatus,
+}
+
+/// Masks the sensitive parts of a record before it is hashed and written. It may fail (a host
+/// function that throws): the record is then refused whatever the [`FailMode`], never written
+/// unmasked.
+pub type Redactor = Arc<dyn Fn(&mut AuditRecord) -> Result<(), String> + Send + Sync>;
+
+/// Called with every record the auditor accepted, written or queued, and where it ended up.
+pub type Observer = Arc<dyn Fn(&AuditRecord, AuditStatus) + Send + Sync>;
+
+/// A [`Redactor`] that replaces the value of the attributes named in `keys` by `mask`, in the
+/// request metadata, in the actor's and the resource's attributes, and in the same copies inside a
+/// decision trace. Keys are matched exactly. Digests (`before_digest`, `after_digest`) are not
+/// touched: they carry no attribute.
+pub fn mask_attributes<I, S>(keys: I, mask: impl Into<crate::attr::Value>) -> Redactor
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    let keys: Vec<String> = keys.into_iter().map(Into::into).collect();
+    let mask = mask.into();
+    let apply = move |attrs: &mut Attributes| {
+        for key in &keys {
+            if let Some(value) = attrs.get_mut(key) {
+                *value = mask.clone();
+            }
+        }
+    };
+    Arc::new(move |record: &mut AuditRecord| {
+        apply(&mut record.meta);
+        if let Some(actor) = &mut record.actor_detail {
+            apply(&mut actor.attrs);
+        }
+        if let Some(resource) = &mut record.resource {
+            apply(&mut resource.attrs);
+        }
+        if let Some(explanation) = &mut record.explanation {
+            apply(&mut explanation.subject.attrs);
+            apply(&mut explanation.resource.attrs);
+        }
+        Ok(())
+    })
+}
+
 /// In-memory records, for tests and for callers who drain the trail themselves.
 #[derive(Debug, Default)]
 pub struct MemoryAuditLog {
@@ -359,6 +634,11 @@ pub struct Auditor {
     sink: Arc<dyn AuditSink>,
     clock: Clock,
     last_hash: Mutex<Option<String>>,
+    fail_mode: FailMode,
+    permission_modes: HashMap<String, FailMode>,
+    queue: Arc<PendingQueue>,
+    redactor: Option<Redactor>,
+    observer: Option<Observer>,
 }
 
 impl fmt::Debug for Auditor {
@@ -376,7 +656,69 @@ impl Auditor {
             sink,
             clock: Arc::new(system_clock),
             last_hash: Mutex::new(None),
+            fail_mode: FailMode::Closed,
+            permission_modes: HashMap::new(),
+            queue: Arc::new(PendingQueue::default()),
+            redactor: None,
+            observer: None,
         }
+    }
+
+    /// The mode for records with no mode of their own (default [`FailMode::Closed`]).
+    pub fn with_fail_mode(mut self, mode: FailMode) -> Self {
+        self.fail_mode = mode;
+        self
+    }
+
+    /// The mode for records about `permission` (a grant change or a decision on it), over the
+    /// auditor's default and under a mode given for the call. Role, tuple and exclusive-resource
+    /// records carry no permission and follow the default.
+    pub fn with_permission_fail_mode(mut self, permission: impl Into<String>, mode: FailMode) -> Self {
+        self.permission_modes.insert(permission.into(), mode);
+        self
+    }
+
+    /// Limits of the retry queue of `open` mode, in a queue of its own.
+    pub fn with_retry(mut self, policy: RetryPolicy) -> Self {
+        self.queue = Arc::new(PendingQueue::new(policy));
+        self
+    }
+
+    /// Uses a queue that outlives this auditor, so records that are still waiting keep their place
+    /// when the next auditor (one per request, say) is built.
+    pub fn with_queue(mut self, queue: Arc<PendingQueue>) -> Self {
+        self.queue = queue;
+        self
+    }
+
+    /// Masks each record before it is hashed and written; the hash covers the masked record.
+    pub fn with_redactor(mut self, redactor: Redactor) -> Self {
+        self.redactor = Some(redactor);
+        self
+    }
+
+    pub fn observe(mut self, observer: impl Fn(&AuditRecord, AuditStatus) + Send + Sync + 'static) -> Self {
+        self.observer = Some(Arc::new(observer));
+        self
+    }
+
+    pub fn queue(&self) -> &Arc<PendingQueue> {
+        &self.queue
+    }
+
+    pub fn stats(&self) -> AuditStats {
+        self.queue.stats()
+    }
+
+    /// Tries to write the waiting records now and returns how many are still waiting.
+    pub fn flush(&self) -> usize {
+        self.queue.flush(self.sink.as_ref(), (self.clock)(), true)
+    }
+
+    /// Hash of the last record accepted (written or queued): the head of the chain, to publish as
+    /// an anchor or to resume with [`Auditor::resume_chain`]. `None` before the first record.
+    pub fn chain_head(&self) -> Option<String> {
+        lock(&self.last_hash).clone()
     }
 
     pub fn with_clock(mut self, clock: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
@@ -448,7 +790,9 @@ impl Auditor {
         decision: &Decision,
         meta: &Attributes,
     ) -> Result<AuditRecord, AuditError> {
-        self.emit(self.decision_record(request.subject, request.permission, request.resource, decision, meta))
+        let record = self.decision_record(request.subject, request.permission, request.resource, decision, meta);
+        self.emit_with(record, Some(request.permission), None)
+            .map(|emitted| emitted.record)
     }
 
     /// Records a decision with the full trace.
@@ -463,7 +807,8 @@ impl Auditor {
         if self.level >= AuditLevel::Forensic {
             record.explanation = Some(Box::new(explanation.clone()));
         }
-        self.emit(record)
+        self.emit_with(record, Some(&explanation.permission), None)
+            .map(|emitted| emitted.record)
     }
 
     fn decision_record(
@@ -519,6 +864,21 @@ impl Auditor {
         result: &Result<Vec<Grant>, Vec<Violation>>,
         meta: &Attributes,
     ) -> Result<AuditRecord, AuditError> {
+        self.grant_mutation_with(actor, mutation, before, result, meta, None)
+            .map(|emitted| emitted.record)
+    }
+
+    /// Like [`Auditor::grant_mutation`], with the [`FailMode`] for this call (over the one of the
+    /// permission and the auditor's default) and where the record ended up.
+    pub fn grant_mutation_with(
+        &self,
+        actor: &Subject,
+        mutation: &Mutation,
+        before: &[Grant],
+        result: &Result<Vec<Grant>, Vec<Violation>>,
+        meta: &Attributes,
+        call: Option<FailMode>,
+    ) -> Result<Emitted, AuditError> {
         let (outcome, violations) = match result {
             Ok(_) => (AuditOutcome::Applied, &[][..]),
             Err(violations) => (AuditOutcome::Rejected, violations.as_slice()),
@@ -542,7 +902,7 @@ impl Auditor {
                     Err(_) => before.clone(),
                 };
                 let digests = Some((before, after));
-                return self.role_record(actor, assigned, &change, outcome, violations, digests, meta);
+                return self.role_record(actor, assigned, &change, outcome, violations, digests, meta, call);
             }
         };
         let mut record = self.base(actor, action, object, outcome);
@@ -562,7 +922,8 @@ impl Auditor {
                 Err(_) => grant_set_digest(before),
             });
         }
-        self.emit(record)
+        let permission = grant.map(|g| g.permission.as_str());
+        self.emit_with(record, permission, call)
     }
 
     /// Records the writing or removal of a ReBAC tuple.
@@ -614,7 +975,8 @@ impl Auditor {
         outcome: AuditOutcome,
         meta: &Attributes,
     ) -> Result<AuditRecord, AuditError> {
-        self.role_record(actor, assigned, change, outcome, &[], None, meta)
+        self.role_record(actor, assigned, change, outcome, &[], None, meta, None)
+            .map(|emitted| emitted.record)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -627,7 +989,8 @@ impl Auditor {
         violations: &[Violation],
         digests: Option<(String, String)>,
         meta: &Attributes,
-    ) -> Result<AuditRecord, AuditError> {
+        call: Option<FailMode>,
+    ) -> Result<Emitted, AuditError> {
         let action = if assigned {
             AuditAction::RoleAssign
         } else {
@@ -650,7 +1013,7 @@ impl Auditor {
             record.before_digest = Some(before);
             record.after_digest = Some(after);
         }
-        self.emit(record)
+        self.emit_with(record, None, call)
     }
 
     /// Names of the invariants at `standard`; name and message from `detailed` upward.
@@ -667,17 +1030,41 @@ impl Auditor {
             .collect()
     }
 
-    fn emit(&self, mut record: AuditRecord) -> Result<AuditRecord, AuditError> {
-        if self.level < AuditLevel::Forensic {
-            self.sink.write(&record)?;
-            return Ok(record);
+    fn emit(&self, record: AuditRecord) -> Result<AuditRecord, AuditError> {
+        self.emit_with(record, None, None).map(|emitted| emitted.record)
+    }
+
+    fn mode_for(&self, permission: Option<&str>, call: Option<FailMode>) -> FailMode {
+        call.or_else(|| permission.and_then(|p| self.permission_modes.get(p).copied()))
+            .unwrap_or(self.fail_mode)
+    }
+
+    fn emit_with(
+        &self,
+        mut record: AuditRecord,
+        permission: Option<&str>,
+        call: Option<FailMode>,
+    ) -> Result<Emitted, AuditError> {
+        if let Some(redactor) = &self.redactor {
+            redactor(&mut record).map_err(|m| AuditError::Sink(format!("redaction failed: {m}")))?;
         }
+        let mode = self.mode_for(permission, call);
+        let now = (self.clock)();
+        let forensic = self.level >= AuditLevel::Forensic;
         let mut last = lock(&self.last_hash);
-        record.prev_hash = last.clone();
-        record.hash = Some(record_hash(&record)?);
-        self.sink.write(&record)?;
-        *last = record.hash.clone();
-        Ok(record)
+        if forensic {
+            record.prev_hash = last.clone();
+            record.hash = Some(record_hash(&record)?);
+        }
+        let status = self.queue.submit(self.sink.as_ref(), &record, mode, now)?;
+        if forensic && status != AuditStatus::Dropped {
+            *last = record.hash.clone();
+        }
+        drop(last);
+        if let Some(observer) = &self.observer {
+            observer(&record, status);
+        }
+        Ok(Emitted { record, status })
     }
 }
 
@@ -730,6 +1117,10 @@ pub enum ChainError {
     Broken { index: usize },
     #[error("registro {index}: sem hash, não é nível forensic")]
     Unchained { index: usize },
+    #[error("a cadeia não parte da âncora conhecida")]
+    AnchorMismatch,
+    #[error("a cadeia não termina na âncora publicada")]
+    HeadMismatch,
 }
 
 /// Checks a sequence of forensic records, in the order they were written.
@@ -746,6 +1137,35 @@ pub fn verify_chain(records: &[AuditRecord]) -> Result<(), ChainError> {
             return Err(ChainError::Tampered { index });
         }
         previous = Some(hash);
+    }
+    Ok(())
+}
+
+/// Hash of the last record: the head of the chain, to publish outside (an external log, a
+/// timestamping service) as an anchor. `None` for an empty sequence or an unchained last record.
+pub fn chain_head(records: &[AuditRecord]) -> Option<&str> {
+    records.last()?.hash.as_deref()
+}
+
+/// Like [`verify_chain`], against anchors known from outside. `start` is the hash the first record
+/// must continue (the head of the part of the chain before `records`; `None` if `records` begins
+/// the chain), and `head` is the published head the last record must carry. The second anchor is
+/// what catches records cut off the end, which no internal check can see.
+pub fn verify_chain_anchored(
+    records: &[AuditRecord],
+    start: Option<&str>,
+    head: Option<&str>,
+) -> Result<(), ChainError> {
+    verify_chain(records)?;
+    if let Some(first) = records.first()
+        && first.prev_hash.as_deref() != start
+    {
+        return Err(ChainError::AnchorMismatch);
+    }
+    if let Some(head) = head
+        && chain_head(records) != Some(head)
+    {
+        return Err(ChainError::HeadMismatch);
     }
     Ok(())
 }
@@ -1009,5 +1429,307 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[1].action, AuditAction::RoleRevoke);
         assert_eq!(lines[0].object, "editor@bob");
+    }
+
+    fn forensic_tuple(sink: Arc<dyn AuditSink>) -> Auditor {
+        Auditor::new(AuditLevel::Forensic, sink).with_clock(|| 1_700_000_000_000)
+    }
+
+    fn bob_tuple() -> Tuple {
+        Tuple::new(ObjectRef::new("doc", "d1"), "viewer", ObjectRef::new("user", "bob"))
+    }
+
+    fn write_tuple(auditor: &Auditor) -> Result<AuditRecord, AuditError> {
+        auditor.tuple_change(&actor(), true, &bob_tuple(), AuditOutcome::Applied, &Attributes::new())
+    }
+
+    /// A sink that fails while `down` is set and keeps what it takes, in order.
+    #[derive(Default)]
+    struct Flaky {
+        down: std::sync::atomic::AtomicBool,
+        taken: Mutex<Vec<AuditRecord>>,
+    }
+
+    impl Flaky {
+        fn set_down(&self, down: bool) {
+            self.down.store(down, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    impl AuditSink for Flaky {
+        fn write(&self, record: &AuditRecord) -> Result<(), AuditError> {
+            if self.down.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(AuditError::Sink("down".into()));
+            }
+            lock(&self.taken).push(record.clone());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn closed_mode_refuses_when_the_sink_fails() {
+        let sink = Arc::new(Flaky::default());
+        sink.set_down(true);
+        let auditor = forensic_tuple(sink.clone());
+        assert!(write_tuple(&auditor).is_err());
+        assert_eq!(auditor.stats().pending, 0);
+        assert_eq!(auditor.chain_head(), None, "a refused record does not enter the chain");
+    }
+
+    #[test]
+    fn open_mode_queues_and_drains_in_chain_order() {
+        let sink = Arc::new(Flaky::default());
+        let auditor = forensic_tuple(sink.clone())
+            .with_fail_mode(FailMode::Open)
+            .with_retry(RetryPolicy {
+                base_delay_ms: 0,
+                ..RetryPolicy::default()
+            });
+        write_tuple(&auditor).unwrap();
+        sink.set_down(true);
+        for _ in 0..3 {
+            let emitted = auditor
+                .grant_mutation_with(
+                    &actor(),
+                    &Mutation::Add(grant("g1")),
+                    &[],
+                    &Ok(vec![grant("g1")]),
+                    &Attributes::new(),
+                    None,
+                )
+                .unwrap();
+            assert_eq!(emitted.status, AuditStatus::Pending);
+        }
+        assert_eq!(auditor.stats().pending, 3);
+        assert_eq!(auditor.stats().failures, 3);
+        sink.set_down(false);
+        assert_eq!(auditor.flush(), 0);
+        write_tuple(&auditor).unwrap();
+        let taken = lock(&sink.taken).clone();
+        assert_eq!(taken.len(), 5);
+        assert_eq!(verify_chain(&taken), Ok(()), "the sink saw the chain in order");
+        assert_eq!(auditor.stats().written_late, 3);
+        assert_eq!(auditor.chain_head().as_deref(), chain_head(&taken));
+    }
+
+    #[test]
+    fn nothing_jumps_the_queue() {
+        let sink = Arc::new(Flaky::default());
+        sink.set_down(true);
+        let auditor = forensic_tuple(sink.clone()).with_fail_mode(FailMode::Open);
+        write_tuple(&auditor).unwrap();
+        sink.set_down(false);
+        let closed = auditor.grant_mutation_with(
+            &actor(),
+            &Mutation::Add(grant("g1")),
+            &[],
+            &Ok(vec![grant("g1")]),
+            &Attributes::new(),
+            Some(FailMode::Closed),
+        );
+        assert!(closed.is_ok(), "closed forces the drain, then writes");
+        let taken = lock(&sink.taken).clone();
+        assert_eq!(taken.len(), 2);
+        assert_eq!(taken[1].prev_hash, taken[0].hash);
+        assert_eq!(verify_chain(&taken), Ok(()));
+    }
+
+    #[test]
+    fn backoff_holds_the_retry_until_it_is_due() {
+        let sink = Arc::new(Flaky::default());
+        sink.set_down(true);
+        let clock = Arc::new(std::sync::atomic::AtomicU64::new(1_000));
+        let c = clock.clone();
+        let auditor = Auditor::new(AuditLevel::Minimal, sink.clone())
+            .with_clock(move || c.load(std::sync::atomic::Ordering::SeqCst))
+            .with_fail_mode(FailMode::Open)
+            .with_retry(RetryPolicy {
+                base_delay_ms: 100,
+                max_delay_ms: 250,
+                ..RetryPolicy::default()
+            });
+        let change = RoleChange {
+            subject: "bob".into(),
+            role: "editor".into(),
+            scope: None,
+        };
+        let record = |a: &Auditor| a.role_change(&actor(), true, &change, AuditOutcome::Applied, &Attributes::new());
+        record(&auditor).unwrap();
+        assert_eq!(auditor.stats().next_retry_at, Some(1_100));
+        sink.set_down(false);
+        clock.store(1_050, std::sync::atomic::Ordering::SeqCst);
+        record(&auditor).unwrap();
+        assert_eq!(auditor.stats().pending, 2, "before the backoff the sink is not tried");
+        clock.store(1_100, std::sync::atomic::Ordering::SeqCst);
+        record(&auditor).unwrap();
+        assert_eq!(auditor.stats().pending, 0);
+        assert_eq!(lock(&sink.taken).len(), 3);
+
+        sink.set_down(true);
+        let mut now = 1_100;
+        for expected in [100, 200, 250, 250] {
+            clock.store(now, std::sync::atomic::Ordering::SeqCst);
+            record(&auditor).unwrap();
+            assert_eq!(auditor.stats().next_retry_at, Some(now + expected));
+            now += expected;
+        }
+    }
+
+    #[test]
+    fn full_queue_drops_the_new_record_and_keeps_the_chain_verifiable() {
+        let sink = Arc::new(Flaky::default());
+        let dropped = Arc::new(Mutex::new(Vec::new()));
+        let seen = dropped.clone();
+        let auditor = forensic_tuple(sink.clone())
+            .with_fail_mode(FailMode::Open)
+            .with_retry(RetryPolicy {
+                capacity: 1,
+                base_delay_ms: 0,
+                on_drop: Some(Arc::new(move |d: &DroppedRecord| lock(&seen).push(d.record.clone()))),
+                ..RetryPolicy::default()
+            });
+        write_tuple(&auditor).unwrap();
+        sink.set_down(true);
+        let status = |a: &Auditor| {
+            a.grant_mutation_with(
+                &actor(),
+                &Mutation::Add(grant("g1")),
+                &[],
+                &Ok(vec![grant("g1")]),
+                &Attributes::new(),
+                None,
+            )
+            .unwrap()
+            .status
+        };
+        assert_eq!(status(&auditor), AuditStatus::Pending);
+        assert_eq!(status(&auditor), AuditStatus::Dropped);
+        assert_eq!(auditor.stats().dropped, 1);
+        assert_eq!(lock(&dropped).len(), 1);
+        sink.set_down(false);
+        write_tuple(&auditor).unwrap();
+        let taken = lock(&sink.taken).clone();
+        assert_eq!(taken.len(), 3);
+        assert_eq!(verify_chain(&taken), Ok(()));
+    }
+
+    #[test]
+    fn fail_mode_precedence_is_call_then_permission_then_default() {
+        let sink = Arc::new(Flaky::default());
+        sink.set_down(true);
+        let auditor = Auditor::new(AuditLevel::Minimal, sink)
+            .with_permission_fail_mode("doc.edit", FailMode::Open)
+            .with_permission_fail_mode("doc.view", FailMode::Closed)
+            .with_fail_mode(FailMode::Closed);
+        let apply = |permission: &str, call: Option<FailMode>| {
+            let grant = Grant::allow(
+                "g",
+                SubjectMatcher::role("editor"),
+                permission,
+                TargetSelector::kind("doc"),
+            );
+            auditor.grant_mutation_with(
+                &actor(),
+                &Mutation::Add(grant.clone()),
+                &[],
+                &Ok(vec![grant]),
+                &Attributes::new(),
+                call,
+            )
+        };
+        assert!(apply("doc.other", None).is_err(), "default");
+        assert!(apply("doc.edit", None).is_ok(), "permission");
+        assert!(
+            apply("doc.edit", Some(FailMode::Closed)).is_err(),
+            "call over permission"
+        );
+        assert!(apply("doc.view", Some(FailMode::Open)).is_ok(), "call over permission");
+    }
+
+    #[test]
+    fn redaction_is_hashed_and_written_masked() {
+        let log = Arc::new(MemoryAuditLog::new());
+        let auditor = Auditor::new(AuditLevel::Forensic, log.clone())
+            .with_clock(|| 1)
+            .with_redactor(mask_attributes(["ip", "email"], "***"));
+        let actor = Subject::user("alice").with_attr("email", "alice@example.com");
+        let mut meta = Attributes::new();
+        meta.insert("ip".into(), "203.0.113.42".into());
+        meta.insert("reason".into(), "ticket".into());
+        auditor
+            .tuple_change(&actor, true, &bob_tuple(), AuditOutcome::Applied, &meta)
+            .unwrap();
+        let records = log.records();
+        assert_eq!(records[0].meta["ip"], "***".into());
+        assert_eq!(records[0].meta["reason"], "ticket".into());
+        assert_eq!(records[0].actor_detail.as_ref().unwrap().attrs["email"], "***".into());
+        assert_eq!(verify_chain(&records), Ok(()));
+        assert!(!serde_json::to_string(&records[0]).unwrap().contains("203.0.113.42"));
+    }
+
+    #[test]
+    fn a_failing_redactor_refuses_even_in_open_mode() {
+        let log = Arc::new(MemoryAuditLog::new());
+        let auditor = Auditor::new(AuditLevel::Standard, log.clone())
+            .with_fail_mode(FailMode::Open)
+            .with_redactor(Arc::new(|_| Err("boom".into())));
+        assert!(write_tuple(&auditor).is_err());
+        assert!(log.records().is_empty());
+    }
+
+    #[test]
+    fn anchors_catch_truncation_and_a_foreign_start() {
+        let log = Arc::new(MemoryAuditLog::new());
+        let auditor = forensic_tuple(log.clone());
+        for _ in 0..3 {
+            write_tuple(&auditor).unwrap();
+        }
+        let records = log.records();
+        let head = chain_head(&records).unwrap().to_string();
+        assert_eq!(auditor.chain_head().as_deref(), Some(head.as_str()));
+        assert_eq!(verify_chain_anchored(&records, None, Some(&head)), Ok(()));
+        assert_eq!(
+            verify_chain_anchored(&records[..2], None, Some(&head)),
+            Err(ChainError::HeadMismatch),
+            "records cut off the end"
+        );
+        let anchor = records[0].hash.clone().unwrap();
+        assert_eq!(verify_chain_anchored(&records[1..], Some(&anchor), Some(&head)), Ok(()));
+        assert_eq!(
+            verify_chain_anchored(&records[1..], Some("00"), None),
+            Err(ChainError::AnchorMismatch)
+        );
+    }
+
+    /// The vector of `docs/audit-format.md`: another implementation must reproduce these bytes and this hash.
+    pub(super) const VECTOR_RECORD: &str = r#"{"at":1700000000000,"level":"forensic","actor":"alice","action":"tuple_add","object":"doc:d1#viewer@user:bob","outcome":"applied","tuple":{"object":{"kind":"doc","id":"d1"},"relation":"viewer","subject":{"object":{"kind":"user","id":"bob"}}},"actor_detail":{"kind":"user","id":"alice","roles":[{"role":"admin"}],"principals":["authenticated"]},"meta":{"ip":"203.0.113.42","reason":"ticket \"SUP-1\" é"},"prev_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#;
+    pub(super) const VECTOR_HASH: &str = "087dbffda54667a64ae971f80c70bf6544b205be90c9ca9cc592ef113f4a4cb5";
+
+    fn vector_record() -> AuditRecord {
+        let sink = Arc::new(MemoryAuditLog::new());
+        let auditor = Auditor::new(AuditLevel::Forensic, sink)
+            .with_clock(|| 1_700_000_000_000)
+            .resume_chain("a".repeat(64));
+        let mut meta = Attributes::new();
+        meta.insert("reason".into(), "ticket \"SUP-1\" é".into());
+        meta.insert("ip".into(), "203.0.113.42".into());
+        let actor = Subject::user("alice").with_role("admin");
+        auditor
+            .tuple_change(&actor, true, &bob_tuple(), AuditOutcome::Applied, &meta)
+            .unwrap()
+    }
+
+    #[test]
+    fn canonical_vector_matches_the_document() {
+        let record = vector_record();
+        let unsigned = {
+            let mut unsigned = record.clone();
+            unsigned.hash = None;
+            serde_json::to_string(&unsigned).unwrap()
+        };
+        assert_eq!(unsigned, VECTOR_RECORD);
+        assert_eq!(record.hash.as_deref(), Some(VECTOR_HASH));
+        let digest = hex(&Sha256::digest(VECTOR_RECORD.as_bytes()));
+        assert_eq!(digest, VECTOR_HASH, "the hash is SHA-256 of exactly those bytes");
     }
 }

@@ -7,11 +7,12 @@ let ready: Promise<Strig> | undefined;
 
 export function load(options: { wasm?: string | URL | Response | BufferSource | WebAssembly.Module } = {}): Promise<Strig> {
   ready ??= init(options.wasm ? { module_or_path: options.wasm } : undefined).then(() => {
-    const binding = glue as unknown as Pick<Strig, 'Engine' | 'Context' | 'Exclusive' | 'auditEstimate'> & DslBinding;
+    const binding = glue as unknown as Pick<Strig, 'Engine' | 'Context' | 'Exclusive' | 'auditEstimate' | 'verifyAuditChain'> & DslBinding;
     return {
       Engine: binding.Engine,
       Context: binding.Context,
       auditEstimate: binding.auditEstimate,
+      verifyAuditChain: binding.verifyAuditChain,
       Exclusive: binding.Exclusive,
       ...makeDsl(binding),
       backend: 'wasm',

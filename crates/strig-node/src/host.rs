@@ -16,12 +16,14 @@
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
+use serde::Deserialize;
 use serde_json::Value;
+use strig::audit::{AuditSink, Auditor, FailMode, PendingQueue, RetryPolicy, mask_attributes};
 use strig::{
-    ConditionError, ConditionRegistry, Context, Effect, Engine, EngineBuilder, Invariant, Mutation, Override, Proposal,
-    Request, Violation,
+    AuditError, AuditLevel, AuditRecord, ConditionError, ConditionRegistry, Context, Effect, Engine, EngineBuilder,
+    Invariant, Mutation, Override, Proposal, Request, Violation,
 };
 
 use crate::{BindingError, BindingResult, parse};
@@ -193,17 +195,145 @@ struct OverrideEntry {
     f: Arc<dyn HostFn>,
 }
 
+/// How the audit sink of the host is used: the failure mode of the records and the limits of the
+/// retry queue that `open` mode feeds. The mode of one `apply` (`audit.failMode`) wins over the one
+/// of the permission (`permissions`), which wins over `failMode`; the default is `closed`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AuditPolicy {
+    #[serde(default)]
+    pub fail_mode: FailMode,
+    #[serde(default)]
+    pub permissions: BTreeMap<String, FailMode>,
+    pub capacity: Option<usize>,
+    pub base_delay_ms: Option<u64>,
+    pub max_delay_ms: Option<u64>,
+}
+
+/// A sink that calls the host function: it takes the record as JSON and throws to refuse it.
+struct HostSink(Arc<dyn HostFn>);
+
+impl AuditSink for HostSink {
+    fn write(&self, record: &AuditRecord) -> Result<(), AuditError> {
+        let value = serde_json::to_value(record).map_err(|e| AuditError::Sink(e.to_string()))?;
+        invoke(self.0.as_ref(), value).map(|_| ()).map_err(AuditError::Sink)
+    }
+}
+
 /// The functions the host registered when it built the engine.
 #[derive(Default)]
 pub struct HostCallbacks {
     conditions: Vec<(String, Arc<dyn HostFn>)>,
     overrides: Vec<OverrideEntry>,
     invariants: BTreeMap<String, Arc<dyn HostFn>>,
+    audit_sink: Option<Arc<dyn HostFn>>,
+    audit_redact: Option<Arc<dyn HostFn>>,
+    audit_on_drop: Option<Arc<dyn HostFn>>,
+    audit_policy: AuditPolicy,
+    queue: OnceLock<Arc<PendingQueue>>,
 }
 
 impl HostCallbacks {
     pub fn is_empty(&self) -> bool {
-        self.conditions.is_empty() && self.overrides.is_empty() && self.invariants.is_empty()
+        self.conditions.is_empty()
+            && self.overrides.is_empty()
+            && self.invariants.is_empty()
+            && self.audit_sink.is_none()
+            && self.audit_redact.is_none()
+    }
+
+    /// Where `apply` writes the audit records, instead of only returning them. The function takes the
+    /// record (the JSON of `audit`) and throws to say the write failed, which applies the failure mode.
+    pub fn audit_sink(&mut self, f: Arc<dyn HostFn>) {
+        self.audit_sink = Some(f);
+    }
+
+    /// Masks each record before it is hashed and written: takes the record and returns it
+    /// changed. A throw, or an answer that is not a record, refuses the change in any failure mode.
+    pub fn audit_redact(&mut self, f: Arc<dyn HostFn>) {
+        self.audit_redact = Some(f);
+    }
+
+    /// Called with the record that a full retry queue dropped.
+    pub fn on_audit_drop(&mut self, f: Arc<dyn HostFn>) {
+        self.audit_on_drop = Some(f);
+    }
+
+    pub fn set_audit_policy(&mut self, policy: AuditPolicy) {
+        self.audit_policy = policy;
+    }
+
+    /// The retry queue, shared by every `apply` of the engine.
+    fn queue(&self) -> &Arc<PendingQueue> {
+        self.queue.get_or_init(|| {
+            let defaults = RetryPolicy::default();
+            let on_drop = self.audit_on_drop.clone().map(|f| {
+                Arc::new(move |dropped: &strig::audit::DroppedRecord| {
+                    if let Ok(value) = serde_json::to_value(&dropped.record) {
+                        let _ = invoke(f.as_ref(), value);
+                    }
+                }) as strig::audit::DropHook
+            });
+            Arc::new(PendingQueue::new(RetryPolicy {
+                capacity: self.audit_policy.capacity.unwrap_or(defaults.capacity),
+                base_delay_ms: self.audit_policy.base_delay_ms.unwrap_or(defaults.base_delay_ms),
+                max_delay_ms: self.audit_policy.max_delay_ms.unwrap_or(defaults.max_delay_ms),
+                on_drop,
+            }))
+        })
+    }
+
+    fn sink(&self) -> Option<Arc<dyn AuditSink>> {
+        self.audit_sink
+            .clone()
+            .map(|f| Arc::new(HostSink(f)) as Arc<dyn AuditSink>)
+    }
+
+    /// The auditor of one `apply`: the host's sink (or `fallback`, which discards), the policy, the
+    /// shared queue and the redaction, the declarative one (`redact`) first and then the function.
+    pub(crate) fn auditor(
+        &self,
+        level: AuditLevel,
+        now: u64,
+        redact: Option<&Redaction>,
+        fallback: Arc<dyn AuditSink>,
+    ) -> Auditor {
+        let mut auditor = Auditor::new(level, self.sink().unwrap_or(fallback))
+            .with_clock(move || now)
+            .with_fail_mode(self.audit_policy.fail_mode)
+            .with_queue(self.queue().clone());
+        for (permission, mode) in &self.audit_policy.permissions {
+            auditor = auditor.with_permission_fail_mode(permission.clone(), *mode);
+        }
+        let masker = redact.map(|r| mask_attributes(r.keys.clone(), r.mask.clone()));
+        let hook = self.audit_redact.clone();
+        if masker.is_some() || hook.is_some() {
+            auditor = auditor.with_redactor(Arc::new(move |record: &mut AuditRecord| {
+                if let Some(masker) = &masker {
+                    masker(record)?;
+                }
+                if let Some(f) = &hook {
+                    let value = serde_json::to_value(&*record).map_err(|e| e.to_string())?;
+                    let answer = invoke(f.as_ref(), value)?;
+                    *record = serde_json::from_value(crate::integral(answer))
+                        .map_err(|e| format!("the redaction must return the record: {e}"))?;
+                }
+                Ok(())
+            }));
+        }
+        auditor
+    }
+
+    /// Tries the waiting records now and answers the counters of the queue.
+    pub(crate) fn flush_audit(&self, now: u64) -> Value {
+        if let Some(sink) = self.sink() {
+            self.queue().flush(sink.as_ref(), now, true);
+        }
+        serde_json::to_value(self.queue().stats()).unwrap_or(Value::Null)
+    }
+
+    pub(crate) fn audit_stats(&self) -> Value {
+        serde_json::to_value(self.queue().stats()).unwrap_or(Value::Null)
     }
 
     /// Function of the `call` condition, by name. The function gets the list of resolved operands.
@@ -262,6 +392,22 @@ impl HostCallbacks {
             f: f.clone(),
             suggestion: Mutex::new(None),
         })
+    }
+}
+
+/// The `audit.redact` of an `apply`: attributes whose value is replaced by `mask` before the
+/// record is hashed and written.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Redaction {
+    pub keys: Vec<String>,
+    #[serde(default = "Redaction::default_mask")]
+    pub mask: String,
+}
+
+impl Redaction {
+    fn default_mask() -> String {
+        "[redacted]".to_string()
     }
 }
 

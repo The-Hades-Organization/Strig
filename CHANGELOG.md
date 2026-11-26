@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Failure mode of the audit: `FailMode::Closed` (default, the change is refused when the sink fails) or `FailMode::Open` (the change goes ahead and the record waits in an in-memory retry queue with a capacity and a backoff, `RetryPolicy`, keeping the order of the hash chain). Chosen per call, per permission or as the auditor's default, in that precedence. `AuditStatus` (`written`, `pending`, `dropped`) says where a record went, `AuditStats` and a drop callback report a full queue, and `GovernanceAt::fail_mode` / `apply_reporting` carry it through governance.
+- The audit sink in JS: `new Engine(spec, { auditSink, auditPolicy, auditRedact, onAuditDrop })` on Node, Bun and wasm, with `failMode`, `redact` and `prevHash` in `audit` of `apply` and `applyTemplate`, `auditStatus` in the result, `engine.flushAudit()` and `engine.auditStats()`. A sink that throws is a failure of the sink.
+- An interoperable audit: `docs/audit-format.md` fixes the canonical form of a record and the hash of the chain, with a test vector; `mask_attributes` and `Auditor::with_redactor` mask sensitive attributes before the record is hashed and written; `Auditor::chain_head`, `chain_head` and `verify_chain_anchored` (`verifyAuditChain(records, { start, head })` in JS) check a chain against an anchor published outside, which catches records cut off the end.
+
 - JavaScript callbacks in the Node, Bun and wasm bindings: `new Engine(spec, { conditions, overrides, invariants })` registers synchronous functions for the `call` condition, your own override (`allowed`/`denied`/`abstained`, with `except`) and your own governance invariant, applied with `{ kind: 'custom', name }` in `apply` and `applyTemplate`. They enter the normal flow (the `explain` trace names the override, the governance refuses with the violation and an optional `suggestion`, the audit records it). A callback that throws denies instead of crashing; a callback that calls the engine or changes a `Context` gets `REENTRANT_CALL`. New error codes `UNKNOWN_INVARIANT` and `REENTRANT_CALL`.
 - A central route table for the JS integrations, deny by default: `authorizeRoutes(options)` for Express and Fastify and `StrigRouteGuard` for NestJS map method and route (`/doc/:id`) to a permission and resource, refuse any route the table does not cover and open a route only with `public: true`. In NestJS a `@Can` on the handler adds a check on top of the table and never opens what the table denies. The new `/testing` subpath (`expressRoutes`, `nestRoutes`, `collectFastifyRoutes`, `auditRoutes`, `assertRoutesCovered`) lists routes with no rule and rules with no route so the host's tests fail when they drift.
 
@@ -19,6 +23,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Breaking
 
+- `ChainError` has two new variants, `AnchorMismatch` and `HeadMismatch`; an exhaustive `match` on it needs two more arms. `AuditError` and `AuditRecord` are unchanged.
 - `strig-inspect --tab` takes `evaluation`, `matrix` or `audit` instead of `avaliacao`, `matriz` or `auditoria`. The text of the terminal commands changed language, so scripts that match it need updating (for example `NEGADO` is now `DENIED`).
 
 ## [0.6.1] - 2026-11-24

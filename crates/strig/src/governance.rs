@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::attr::Attributes;
 #[cfg(feature = "audit")]
-use crate::audit::Auditor;
+use crate::audit::{AuditStatus, Auditor, FailMode};
 use crate::condition::Condition;
 use crate::decision::Request;
 use crate::engine::{Context, Engine};
@@ -229,6 +229,16 @@ pub trait Invariant: Send + Sync {
     }
 }
 
+#[cfg(feature = "audit")]
+type CallMode = Option<FailMode>;
+#[cfg(not(feature = "audit"))]
+type CallMode = Option<std::convert::Infallible>;
+
+#[cfg(feature = "audit")]
+type Delivery = Option<AuditStatus>;
+#[cfg(not(feature = "audit"))]
+type Delivery = Option<std::convert::Infallible>;
+
 /// Applies grant and role changes only after they pass every invariant and, with the
 /// `audit` feature, after recording the decision.
 #[derive(Default)]
@@ -284,7 +294,11 @@ impl Governance {
     /// [`Governance::apply`] and [`Governance::apply_with`] pass none, and what has a window then fails
     /// closed.
     pub fn at(&self, now: u64) -> GovernanceAt<'_> {
-        GovernanceAt { governance: self, now }
+        GovernanceAt {
+            governance: self,
+            now,
+            call_mode: None,
+        }
     }
 
     /// Like [`Governance::apply`], with request metadata (ip, request id, reason) that goes
@@ -310,16 +324,34 @@ impl Governance {
         scene: Scene<'_>,
         meta: &Attributes,
     ) -> Result<Vec<Grant>, Vec<Violation>> {
+        self.run_reporting(engine, actor, current, mutation, scene, meta, None)
+            .0
+    }
+
+    /// `run` plus where the audit record ended up (`None` with no auditor). `call` is the
+    /// [`FailMode`] for this change.
+    #[allow(clippy::too_many_arguments)]
+    fn run_reporting(
+        &self,
+        engine: &Engine,
+        actor: &Subject,
+        current: &[Grant],
+        mutation: &Mutation,
+        scene: Scene<'_>,
+        meta: &Attributes,
+        call: CallMode,
+    ) -> (Result<Vec<Grant>, Vec<Violation>>, Delivery) {
         let result = self.evaluate_inner(engine, actor, current, mutation, scene, true);
         #[cfg(feature = "audit")]
-        if let Some(auditor) = &self.auditor
-            && let Err(error) = auditor.grant_mutation(actor, mutation, current, &result, meta)
-        {
-            return Err(vec![Violation::new("audit", error.to_string())]);
+        if let Some(auditor) = &self.auditor {
+            return match auditor.grant_mutation_with(actor, mutation, current, &result, meta, call) {
+                Ok(emitted) => (result, Some(emitted.status)),
+                Err(error) => (Err(vec![Violation::new("audit", error.to_string())]), None),
+            };
         }
         #[cfg(not(feature = "audit"))]
-        let _ = meta;
-        result
+        let _ = (meta, call);
+        (result, None)
     }
 
     /// The mutation checked against the invariants, with no audit and no side effect. Also used by
@@ -411,9 +443,39 @@ struct Scene<'a> {
 pub struct GovernanceAt<'g> {
     governance: &'g Governance,
     now: u64,
+    call_mode: CallMode,
 }
 
 impl GovernanceAt<'_> {
+    /// The [`FailMode`] of the audit of every change made through this value, over the mode of the
+    /// permission and the auditor's default.
+    #[cfg(feature = "audit")]
+    pub fn fail_mode(mut self, mode: FailMode) -> Self {
+        self.call_mode = Some(mode);
+        self
+    }
+
+    /// Like [`GovernanceAt::apply_with`], and also says where the audit record ended up: `None`
+    /// with no auditor or a refused record, `Some(Pending)` when the sink failed in `open` mode and
+    /// the change went ahead anyway.
+    #[cfg(feature = "audit")]
+    pub fn apply_reporting(
+        &self,
+        engine: &Engine,
+        actor: &Subject,
+        current: &[Grant],
+        mutation: &Mutation,
+        tuples: Option<&dyn TupleStore>,
+        meta: &Attributes,
+    ) -> (Result<Vec<Grant>, Vec<Violation>>, Option<AuditStatus>) {
+        let scene = Scene {
+            tuples,
+            now: Some(self.now),
+        };
+        self.governance
+            .run_reporting(engine, actor, current, mutation, scene, meta, self.call_mode)
+    }
+
     /// Like [`Governance::apply`], at the instant.
     pub fn apply(
         &self,
@@ -440,7 +502,9 @@ impl GovernanceAt<'_> {
             tuples,
             now: Some(self.now),
         };
-        self.governance.run(engine, actor, current, mutation, scene, meta)
+        self.governance
+            .run_reporting(engine, actor, current, mutation, scene, meta, self.call_mode)
+            .0
     }
 }
 
