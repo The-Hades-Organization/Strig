@@ -63,3 +63,7 @@ required-features = ["dsl"]
 [[bench]]
 name = "listing"
 harness = false
+
+[[test]]
+name = "pending_audit"
+required-features = ["audit"]
