@@ -512,7 +512,7 @@ The native module ships as one small package per platform, installed by npm as a
 
 Any other platform (Alpine/musl, for example) runs on the wasm backend, which is bundled in the main package. If you install with `--omit=optional` (or `--no-optional`), `load()` falls back to wasm too, and `STRIG_BACKEND=native` throws an error naming the package to install.
 
-What the binding cannot do: custom condition functions (`call`) and custom overrides exist only in Rust. The JSON spec covers the built-in overrides, `resource_owner` and `permission_holder`.
+The JSON spec covers the built-in overrides, `resource_owner` and `permission_holder`. Custom condition functions (`call`), custom overrides and custom invariants are not part of the spec: in JS they are synchronous callbacks passed to the `Engine` constructor (see "Rules written in JavaScript").
 
 ### In the browser
 

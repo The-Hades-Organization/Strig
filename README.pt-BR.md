@@ -512,7 +512,7 @@ O módulo nativo sai em um pacote pequeno por plataforma, instalado pelo npm com
 
 Qualquer outra plataforma (Alpine/musl, por exemplo) roda no backend wasm, que vem no pacote principal. Se você instalar com `--omit=optional` (ou `--no-optional`), `load()` também recorre ao wasm, e `STRIG_BACKEND=native` lança um erro com o nome do pacote a instalar.
 
-O que o binding não faz: funções de condição próprias (`call`) e overrides próprios só existem em Rust. A spec JSON cobre os overrides prontos, `resource_owner` e `permission_holder`.
+A spec JSON cobre os overrides prontos, `resource_owner` e `permission_holder`. Funções de condição próprias (`call`), overrides próprios e invariantes próprias não fazem parte da spec: em JS são callbacks síncronos passados ao construtor de `Engine` (veja "Regras escritas em JavaScript").
 
 ### No navegador
 

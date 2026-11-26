@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- The release workflow now generates the npm SBOM from a full `npm ci` with `--omit dev --omit peer`; the `--omit=dev` install left the peer and dev dependencies missing and failed the SBOM job, which skipped the GitHub release. The READMEs no longer say custom `call` conditions and overrides exist only in Rust.
+
 ## [0.7.0] - 2026-11-26
 
 ### Added
