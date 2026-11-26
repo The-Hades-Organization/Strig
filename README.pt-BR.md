@@ -20,7 +20,7 @@ O núcleo não faz IO, não precisa de runtime assíncrono e compila para WebAss
 [Documentação](https://strig.vercel.app/docs) · [Playground](https://strig-playground.vercel.app) · [API no docs.rs](https://docs.rs/strig) · [Changelog](CHANGELOG.md)
 
 > [!NOTE]
-> A Strig ainda não chegou à 1.0: a API pode mudar entre versões menores. Até a 0.5.0 o projeto saiu com o nome Themis.
+> A Strig ainda não chegou à 1.0: a API pode mudar entre versões menores. Até a 0.5.0 o projeto saiu com o nome Themis. A [política de versão e depreciação](docs/versioning.md) diz o que é API pública e o que a quebra, o [migration.md](docs/migration.md) mostra o que mudar ao atualizar e os [benchmarks](docs/benchmarks.md) trazem os números (os três guias estão em inglês).
 
 ## Instalação
 
@@ -855,6 +855,8 @@ Defina `STRIG_RUST_SERVER` com a URL do exemplo `server` do `strig-axum` para te
 Para rodar o playground localmente, veja [`playground/README.md`](playground/README.md).
 
 Compilar a janela do `strig-inspect` no Linux exige as bibliotecas de desenvolvimento de Wayland e X11, por exemplo `libxkbcommon-dev`, `libwayland-dev`, `libxcb1-dev` e `libvulkan-dev`.
+
+Medições: `cargo bench -p strig --bench engine` e `node bench/bench.mjs` em `crates/strig-node/js` (ou `bun`); veja [docs/benchmarks.md](docs/benchmarks.md).
 
 Os comentários do código são em português do Brasil. Issues e pull requests são bem-vindos em inglês ou português; veja o [CONTRIBUTING.md](CONTRIBUTING.md).
 

@@ -1,0 +1,36 @@
+name: Benchmarks
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: criterion and JS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+      - run: cargo bench -p strig --bench engine
+      - run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
+      - name: Build the binding
+        working-directory: crates/strig-node/js
+        run: |
+          sh ../scripts/build.sh all
+          npm ci
+          npm run build:ts
+      - name: Node
+        working-directory: crates/strig-node/js
+        run: node bench/bench.mjs
+      - name: Bun
+        working-directory: crates/strig-node/js
+        run: bun bench/bench.mjs
