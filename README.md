@@ -485,6 +485,28 @@ engine.apply({ actor, current, mutation, invariants: [{ kind: 'custom', name: 'e
 
 `/server` has `Hub`, `openSession`, `sseResponse` (Fetch API: Bun.serve, Hono, Deno), `pipeSse` (Node's `http`) and three transports: `redisTransport` (node-redis and Bun's `RedisClient`), `ioredisTransport` and `pgTransport` (the `pg` package). Notices use the `strig-sync` format, so Rust and JS instances can share a channel.
 
+### Grants and roles in a JSON file
+
+For a system with neither Postgres nor Redis, `/store` keeps the grants and the role assignments in one JSON file (Node and Bun):
+
+```ts
+import { openJsonStore } from '@the-hades-organization/strig/store';
+
+const store = await openJsonStore({ path: './strig.json', createIfMissing: true });
+const provider = engineProvider({ engine, Context, loadGrants: store.loadGrants }); // the grant source
+const subject = store.subject({ kind: 'user', id: 'ana' });                          // + the roles in the file
+
+const result = await store.apply(engine, { actor, mutation: { assign_role: { subject, role: { role: 'admin' } } }, invariants });
+// accepted: the new grants and roles are written; refused: nothing is written
+```
+
+- **File:** `{ "version": 1, "grants": [...], "roles": { "<subject id>": [<assignment>, ...] } }`. Roles themselves (the hierarchy) stay in the engine spec; the file holds who has which.
+- **Fails closed.** A missing file, invalid JSON, a repeated grant id or a `version` other than 1 throws `JsonStoreError` (`STORE_NOT_FOUND`, `STORE_CORRUPT`, `STORE_VERSION`) on load. The store never starts empty on its own; `createIfMissing` is the explicit way to start one.
+- **Writes are atomic and serialised.** Temp file in the same directory, `fsync`, `rename`, then `fsync` of the directory. Calls in one process queue up; between processes a `<file>.lock` (created with `O_EXCL`) is held, and a lock whose owner died on this host, or that is older than `lockStaleMs` (30 s), is taken over. Each change re-reads the file under the lock, so processes do not overwrite each other. `STORE_LOCK_TIMEOUT` after `lockTimeoutMs` (5 s).
+- **Changes:** `addGrant`, `updateGrant`, `removeGrant`, `assignRole`, `revokeRole`, `setRoles`, or `apply(engine, input)`, which runs the governance over the grants the file holds right now and persists what it accepts.
+- **Reload:** `reload()` after an outside edit, or `watch()` to reload on its own (it watches the directory, since the rename replaces the file). A bad file on reload keeps the last good snapshot, throws from `reload()` and goes to `onError` from `watch()`. `onChange` fires after every reload and write.
+- Not here: audit records and a Rust-only store.
+
 ### Express, Fastify and NestJS
 
 The three integrations take the same options and decide on each route:

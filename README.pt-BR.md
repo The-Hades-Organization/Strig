@@ -485,6 +485,28 @@ engine.apply({ actor, current, mutation, invariants: [{ kind: 'custom', name: 'e
 
 `/server` traz `Hub`, `openSession`, `sseResponse` (Fetch API: Bun.serve, Hono, Deno), `pipeSse` (`http` do Node) e três transportes: `redisTransport` (node-redis e o `RedisClient` do Bun), `ioredisTransport` e `pgTransport` (pacote `pg`). Os avisos usam o formato do `strig-sync`, então instâncias Rust e JS podem dividir o mesmo canal.
 
+### Grants e papéis em arquivo JSON
+
+Para um sistema sem Postgres nem Redis, `/store` guarda os grants e as atribuições de papel num arquivo JSON (Node e Bun):
+
+```ts
+import { openJsonStore } from '@the-hades-organization/strig/store';
+
+const store = await openJsonStore({ path: './strig.json', createIfMissing: true });
+const provider = engineProvider({ engine, Context, loadGrants: store.loadGrants }); // a fonte de grants
+const subject = store.subject({ kind: 'user', id: 'ana' });                          // + os papéis do arquivo
+
+const result = await store.apply(engine, { actor, mutation: { assign_role: { subject, role: { role: 'admin' } } }, invariants });
+// aceita: os novos grants e papéis são gravados; recusada: nada é gravado
+```
+
+- **Arquivo:** `{ "version": 1, "grants": [...], "roles": { "<id do sujeito>": [<atribuição>, ...] } }`. Os papéis em si (a hierarquia) ficam na spec do motor; o arquivo guarda quem tem qual.
+- **Falha fechado.** Arquivo ausente, JSON inválido, id de grant repetido ou `version` diferente de 1 lança `JsonStoreError` (`STORE_NOT_FOUND`, `STORE_CORRUPT`, `STORE_VERSION`) na carga. O store nunca começa vazio sozinho; `createIfMissing` é o jeito explícito de começar um.
+- **Escrita atômica e serializada.** Arquivo temporário no mesmo diretório, `fsync`, `rename` e `fsync` do diretório. Chamadas no mesmo processo entram numa fila; entre processos vale um `<arquivo>.lock` (criado com `O_EXCL`), e o lock cujo dono morreu neste host, ou mais velho que `lockStaleMs` (30 s), é tomado. Cada mudança relê o arquivo sob o lock, então processos não se sobrescrevem. `STORE_LOCK_TIMEOUT` depois de `lockTimeoutMs` (5 s).
+- **Mudanças:** `addGrant`, `updateGrant`, `removeGrant`, `assignRole`, `revokeRole`, `setRoles`, ou `apply(engine, input)`, que roda a governança sobre os grants que o arquivo tem agora e grava o que ela aceita.
+- **Recarga:** `reload()` depois de uma edição de fora, ou `watch()` para recarregar sozinho (observa o diretório, porque o rename troca o arquivo). Arquivo ruim na recarga mantém o último snapshot bom, lança em `reload()` e vai para `onError` no `watch()`. `onChange` dispara a cada recarga e gravação.
+- Fora daqui: registros de auditoria e uma versão só em Rust.
+
 ### Express, Fastify e NestJS
 
 As três integrações recebem as mesmas opções e decidem em cada rota:

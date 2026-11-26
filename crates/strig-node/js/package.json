@@ -22,6 +22,7 @@
     "./express": { "types": "./dist/express.d.ts", "default": "./dist/express.js" },
     "./fastify": { "types": "./dist/fastify.d.ts", "default": "./dist/fastify.js" },
     "./nestjs": { "types": "./dist/nestjs.d.ts", "default": "./dist/nestjs.js" },
+    "./store": { "types": "./dist/store.d.ts", "default": "./dist/store.js" },
     "./testing": { "types": "./dist/testing.d.ts", "default": "./dist/testing.js" }
   },
   "scripts": {
