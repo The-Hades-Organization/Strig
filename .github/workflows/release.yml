@@ -134,8 +134,8 @@ jobs:
           cargo install cargo-cyclonedx --version 0.5.7 --locked
           cargo cyclonedx --format json --spec-version 1.5 --override-filename "strig-$version-crates.cdx"
           for f in $(find crates -name '*.cdx.json'); do mv "$f" "sbom/$(basename "$f")"; done
-          (cd crates/strig-node/js && npm ci --omit=dev --ignore-scripts && \
-            npm sbom --sbom-format cyclonedx --omit dev > "../../../sbom/strig-$version-npm.cdx.json")
+          (cd crates/strig-node/js && npm ci --ignore-scripts && \
+            npm sbom --sbom-format cyclonedx --omit dev --omit peer > "../../../sbom/strig-$version-npm.cdx.json")
           ls -l sbom
           test "$(ls sbom | wc -l)" -ge 2
       - uses: actions/upload-artifact@v7
