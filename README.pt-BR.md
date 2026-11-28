@@ -101,7 +101,7 @@ cargo run -p strig-axum --example server      # servidor de tempo real sobre SSE
 
 ## Crates
 
-Todos os crates, menos `strig-inspect`, `strig-node` e `strig-python`, estão no crates.io na mesma versão.
+Todos os crates, menos `strig-inspect`, `strig-node`, `strig-python` e `strig-wasi`, estão no crates.io na mesma versão.
 
 | Crate | Use para | Dependências principais |
 |---|---|---|
@@ -114,6 +114,7 @@ Todos os crates, menos `strig-inspect`, `strig-node` e `strig-python`, estão no
 | `strig-macros` | `policy!` e `include_policy!`: a política é validada em tempo de compilação | `strig` |
 | `strig-node` | O pacote npm: módulo nativo (N-API) para Node e Bun, WebAssembly para navegador | `napi` ou `wasm-bindgen` |
 | `strig-python` | O pacote PyPI `strig-auth` (`import strig`): extensão nativa (PyO3, abi3) sobre o mesmo núcleo do `strig-node` | `pyo3` |
+| `strig-wasi` | O módulo WebAssembly com ABI C que os bindings de Go e da JVM executam: JSON na entrada, JSON na saída, sem `wasm-bindgen` | `strig-node` |
 | `strig-cli` | O comando `strig`: `strig test` roda os testes de uma política, para pessoas e para o CI (JUnit) | `strig` |
 | `strig-inspect` | Visualizador: rastro das decisões, simulação de grants, matriz de acesso, trilha de auditoria. Janela desktop e comandos de terminal | `gpui-pre`, `gpui-component` |
 
@@ -992,6 +993,81 @@ result = engine.apply({"actor": actor, "current": grants, "mutation": {"add": gr
 - `strig.Exclusive(...)`, `strig.verify_audit_chain(records, anchors)` e `strig.audit_estimate(level, records)` espelham os do JavaScript. `strig.dsl` tem `compile`, `print`, `convert`, `format`, `is_formatted`, `load_project` e `load_project_dir`.
 
 Para compilar a partir do repositório: `pip install maturin && cd crates/strig-python && maturin develop && pytest`.
+
+## Go
+
+`github.com/The-Hades-Organization/Strig/bindings/go` é o binding de Go sobre o mesmo motor e o mesmo `EngineSpec` JSON das outras APIs. Roda o motor compilado para WebAssembly (`crates/strig-wasi`, uma ABI C simples com JSON na entrada e na saída) no [wazero](https://wazero.io), Go puro e sem cgo, e o módulo vai embutido com `go:embed`. Go 1.22 ou superior.
+
+```sh
+go get github.com/The-Hades-Organization/Strig/bindings/go@<tag>   # uma tag de release deste repositório
+```
+
+```go
+import strig "github.com/The-Hades-Organization/Strig/bindings/go"
+
+engine, err := strig.NewEngine(spec)               // spec: um map, uma struct ou um json.RawMessage
+defer engine.Close()
+
+ctx, _ := engine.NewContext(map[string]any{"grants": grants, "env": map[string]any{"dept": "eng"}})
+ctx.AddGrant(grant); ctx.RemoveGrant("g1")
+
+request := map[string]any{"subject": subject, "permission": "project.edit", "resource": resource}
+allowed, err := engine.Check(ctx, request)         // (bool, error): um erro nunca é um allow
+decision, err := engine.Decide(ctx, request)       // *Decision{Effect, Reason, Matched, Warnings}
+explanation, err := engine.Explain(ctx, request, strig.WithNow(time.Now()))
+many, err := engine.CheckMany(ctx, []any{request, other})
+policy, err := strig.Compile(text)                 // a linguagem de políticas, sem motor
+```
+
+- **Mesmo JSON, mesmos códigos.** Pedidos e resultados são o JSON da API JavaScript, com os mesmos campos em camelCase. Uma falha é um `*strig.Error` cujo `Code` é o `errorCode` do binding JavaScript (`INVALID_INPUT`, `UNKNOWN_SUBJECT`, `DSL_PARSE`, ...), com `Diagnostics` na linguagem de políticas; use `strig.CodeOf(err)` ou `errors.As`.
+- **Falha fechada.** `Check` devolve `false` com o erro, nunca `true`. Se o módulo der trap, a instância é descartada e toda chamada seguinte devolve `strig.ErrBroken`. Engine ou contexto fechado, ou contexto de outro engine, é erro.
+- **Concorrência.** Um `Engine` é seguro para uso concorrente, mas uma instância WebAssembly tem uma thread só, então as chamadas são serializadas. Para throughput paralelo dê a cada worker o seu `engine.Fork()` (instância própria, mesma spec, sem estado compartilhado). Um `Context` pertence ao engine que o criou.
+- **O tempo é explícito.** `WithNow(t)` ou `ctx.SetNow(t)` definem o instante; sem um, o motor falha fechado nas janelas de validade. `Apply`, `Propose`, `Resolve` e `Expire` usam o relógio do host quando a entrada não traz `now`.
+- **Ainda fora deste binding:** callbacks (condição `call`, overrides, invariantes escritos em Go), o sink de auditoria e os recursos exclusivos. Uma spec que precisa de callback falha fechada.
+
+O `.wasm` também é asset da release (`strig-<versão>.wasm`), para qualquer outro host que fale WebAssembly. Para refazer o módulo embutido: `sh bindings/scripts/build-wasi.sh`, depois `cd bindings/go && go test ./...`.
+
+## Java e Kotlin
+
+`io.github.the-hades-organization:strig` é o binding da JVM: o mesmo módulo WebAssembly, rodando no [Chicory](https://github.com/dylibso/chicory) (JVM pura, sem código nativo), com o mesmo `EngineSpec` JSON. Java 17 ou superior; o Kotlin usa as mesmas classes.
+
+```xml
+<dependency>
+  <groupId>io.github.the-hades-organization</groupId>
+  <artifactId>strig</artifactId>
+  <version>${strig.version}</version>
+</dependency>
+```
+
+```java
+import io.github.thehadesorganization.strig.*;
+
+try (Engine engine = new Engine(spec);                 // spec: um Map, um record ou um JsonNode
+     Context ctx = engine.newContext(Map.of("grants", grants))) {
+  ctx.addGrant(grant);
+  boolean allowed = engine.check(ctx, request);        // uma exceção nunca é um allow
+  Decision decision = engine.decide(ctx, request, Instant.now());
+  Map<String, Object> explanation = engine.explain(ctx, request);
+  List<Boolean> many = engine.checkMany(ctx, List.of(request, other));
+} catch (StrigException e) {
+  e.code();                                            // INVALID_INPUT, UNKNOWN_SUBJECT, DSL_PARSE, ...
+}
+Map<String, Object> policy = Strig.compile(text);      // a linguagem de políticas, sem motor
+```
+
+```kotlin
+Engine(spec).use { engine ->
+    engine.newContext(mapOf("grants" to grants)).use { ctx -> engine.check(ctx, request) }
+}
+```
+
+- **Mesmo JSON, mesmos códigos.** `StrigException.code()` é o `errorCode` do binding JavaScript; `diagnostics()` traz as posições da linguagem de políticas.
+- **Falha fechada.** `check` lança exceção em vez de devolver `true` quando não consegue decidir; uma instância que deu trap é descartada e toda chamada seguinte lança `INTERNAL`.
+- **Concorrência.** Um `Engine` é seguro para uso concorrente, com chamadas serializadas; dê a cada worker um `engine.fork()` para throughput paralelo. Um `Context` pertence ao seu engine. Feche os dois.
+- **O tempo é explícito.** Todo método que decide tem uma sobrecarga com `Instant`; sem um, o motor falha fechado nas janelas de validade.
+- **Ainda fora deste binding:** callbacks (condição `call`, overrides, invariantes escritos em Java), o sink de auditoria e os recursos exclusivos.
+
+A publicação no Maven Central ainda não está ligada (precisa da conta e da chave de assinatura do projeto). Até lá, gere o jar pelo repositório: `sh bindings/scripts/build-wasi.sh jvm && cd bindings/jvm && mvn verify`.
 
 ## Linguagem de políticas
 

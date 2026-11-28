@@ -101,7 +101,7 @@ cargo run -p strig-axum --example server      # real-time server over SSE and We
 
 ## Crates
 
-All crates except `strig-inspect`, `strig-node` and `strig-python` are on crates.io at the same version.
+All crates except `strig-inspect`, `strig-node`, `strig-python` and `strig-wasi` are on crates.io at the same version.
 
 | Crate | Use it for | Main dependencies |
 |---|---|---|
@@ -114,6 +114,7 @@ All crates except `strig-inspect`, `strig-node` and `strig-python` are on crates
 | `strig-macros` | `policy!` and `include_policy!`: the policy is validated at compile time | `strig` |
 | `strig-node` | The npm package: native module (N-API) for Node and Bun, WebAssembly for the browser | `napi` or `wasm-bindgen` |
 | `strig-python` | The PyPI package `strig-auth` (`import strig`): native extension (PyO3, abi3) over the same core as `strig-node` | `pyo3` |
+| `strig-wasi` | The C-ABI WebAssembly module the Go and JVM bindings run: JSON in, JSON out, no `wasm-bindgen` | `strig-node` |
 | `strig-cli` | The `strig` command: `strig test` runs the tests of a policy, for people and for CI (JUnit) | `strig` |
 | `strig-inspect` | Inspector: decision traces, grant simulation, access matrix, audit trail. Desktop window and terminal commands | `gpui-pre`, `gpui-component` |
 
@@ -992,6 +993,81 @@ result = engine.apply({"actor": actor, "current": grants, "mutation": {"add": gr
 - `strig.Exclusive(...)`, `strig.verify_audit_chain(records, anchors)` and `strig.audit_estimate(level, records)` mirror the JavaScript ones. `strig.dsl` has `compile`, `print`, `convert`, `format`, `is_formatted`, `load_project` and `load_project_dir`.
 
 To build it from the repository: `pip install maturin && cd crates/strig-python && maturin develop && pytest`.
+
+## Go
+
+`github.com/The-Hades-Organization/Strig/bindings/go` is the Go binding over the same engine and the same JSON `EngineSpec` as the other APIs. It runs the engine compiled to WebAssembly (`crates/strig-wasi`, a plain C ABI with JSON in and out) on [wazero](https://wazero.io), pure Go with no cgo, and the module is embedded with `go:embed`. Go 1.22 or later.
+
+```sh
+go get github.com/The-Hades-Organization/Strig/bindings/go@<tag>   # a release tag of this repository
+```
+
+```go
+import strig "github.com/The-Hades-Organization/Strig/bindings/go"
+
+engine, err := strig.NewEngine(spec)               // spec: a map, a struct or a json.RawMessage
+defer engine.Close()
+
+ctx, _ := engine.NewContext(map[string]any{"grants": grants, "env": map[string]any{"dept": "eng"}})
+ctx.AddGrant(grant); ctx.RemoveGrant("g1")
+
+request := map[string]any{"subject": subject, "permission": "project.edit", "resource": resource}
+allowed, err := engine.Check(ctx, request)         // (bool, error): an error is never an allow
+decision, err := engine.Decide(ctx, request)       // *Decision{Effect, Reason, Matched, Warnings}
+explanation, err := engine.Explain(ctx, request, strig.WithNow(time.Now()))
+many, err := engine.CheckMany(ctx, []any{request, other})
+policy, err := strig.Compile(text)                 // the policy language, no engine needed
+```
+
+- **Same JSON, same codes.** Requests and results are the JSON of the JavaScript API with the same camelCase fields. A failure is a `*strig.Error` whose `Code` is the `errorCode` of the JavaScript binding (`INVALID_INPUT`, `UNKNOWN_SUBJECT`, `DSL_PARSE`, ...), with `Diagnostics` for the policy language; use `strig.CodeOf(err)` or `errors.As`.
+- **Fails closed.** `Check` returns `false` with the error, never `true`. If the module traps, the instance is discarded and every later call returns `strig.ErrBroken`. A closed engine or context, or a context of another engine, is an error.
+- **Concurrency.** An `Engine` is safe for concurrent use, but one WebAssembly instance is single-threaded, so calls are serialized. For parallel throughput give each worker its own `engine.Fork()` (its own instance, same spec, no shared state). A `Context` belongs to the engine that made it.
+- **Time is explicit.** `WithNow(t)` or `ctx.SetNow(t)` set the instant; without one the engine fails closed on validity windows. `Apply`, `Propose`, `Resolve` and `Expire` take the host clock when the input has no `now`.
+- **Not in this binding yet:** callbacks (the `call` condition, overrides, invariants written in Go), the audit sink and exclusive resources. A spec that needs a callback fails closed.
+
+The `.wasm` is also a release asset (`strig-<version>.wasm`) for any other host that speaks WebAssembly. To rebuild the embedded module: `sh bindings/scripts/build-wasi.sh`, then `cd bindings/go && go test ./...`.
+
+## Java and Kotlin
+
+`io.github.the-hades-organization:strig` is the JVM binding: the same WebAssembly module, run on [Chicory](https://github.com/dylibso/chicory) (pure JVM, no native code), with the same JSON `EngineSpec`. Java 17 or later; Kotlin uses the same classes.
+
+```xml
+<dependency>
+  <groupId>io.github.the-hades-organization</groupId>
+  <artifactId>strig</artifactId>
+  <version>${strig.version}</version>
+</dependency>
+```
+
+```java
+import io.github.thehadesorganization.strig.*;
+
+try (Engine engine = new Engine(spec);                 // spec: a Map, a record or a JsonNode
+     Context ctx = engine.newContext(Map.of("grants", grants))) {
+  ctx.addGrant(grant);
+  boolean allowed = engine.check(ctx, request);        // an exception is never an allow
+  Decision decision = engine.decide(ctx, request, Instant.now());
+  Map<String, Object> explanation = engine.explain(ctx, request);
+  List<Boolean> many = engine.checkMany(ctx, List.of(request, other));
+} catch (StrigException e) {
+  e.code();                                            // INVALID_INPUT, UNKNOWN_SUBJECT, DSL_PARSE, ...
+}
+Map<String, Object> policy = Strig.compile(text);      // the policy language, no engine needed
+```
+
+```kotlin
+Engine(spec).use { engine ->
+    engine.newContext(mapOf("grants" to grants)).use { ctx -> engine.check(ctx, request) }
+}
+```
+
+- **Same JSON, same codes.** `StrigException.code()` is the `errorCode` of the JavaScript binding; `diagnostics()` carries the policy-language positions.
+- **Fails closed.** `check` throws instead of returning `true` when it cannot decide; a trapped instance is discarded and every later call throws `INTERNAL`.
+- **Concurrency.** An `Engine` is safe for concurrent use with serialized calls; give each worker `engine.fork()` for parallel throughput. A `Context` belongs to its engine. Close both.
+- **Time is explicit.** Every deciding method has an overload taking an `Instant`; without one the engine fails closed on validity windows.
+- **Not in this binding yet:** callbacks (the `call` condition, overrides, invariants written in Java), the audit sink and exclusive resources.
+
+Publishing to Maven Central is not enabled yet (it needs the project's account and signing key). Until then, build the jar from the repository: `sh bindings/scripts/build-wasi.sh jvm && cd bindings/jvm && mvn verify`.
 
 ## Policy language
 
