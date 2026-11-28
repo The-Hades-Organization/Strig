@@ -119,6 +119,24 @@ jobs:
       - name: Run the playground smoke test
         run: npm test --prefix playground
 
+  vscode:
+    name: vscode extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install, lint and smoke-test
+        working-directory: editors/vscode
+        run: |
+          npm ci
+          npm test
+      - name: Package (not published)
+        working-directory: editors/vscode
+        run: npx vsce package --out strig.vsix
+
   python:
     name: python binding
     runs-on: ubuntu-latest

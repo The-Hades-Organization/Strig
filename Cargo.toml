@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["crates/strig", "crates/strig-sync", "crates/strig-redis", "crates/strig-postgres", "crates/strig-axum", "crates/strig-node", "crates/strig-python", "crates/strig-inspect", "crates/strig-server", "crates/strig-macros", "crates/strig-cli", "crates/strig-wasi"]
-default-members = ["crates/strig", "crates/strig-sync", "crates/strig-redis", "crates/strig-postgres", "crates/strig-axum", "crates/strig-node", "crates/strig-cli"]
+members = ["crates/strig", "crates/strig-sync", "crates/strig-redis", "crates/strig-postgres", "crates/strig-axum", "crates/strig-node", "crates/strig-python", "crates/strig-inspect", "crates/strig-server", "crates/strig-macros", "crates/strig-cli", "crates/strig-lsp", "crates/strig-wasi"]
+default-members = ["crates/strig", "crates/strig-sync", "crates/strig-redis", "crates/strig-postgres", "crates/strig-axum", "crates/strig-node", "crates/strig-cli", "crates/strig-lsp"]
 
 [workspace.package]
 version = "0.9.0"

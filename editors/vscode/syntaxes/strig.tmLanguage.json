@@ -1,0 +1,128 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Strig",
+  "scopeName": "source.strig",
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#language-line"
+    },
+    {
+      "include": "#string"
+    },
+    {
+      "include": "#date"
+    },
+    {
+      "include": "#number"
+    },
+    {
+      "include": "#operator-word"
+    },
+    {
+      "include": "#operator-symbol"
+    },
+    {
+      "include": "#constant"
+    },
+    {
+      "include": "#attribute-path"
+    },
+    {
+      "include": "#declaration"
+    },
+    {
+      "include": "#keyword"
+    },
+    {
+      "include": "#permission-id"
+    },
+    {
+      "include": "#actor-ref"
+    },
+    {
+      "include": "#punctuation"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.double-slash.strig",
+      "match": "//.*$"
+    },
+    "language-line": {
+      "match": "^\\s*(language)\\s+(blocks|rules|actors)\\b",
+      "captures": {
+        "1": {
+          "name": "keyword.control.strig"
+        },
+        "2": {
+          "name": "support.constant.language.strig"
+        }
+      }
+    },
+    "string": {
+      "name": "string.quoted.double.strig",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.strig",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "date": {
+      "name": "constant.numeric.date.strig",
+      "match": "\\b\\d{4}-\\d{2}-\\d{2}(T[0-9:.]+Z)?\\b"
+    },
+    "number": {
+      "name": "constant.numeric.strig",
+      "match": "(?<![\\w.-])-?\\d+(\\.\\d+)?(?![\\w.-])"
+    },
+    "operator-word": {
+      "name": "keyword.operator.word.strig",
+      "match": "\\b(and|or|not|in|starts_with|ends_with|contains|any_in|all_in|ip_in|time_between|weekday_in|tz|exists)\\b"
+    },
+    "operator-symbol": {
+      "name": "keyword.operator.strig",
+      "match": "==|!=|<=|>=|&&|\\|\\||->|[<>!|&*]"
+    },
+    "constant": {
+      "name": "constant.language.strig",
+      "match": "\\b(true|false|null|allow|deny|anyone|anonymous|authenticated)\\b"
+    },
+    "declaration": {
+      "match": "\\b(permission|role|subject|grant|invariant|override|relation|tuple)\\s+([A-Za-z_][\\w.:#-]*)",
+      "captures": {
+        "1": {
+          "name": "storage.type.strig"
+        },
+        "2": {
+          "name": "entity.name.function.strig"
+        }
+      }
+    },
+    "keyword": {
+      "name": "keyword.control.strig",
+      "match": "\\b(language|permission|role|subject|grant|invariant|override|relation|tuple|target_kinds|broad_targets|kinds|broad|relations|tuples|strategy|max_depth|assign|has|on|to|inherits|implied|by|depends_on|requires|needs|prerequisites|label|description|targets|effect|target|scope|when|until|from|except|with|as|fields|meta|principal|resource_owner|permission_holder|require_permission|no_escalation|no_lockout|no_self_management|forbid|first_applicable|deny_overrides|permit_overrides|most_specific|union|intersection|management_only|non_delegable|override_only|always|about|depth|attr|catalog|catalog_conformance|engine|governance)\\b"
+    },
+    "attribute-path": {
+      "name": "variable.other.property.strig",
+      "match": "\\b(subject|resource|env)\\.[A-Za-z_][\\w.-]*"
+    },
+    "permission-id": {
+      "name": "variable.other.constant.strig",
+      "match": "\\b[A-Za-z_][\\w-]*(\\.[A-Za-z_][\\w-]*)+\\b"
+    },
+    "actor-ref": {
+      "name": "entity.name.tag.strig",
+      "match": "\\b[A-Za-z_][\\w-]*:[A-Za-z0-9_][\\w.-]*\\b"
+    },
+    "punctuation": {
+      "name": "punctuation.separator.strig",
+      "match": "[{}()\\[\\],=:#@]"
+    }
+  }
+}

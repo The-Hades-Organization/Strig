@@ -44,7 +44,7 @@ use grammar::Cursor;
 pub use convert::{ConvertError, convert};
 pub use error::{Diagnostic, Diagnostics, Location, PrintError};
 pub use format::{FormatError, format, is_formatted};
-pub use policy::{Language, Note, NoteAnchor, NoteOrigin, Origins, Placement, Policy};
+pub use policy::{Language, Note, NoteAnchor, NoteOrigin, Origins, Placement, Policy, ids};
 pub use project::{Built, MAX_PROJECT_BYTES, MAX_SOURCES, Project};
 
 /// The largest source accepted: input is external and unbounded.
