@@ -29,6 +29,8 @@ mod obs;
 pub mod attr;
 #[cfg(feature = "audit")]
 pub mod audit;
+#[cfg(feature = "audit")]
+pub mod audit_report;
 pub mod catalog;
 pub mod condition;
 pub mod decision;
