@@ -4,6 +4,9 @@ const targets: [string, string[]][] = [
   ['../dist/express.js', ['authorize', 'createCan']],
   ['../dist/fastify.js', ['authorize', 'createCan', 'plugin']],
   ['../dist/nestjs.js', ['Can', 'StrigGuard']],
+  ['../dist/prisma.js', ['toWhere']],
+  ['../dist/drizzle.js', ['toWhere']],
+  ['../dist/kysely.js', ['toWhere']],
 ];
 for (const [path, names] of targets) {
   const mod = require(path);
