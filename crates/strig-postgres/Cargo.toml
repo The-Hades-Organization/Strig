@@ -1,6 +1,6 @@
 [package]
 name = "strig-postgres"
-description = "Postgres LISTEN/NOTIFY transport for the Strig change hub."
+description = "Postgres LISTEN/NOTIFY transport for the Strig change hub, and Postgres storage for grants, tuples, roles and pending requests."
 keywords = ["authorization", "postgres", "notify", "realtime"]
 categories = ["authentication", "database"]
 readme = "../../README.md"
@@ -19,7 +19,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
 futures-util.workspace = true
-tokio = { workspace = true, features = ["sync", "rt"] }
+tokio = { workspace = true, features = ["sync", "rt", "time"] }
 tokio-postgres = "0.7"
 tokio-stream = { workspace = true }
 

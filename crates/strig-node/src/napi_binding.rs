@@ -6,7 +6,7 @@ use napi::{Env, JsValue, ValueType, sys};
 use napi_derive::napi;
 use serde_json::Value;
 
-use crate::{BindingError, ContextData, EngineHandle, ExclusiveHandle, HostCallbacks, HostFn};
+use crate::{BindingError, ContextData, EngineHandle, ExclusiveHandle, HostCallbacks, HostFn, RequestInput};
 
 /// O `code` estável do erro vira `error.code` no JavaScript.
 type Error = napi::Error<String>;
@@ -293,6 +293,101 @@ impl JsEngine {
         self.inner
             .explain(&ctx.inner, json(env, request)?, now_of(env, now)?)
             .map_err(err)
+    }
+
+    /// Decides every request of the array in one crossing: one boolean per request, in order.
+    #[napi]
+    pub fn check_many(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        requests: Unknown<'_>,
+        now: Option<Unknown<'_>>,
+    ) -> Result<Vec<bool>> {
+        self.inner
+            .check_many(&ctx.inner, json(env, requests)?, now_of(env, now)?)
+            .map_err(err)
+    }
+
+    /// `explain` of every request of the array in one crossing.
+    #[napi]
+    pub fn explain_many(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        requests: Unknown<'_>,
+        now: Option<Unknown<'_>>,
+    ) -> Result<Value> {
+        self.inner
+            .explain_many(&ctx.inner, json(env, requests)?, now_of(env, now)?)
+            .map_err(err)
+    }
+
+    /// Fast paths: the request arrives as the text the wrapper made with `JSON.stringify`, and
+    /// the decision leaves as text for `JSON.parse`, instead of walking the object property by
+    /// property through N-API.
+    #[napi]
+    pub fn check_json(&self, env: &Env, ctx: &JsContext, request: String, now: Option<Unknown<'_>>) -> Result<bool> {
+        let input = RequestInput::from_json(&request).map_err(err)?;
+        self.inner
+            .check_input(&ctx.inner, &input, now_of(env, now)?)
+            .map_err(err)
+    }
+
+    #[napi]
+    pub fn decide_json(&self, env: &Env, ctx: &JsContext, request: String, now: Option<Unknown<'_>>) -> Result<String> {
+        let input = RequestInput::from_json(&request).map_err(err)?;
+        let decision = self
+            .inner
+            .decide_input(&ctx.inner, &input, now_of(env, now)?)
+            .map_err(err)?;
+        Ok(decision.to_string())
+    }
+
+    #[napi]
+    pub fn explain_json(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        request: String,
+        now: Option<Unknown<'_>>,
+    ) -> Result<String> {
+        let input = RequestInput::from_json(&request).map_err(err)?;
+        let explanation = self
+            .inner
+            .explain_input(&ctx.inner, &input, now_of(env, now)?)
+            .map_err(err)?;
+        Ok(explanation.to_string())
+    }
+
+    #[napi]
+    pub fn check_many_json(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        requests: String,
+        now: Option<Unknown<'_>>,
+    ) -> Result<Vec<bool>> {
+        let inputs = RequestInput::many_from_json(&requests).map_err(err)?;
+        self.inner
+            .check_inputs(&ctx.inner, &inputs, now_of(env, now)?)
+            .map_err(err)
+    }
+
+    #[napi]
+    pub fn explain_many_json(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        requests: String,
+        now: Option<Unknown<'_>>,
+    ) -> Result<String> {
+        let inputs = RequestInput::many_from_json(&requests).map_err(err)?;
+        let all = self
+            .inner
+            .explain_inputs(&ctx.inner, &inputs, now_of(env, now)?)
+            .map_err(err)?;
+        Ok(all.to_string())
     }
 
     #[napi]

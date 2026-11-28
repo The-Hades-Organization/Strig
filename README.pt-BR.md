@@ -106,7 +106,7 @@ Todos os crates, menos `strig-inspect` e `strig-node`, estão no crates.io na me
 | `strig` | Catálogo, motor de decisão, governança, auditoria, spec em JSON, linguagem de políticas | `serde`, `thiserror`; `sha2` com `audit` |
 | `strig-sync` | Hub de mudanças, trait `Transport`, sessões SSE/WebSocket independentes de framework web, cache de capacidades | `tokio` |
 | `strig-redis` | `Transport` sobre Redis pub/sub | `redis` |
-| `strig-postgres` | `Transport` sobre Postgres `LISTEN/NOTIFY`, enviado dentro da sua transação | `tokio-postgres` |
+| `strig-postgres` | `Transport` sobre Postgres `LISTEN/NOTIFY`, enviado dentro da sua transação; grants, tuplas, papéis e pedidos pendentes guardados no Postgres | `tokio-postgres` |
 | `strig-axum` | Rotas SSE e WebSocket do axum sobre as sessões do `strig-sync` | `axum` |
 | `strig-server` | Servidor HTTP de decisão, e um cliente Rust que nega quando não recebe resposta | `axum`, `hyper-util` (cliente) |
 | `strig-macros` | `policy!` e `include_policy!`: a política é validada em tempo de compilação | `strig` |
@@ -457,6 +457,32 @@ Uma sessão observa escopos, isto é, âncoras como `org:acme`. Com um `Capabili
 
 O protocolo do cliente é JSON e igual em SSE e WebSocket. O servidor envia `hello`, `capabilities`, `change`, `resync`, `error` e `ping`; o cliente envia `watch`, `unwatch` e `refresh` (só WebSocket). Para um framework web que não seja o axum, repasse o stream de `Session::open` e escreva cada mensagem com `ServerMessage::to_sse` ou `to_json`.
 
+## Armazenamento em Postgres
+
+O `strig-postgres` também guarda os dados no Postgres: grants, tuplas ReBAC, atribuições de papel e pedidos pendentes, atrás dos mesmos traits que o motor já lê (`GrantSource`, `GrantIndex`, `TupleStore`, `TupleIndex`, `PendingStore`).
+
+```rust
+use strig_postgres::{PgPendingStore, PgStore, PgTables, connect, migrate_with};
+
+let tables = PgTables::default().in_schema("authz")?.with_prefix("strig")?; // schema e nomes são seus
+let client = connect(&url).await?;
+migrate_with(&client, &tables).await?; // idempotente, versionada, segura em todo boot
+
+let store = PgStore::load(&client, tables.clone()).await?;
+let grants = store.grants(); // GrantSource + GrantIndex, servido da memória
+let tuples = store.tuples(); // TupleStore + TupleIndex
+let _follower = store.follow(hub.subscribe(), move || connect(&url), Duration::from_secs(1));
+```
+
+- **Por que um snapshot.** O core não faz IO e o `GrantSource` é síncrono, então `PgStore::load` lê as tabelas e o motor é servido da memória. O snapshot recarrega quando o transporte entrega um `Change` (grants, tuplas ou resync; um receptor atrasado recarrega tudo). O store só existe carregado, então o motor nunca decide sobre um conjunto vazio que estaria sem um deny. Se uma recarga falha, o snapshot anterior fica e `is_stale()` vira verdadeiro: ligue-o à sonda de readiness. O snapshot guarda todos os grants e tuplas, então dimensione para isso; para conjuntos de tuplas muito grandes, continue respondendo o `TupleStore` com a sua própria consulta indexada.
+- **Escrita.** `put_grant`, `delete_grant`, `put_tuple`, `delete_tuple`, `assign_role` e `revoke_role` recebem um cliente ou uma transação. `commit_mutation(&tx, channel, &mutation)` grava o que uma `Mutation` muda e envia o `NOTIFY` na mesma transação, então o aviso sai se, e só se, a mudança der commit. Chame `lock_governance(&tx)` primeiro e leia `all_grants(&tx)` dentro da transação, para que duas instâncias não julguem uma mudança sobre o mesmo conjunto desatualizado.
+- **Governança ponta a ponta.** Leia os grants e o ator (`tables.subject(&tx, "user", id)` monta o `Subject` com os papéis gravados), rode `Governance::apply`, depois `commit_mutation` e o commit. As outras instâncias recarregam com o aviso.
+- **Papéis.** `strig_roles` guarda as atribuições por sujeito (papel, escopo opcional, janela opcional). Um sujeito lido dela carrega o principal `authenticated` quando o tipo é `user`.
+- **Pedidos pendentes.** `PgPendingStore` é um `PendingStore` sobre uma tabela, com a expiração numa coluna indexada (`due(now)` lista o que o `expire_due` fecha). O trait é síncrono, então o store tem uma conexão numa thread própria e cada chamada bloqueia por uma ida e volta: chame de dentro de `spawn_blocking` em código async. Uma chamada que não responde a tempo (10 s por padrão) vira `PendingError::Store`, que recusa, e o `update` é um só `UPDATE ... WHERE state = 'pending'`, então um pedido decidido por outro processo nunca é decidido duas vezes.
+- **Migrations.** `migrate`/`migrate_with` embutem o SQL, registram cada versão em `<prefix>_migrations` e rodam numa transação sob um lock consultivo. São aditivas (`CREATE ... IF NOT EXISTS`); nada apaga nem reescreve dado. Schema e nomes de tabela são validados como identificadores simples.
+
+Os testes rodam contra um Postgres real quando `STRIG_PG_URL` está definida (veja Desenvolvimento) e pulam sem ela.
+
 ## Servidor de decisão e cliente remoto
 
 O `strig-server` responde decisões por HTTP, para serviços que não embutem o motor.
@@ -524,6 +550,19 @@ const client = new PermissionClient({ url: '/permissions/events', scopes, strig,
 client.on('capabilities', () => render());
 client.can('document.edit', resource);
 ```
+
+### Custo de uma chamada e lotes
+
+O `Context` guarda grants, tuplas, `env` e instante no lado Rust, então uma decisão nunca os reenvia; altere-os com `addGrant` (o mesmo `id` substitui), `removeGrant`, `addTuple`, `removeTuple`, `setNow` e `setEnv`. O que ainda cruza a fronteira a cada chamada é o pedido, e o binding o envia como uma string de `JSON.stringify` (a decisão volta do mesmo jeito) quando ele é JSON simples; um pedido com `undefined`, `NaN`, funções, bigints ou instâncias de classe segue o caminho original e seus erros. `check` responde um booleano sem montar o `Decision`.
+
+Para decidir vários pedidos contra um `Context` e um instante, cruze a fronteira uma vez só:
+
+```js
+const allowed = engine.checkMany(ctx, requests);   // boolean[], na ordem
+const traces = engine.explainMany(ctx, requests);  // Explanation[], na ordem
+```
+
+Um pedido ilegível lança erro e não decide nenhum; nunca vira um `false` silencioso. Os números por caso estão em [`docs/benchmarks.md`](docs/benchmarks.md).
 
 ### Regras escritas em JavaScript
 

@@ -106,7 +106,7 @@ All crates except `strig-inspect` and `strig-node` are on crates.io at the same 
 | `strig` | Catalog, decision engine, governance, auditing, JSON spec, policy language | `serde`, `thiserror`; `sha2` with `audit` |
 | `strig-sync` | Change hub, `Transport` trait, SSE/WebSocket sessions independent of any web framework, capability cache | `tokio` |
 | `strig-redis` | `Transport` over Redis pub/sub | `redis` |
-| `strig-postgres` | `Transport` over Postgres `LISTEN/NOTIFY`, sent inside your transaction | `tokio-postgres` |
+| `strig-postgres` | `Transport` over Postgres `LISTEN/NOTIFY`, sent inside your transaction; grants, tuples, roles and pending requests stored in Postgres | `tokio-postgres` |
 | `strig-axum` | axum SSE and WebSocket routes over `strig-sync` sessions | `axum` |
 | `strig-server` | HTTP decision server, and a Rust client that denies when it gets no answer | `axum`, `hyper-util` (client) |
 | `strig-macros` | `policy!` and `include_policy!`: the policy is validated at compile time | `strig` |
@@ -457,6 +457,32 @@ A session watches scopes, that is, anchors such as `org:acme`. With a `Capabilit
 
 The client protocol is JSON and identical over SSE and WebSocket. The server sends `hello`, `capabilities`, `change`, `resync`, `error` and `ping`; the client sends `watch`, `unwatch` and `refresh` (WebSocket only). For a web framework other than axum, forward the stream from `Session::open` and write each message with `ServerMessage::to_sse` or `to_json`.
 
+## Postgres storage
+
+`strig-postgres` also keeps the data in Postgres: grants, ReBAC tuples, role assignments and pending requests, behind the same traits the engine already reads (`GrantSource`, `GrantIndex`, `TupleStore`, `TupleIndex`, `PendingStore`).
+
+```rust
+use strig_postgres::{PgPendingStore, PgStore, PgTables, connect, migrate_with};
+
+let tables = PgTables::default().in_schema("authz")?.with_prefix("strig")?; // schema and names are yours
+let client = connect(&url).await?;
+migrate_with(&client, &tables).await?; // idempotent, versioned, safe on every boot
+
+let store = PgStore::load(&client, tables.clone()).await?;
+let grants = store.grants(); // GrantSource + GrantIndex, served from memory
+let tuples = store.tuples(); // TupleStore + TupleIndex
+let _follower = store.follow(hub.subscribe(), move || connect(&url), Duration::from_secs(1));
+```
+
+- **Why a snapshot.** The core does no IO and `GrantSource` is synchronous, so `PgStore::load` reads the tables and the engine is served from memory. The snapshot reloads when the transport delivers a `Change` (grants, tuples or resync; a lagging receiver reloads everything). A store only exists loaded, so the engine never decides over an empty set that is missing a deny. If a reload fails the previous snapshot stays and `is_stale()` turns true: put it in your readiness probe. The snapshot holds every grant and tuple, so size it for that; for very large tuple sets keep answering `TupleStore` from your own indexed query.
+- **Writing.** `put_grant`, `delete_grant`, `put_tuple`, `delete_tuple`, `assign_role` and `revoke_role` take a client or a transaction. `commit_mutation(&tx, channel, &mutation)` writes what a `Mutation` changes and sends its `NOTIFY` in the same transaction, so the notice goes out if, and only if, the change commits. Call `lock_governance(&tx)` first and read `all_grants(&tx)` inside the transaction, so two instances never judge a change against the same stale set.
+- **Governance end to end.** Read the grants and the actor (`tables.subject(&tx, "user", id)` builds the `Subject` with its stored roles), run `Governance::apply`, then `commit_mutation` and commit. Other instances reload on the notice.
+- **Roles.** `strig_roles` keeps the assignments per subject (role, optional scope, optional window). A subject read from it carries the `authenticated` principal when its kind is `user`.
+- **Pending requests.** `PgPendingStore` is a `PendingStore` over a table, with the expiry in an indexed column (`due(now)` lists what `expire_due` closes). The trait is synchronous, so the store owns a connection on its own thread and each call blocks for one round trip: call it from `spawn_blocking` inside async code. A call that does not answer in time (10 s by default) is a `PendingError::Store`, which refuses, and `update` is one `UPDATE ... WHERE state = 'pending'`, so a request decided meanwhile by another process is never decided twice.
+- **Migrations.** `migrate`/`migrate_with` embed the SQL, record each version in `<prefix>_migrations` and run in one transaction under an advisory lock. They are additive (`CREATE ... IF NOT EXISTS`); nothing drops or rewrites data. Schema and table names are validated as plain identifiers.
+
+The tests run against a real Postgres when `STRIG_PG_URL` is set (see Development) and skip without it.
+
 ## Decision server and remote client
 
 `strig-server` answers decisions over HTTP, for services that do not embed the engine.
@@ -524,6 +550,19 @@ const client = new PermissionClient({ url: '/permissions/events', scopes, strig,
 client.on('capabilities', () => render());
 client.can('document.edit', resource);
 ```
+
+### Cost of a call and batches
+
+A `Context` keeps its grants, tuples, `env` and instant on the Rust side, so a decision never sends them again; change them with `addGrant` (the same `id` replaces), `removeGrant`, `addTuple`, `removeTuple`, `setNow` and `setEnv`. What still crosses the boundary on each call is the request, and the binding sends it as one `JSON.stringify` string (the decision comes back the same way) when it is plain JSON; a request with `undefined`, `NaN`, functions, bigints or class instances takes the original path and its errors. `check` answers a boolean without building the `Decision`.
+
+To decide many requests against one `Context` and one instant, cross the boundary once:
+
+```js
+const allowed = engine.checkMany(ctx, requests);   // boolean[], in order
+const traces = engine.explainMany(ctx, requests);  // Explanation[], in order
+```
+
+A request that cannot be read throws and decides none; it never becomes a silent `false`. Numbers per case are in [`docs/benchmarks.md`](docs/benchmarks.md).
 
 ### Rules written in JavaScript
 

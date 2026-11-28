@@ -47,6 +47,13 @@ pub enum PgQueryError {
     /// A validity bound or the instant of a query does not fit in a `bigint` column.
     #[error(transparent)]
     InstantOutOfRange(#[from] crate::InstantOutOfRange),
+    /// A role assignment or a request the store cannot hold (inverted window, empty scope id, a subject
+    /// without an id, an unrepresentable instant).
+    #[error("invalid input: {0}")]
+    Invalid(String),
+    /// The `NOTIFY` of a transactional write failed; the caller rolls its transaction back.
+    #[error(transparent)]
+    Notify(#[from] strig_sync::TransportError),
     #[error("database error")]
     Database(#[from] tokio_postgres::Error),
     #[error("stored grant is not valid JSON")]
@@ -54,7 +61,7 @@ pub enum PgQueryError {
 }
 
 /// A validity bound as the `bigint` the grant table stores.
-fn window_bound(bound: Option<u64>) -> Result<Option<i64>, PgQueryError> {
+pub(crate) fn window_bound(bound: Option<u64>) -> Result<Option<i64>, PgQueryError> {
     bound
         .map(|value| i64::try_from(value).map_err(|_| crate::InstantOutOfRange(value).into()))
         .transpose()
@@ -92,15 +99,23 @@ fn table_identifier(name: impl Into<String>) -> Result<String, PgQueryError> {
 /// Names of the grant table and of the tuple table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PgTables {
-    grants: String,
-    tuples: String,
+    pub(crate) schema: Option<String>,
+    pub(crate) grants: String,
+    pub(crate) tuples: String,
+    pub(crate) roles: String,
+    pub(crate) pending: String,
+    pub(crate) migrations: String,
 }
 
 impl Default for PgTables {
     fn default() -> Self {
         Self {
+            schema: None,
             grants: "strig_grants".to_string(),
             tuples: "strig_tuples".to_string(),
+            roles: "strig_roles".to_string(),
+            pending: "strig_pending".to_string(),
+            migrations: "strig_migrations".to_string(),
         }
     }
 }
@@ -114,7 +129,45 @@ impl PgTables {
         Ok(Self {
             grants: table_identifier(grants)?,
             tuples: table_identifier(tuples)?,
+            ..Self::default()
         })
+    }
+
+    /// Every table lives in `schema` (created by [`crate::migrate_with`] if missing) instead of the
+    /// connection's `search_path`.
+    ///
+    /// # Errors
+    ///
+    /// [`PgQueryError::InvalidIdentifier`] when the name is not a plain identifier.
+    pub fn in_schema(mut self, schema: impl Into<String>) -> Result<Self, PgQueryError> {
+        self.schema = Some(identifier(schema)?);
+        Ok(self)
+    }
+
+    /// Names all five tables `<prefix>_grants`, `<prefix>_tuples`, `<prefix>_roles`, `<prefix>_pending`
+    /// and `<prefix>_migrations`.
+    ///
+    /// # Errors
+    ///
+    /// [`PgQueryError::InvalidIdentifier`] when a resulting name is not a plain identifier or is too
+    /// long for its index names.
+    pub fn with_prefix(self, prefix: &str) -> Result<Self, PgQueryError> {
+        Ok(Self {
+            schema: self.schema,
+            grants: table_identifier(format!("{prefix}_grants"))?,
+            tuples: table_identifier(format!("{prefix}_tuples"))?,
+            roles: table_identifier(format!("{prefix}_roles"))?,
+            pending: table_identifier(format!("{prefix}_pending"))?,
+            migrations: table_identifier(format!("{prefix}_migrations"))?,
+        })
+    }
+
+    /// `"schema"."table"`, or just `"table"` without a schema.
+    pub(crate) fn qualified(&self, table: &str) -> String {
+        match &self.schema {
+            Some(schema) => format!("{}.{}", quote_ident(schema), quote_ident(table)),
+            None => quote_ident(table),
+        }
     }
 
     /// DDL of both tables with the indexes the queries of this module use. Safe to run twice.
@@ -126,7 +179,7 @@ impl PgTables {
     /// `valid_from` and `valid_until` columns (milliseconds since the Unix epoch) feed the window
     /// predicate of the grant queries and are held to the JSON the same way.
     pub fn schema_sql(&self) -> String {
-        let (grants, tuples) = (quote_ident(&self.grants), quote_ident(&self.tuples));
+        let (grants, tuples) = (self.qualified(&self.grants), self.qualified(&self.tuples));
         let index = |table: &str, suffix: &str| quote_ident(&format!("{table}_{suffix}"));
         format!(
             "CREATE TABLE IF NOT EXISTS {grants} (\
@@ -177,7 +230,7 @@ impl PgTables {
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::jsonb) \
              ON CONFLICT (id) DO UPDATE SET permission = $2, subject_kind = $3, subject_value = $4, \
              target_kind = $5, effect = $6, valid_from = $7, valid_until = $8, data = $9::text::jsonb",
-            quote_ident(&self.grants)
+            self.qualified(&self.grants)
         );
         let effect = match grant.effect {
             strig::Effect::Allow => "allow",
@@ -210,17 +263,11 @@ impl PgTables {
     /// [`PgQueryError::EmptyUsersetRelation`] for a userset with an empty relation,
     /// [`PgQueryError::Database`] when the statement fails.
     pub async fn put_tuple<C: GenericClient>(&self, client: &C, tuple: &Tuple) -> Result<(), PgQueryError> {
-        let (subject, set_relation) = match &tuple.subject {
-            strig::TupleSubject::Object(object) => (object, ""),
-            strig::TupleSubject::Userset(_, relation) if relation.is_empty() => {
-                return Err(PgQueryError::EmptyUsersetRelation);
-            }
-            strig::TupleSubject::Userset(object, relation) => (object, relation.as_str()),
-        };
+        let (subject, set_relation) = tuple_subject_columns(tuple)?;
         let sql = format!(
             "INSERT INTO {} (object_kind, object_id, relation, subject_kind, subject_id, subject_relation) \
              VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
-            quote_ident(&self.tuples)
+            self.qualified(&self.tuples)
         );
         client
             .execute(
@@ -306,7 +353,7 @@ impl PgTables {
         let window = window_predicate(&WindowColumns::default(), bound + 1, now)?;
         let sql = format!(
             "SELECT data::text FROM {} WHERE {condition} AND {} ORDER BY id",
-            quote_ident(&self.grants),
+            self.qualified(&self.grants),
             window.sql
         );
         Ok((sql, window.param))
@@ -328,6 +375,73 @@ impl PgTables {
         rows.iter()
             .map(|row| serde_json::from_str(row.get::<_, &str>(0)).map_err(PgQueryError::from))
             .collect()
+    }
+
+    /// Every grant, ordered by id (the order of the indexed queries). A window is not applied: the
+    /// engine filters by instant.
+    ///
+    /// # Errors
+    ///
+    /// [`PgQueryError::Database`] or [`PgQueryError::Decode`].
+    pub async fn all_grants<C: GenericClient>(&self, client: &C) -> Result<Vec<Grant>, PgQueryError> {
+        let sql = format!("SELECT data::text FROM {} ORDER BY id", self.qualified(&self.grants));
+        let rows = client.query(&sql, &[]).await?;
+        rows.iter()
+            .map(|row| serde_json::from_str(row.get::<_, &str>(0)).map_err(PgQueryError::from))
+            .collect()
+    }
+
+    /// Deletes a grant and returns it, or `None` if there was none.
+    ///
+    /// # Errors
+    ///
+    /// [`PgQueryError::Database`] or [`PgQueryError::Decode`].
+    pub async fn delete_grant<C: GenericClient>(&self, client: &C, id: &str) -> Result<Option<Grant>, PgQueryError> {
+        let sql = format!(
+            "DELETE FROM {} WHERE id = $1 RETURNING data::text",
+            self.qualified(&self.grants)
+        );
+        let row = client.query_opt(&sql, &[&id]).await?;
+        row.map(|row| serde_json::from_str(row.get::<_, &str>(0)).map_err(PgQueryError::from))
+            .transpose()
+    }
+
+    /// Every tuple.
+    ///
+    /// # Errors
+    ///
+    /// [`PgQueryError::Database`] when the query fails.
+    pub async fn all_tuples<C: GenericClient>(&self, client: &C) -> Result<Vec<Tuple>, PgQueryError> {
+        self.tuples_where(client, "TRUE", &[]).await
+    }
+
+    /// Deletes a tuple; `false` if it was not there.
+    ///
+    /// # Errors
+    ///
+    /// [`PgQueryError::EmptyUsersetRelation`] for a userset with an empty relation,
+    /// [`PgQueryError::Database`] when the statement fails.
+    pub async fn delete_tuple<C: GenericClient>(&self, client: &C, tuple: &Tuple) -> Result<bool, PgQueryError> {
+        let (subject, set_relation) = tuple_subject_columns(tuple)?;
+        let sql = format!(
+            "DELETE FROM {} WHERE object_kind = $1 AND object_id = $2 AND relation = $3 \
+             AND subject_kind = $4 AND subject_id = $5 AND subject_relation = $6",
+            self.qualified(&self.tuples)
+        );
+        let removed = client
+            .execute(
+                &sql,
+                &[
+                    &tuple.object.kind,
+                    &tuple.object.id,
+                    &tuple.relation,
+                    &subject.kind,
+                    &subject.id,
+                    &set_relation,
+                ],
+            )
+            .await?;
+        Ok(removed > 0)
     }
 
     /// Tuples written on objects of `kind`.
@@ -367,7 +481,7 @@ impl PgTables {
             "SELECT object_kind, object_id, relation, subject_kind, subject_id, subject_relation \
              FROM {} WHERE {condition} ORDER BY object_kind, object_id, relation, subject_kind, subject_id, \
              subject_relation",
-            quote_ident(&self.tuples)
+            self.qualified(&self.tuples)
         );
         let rows = client.query(&sql, params).await?;
         Ok(rows
@@ -383,6 +497,14 @@ impl PgTables {
                 }
             })
             .collect())
+    }
+}
+
+fn tuple_subject_columns(tuple: &Tuple) -> Result<(&ObjectRef, &str), PgQueryError> {
+    match &tuple.subject {
+        strig::TupleSubject::Object(object) => Ok((object, "")),
+        strig::TupleSubject::Userset(_, relation) if relation.is_empty() => Err(PgQueryError::EmptyUsersetRelation),
+        strig::TupleSubject::Userset(object, relation) => Ok((object, relation.as_str())),
     }
 }
 
