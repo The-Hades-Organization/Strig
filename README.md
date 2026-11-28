@@ -1055,6 +1055,8 @@ Building the `strig-inspect` window on Linux needs the Wayland and X11 developme
 
 Benchmarks: `cargo bench -p strig --bench engine`, and `node bench/bench.mjs` in `crates/strig-node/js` (or `bun`); see [docs/benchmarks.md](docs/benchmarks.md).
 
+Fuzzing: `./fuzz/run.sh <target> [seconds]` (nightly and `cargo install cargo-fuzz`) runs the targets in `fuzz/` for the policy language, `EngineSpec`, conditions, decisions, the sync and server messages and the audit chain; see [CONTRIBUTING.md](CONTRIBUTING.md#fuzzing).
+
 Source comments are in Brazilian Portuguese. Issues and pull requests are welcome in English or Portuguese; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
