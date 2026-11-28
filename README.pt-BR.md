@@ -865,6 +865,41 @@ O guard de rota espera as primeiras capacidades (`waitMs`, padrão 5000 ms) para
 
 React e Angular são peer dependencies opcionais e entram por import estático, para que o seu bundler resolva a própria cópia (uma cópia carregada por fora poderia ser um segundo React e quebrar os hooks). Por isso, um peer ausente falha na resolução do módulo, com o erro do próprio loader citando o pacote, e não com `MissingPeerError` como nas integrações Express, Fastify e NestJS. O pacote entrega o Angular como saída Ivy parcial, para o linker do Angular. Vue e Svelte podem seguir o mesmo caminho: a ponte em `client-bridge.ts` é neutra de framework e cada binding tem cerca de cem linhas.
 
+### Filtrando uma listagem no Prisma, Drizzle e Kysely
+
+`engine.list(...)` diz o que um sujeito alcança num kind; `/prisma`, `/drizzle` e `/kysely` transformam essa resposta no `where` do seu ORM, com o mesmo significado que o `PgTables` tem em Rust. Cada um recebe o resultado do `list` e um mapa de onde o recurso guarda o que o filtro lê, e devolve `{ permission, where, settled?, residual }`. Drizzle e Kysely são peers opcionais (o Kysely nunca é importado: o builder chega como argumento do callback); o Prisma não precisa de nenhum, pois o `where` é um objeto simples.
+
+```ts
+import { toWhere } from '@the-hades-organization/strig/prisma';
+
+const result = engine.list(ctx, subject, 'document.view', 'document', { layout: ['document', 'project', 'org'] });
+const { where, settled, residual } = toWhere(result, {
+  kind: 'document',
+  id: 'id',
+  paths: { project: 'projectId', org: 'project.orgId' }, // caminho com ponto atravessa uma relação to-one
+  attrs: { owner: 'ownerId' },
+  optionalRelations: ['project'], // só no Prisma: relações que podem faltar
+});
+const documents = await prisma.document.findMany({ where });
+```
+
+```ts
+import { toWhere } from '@the-hades-organization/strig/drizzle'; // paths: { project: documents.projectId, ... }
+const { where } = toWhere(result, { kind: 'document', id: documents.id, paths: { project: documents.projectId, org: documents.orgId } });
+const rows = await db.select().from(documents).where(where);
+
+import { toWhere as toKyselyWhere } from '@the-hades-organization/strig/kysely'; // colunas como texto
+const { where: kyselyWhere } = toKyselyWhere(result, { kind: 'document', id: 'id', paths: { project: 'project_id', org: 'org_id' } });
+const rows2 = await db.selectFrom('document').selectAll().where(kyselyWhere).execute();
+```
+
+- **Falha fechada.** Um kind ou atributo que o filtro lê e o mapa não tem, um nó da expressão sem forma de consulta, um filtro de outro kind que o do mapa: tudo lança `OrmFilterError` (`code`: `UNMAPPED_KIND`, `UNMAPPED_ATTRIBUTE`, `UNSUPPORTED_EXPR`, `UNSUPPORTED_VALUE`, `KIND_MISMATCH`). Nada vira "todas as linhas"; o que é certamente vazio vira uma condição impossível.
+- **Um deny alcança só o que nomeia.** Todo teste é verdadeiro ou falso, nunca `NULL`, então `NOT (project_id = 'p2')` mantém as linhas sem projeto, como o `engine.check` faz. No Prisma a negação desce até os campos (`{ OR: [{ projectId: null }, { projectId: { not: 'p2' } }] }`), e uma relação que pode faltar entra em `optionalRelations`; esquecer uma só custa linhas que um deny derrubaria, nunca abre acesso.
+- **Resíduo não é permissão.** Uma condição sobre o recurso, um override ou uma estratégia que o banco não resolve fica em `residual`. `where` é o limite superior (toda linha que pode estar permitida) e `settled` o inferior (linhas permitidas seja qual for o resíduo), presente só com resíduo: confira com `engine.check` as linhas de `where` fora de `settled`. Sem resíduo, `where` é exato.
+- **Um contrato.** Cada módulo também exporta um objeto (`prisma`, `drizzle`, `kysely`) com `toWhere(filter, mapping)`, tipado sobre o `PermissionId` do `strig-types`.
+
+Os testes de unidade conferem o objeto que cada adapter monta, e um oráculo roda cada cenário (allow por kind, por âncora, por id exato, denies que recortam, uma condição que fica como resíduo) contra o SQLite (Drizzle e Kysely) e um avaliador da forma do Prisma, comparando as linhas com os ids que o `engine.list` resolve. TypeORM, Sequelize e MikroORM ainda não têm adapter; o mapa e o compilador (`bounds`, `Emitter`) são o que um novo reaproveitaria.
+
 ## Linguagem de políticas
 
 Com a feature `dsl`, uma política pode ser escrita em texto em vez de JSON. A mesma política tem três sintaxes, Blocks, Rules e Actors, e `convert` passa de uma para outra. Todo erro traz posição e dica. O JSON validado continua sendo a fonte da verdade.
