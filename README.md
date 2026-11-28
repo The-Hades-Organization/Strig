@@ -371,6 +371,16 @@ At the `forensic` level each record carries the hash of the previous one. `audit
 
 The exact bytes of a record and the hash computation, with a test vector another language can reproduce, are in [docs/audit-format.md](docs/audit-format.md). The same page explains how to take only the records and chain them in your own log, and how to anchor the head of the chain outside (`Auditor::chain_head`, then `verify_chain_anchored(&records, start, head)`), which is what catches records cut off the end.
 
+### Verifiable by third parties
+
+A hash chain proves the log is intact to whoever holds all of it. Three additions let an auditor check the trail without trusting the host, and none changes the record or its hash:
+
+- **Merkle proofs** (`strig::merkle`, feature `audit`): the records are the leaves of an RFC 6962 / RFC 9162 tree. `MerkleTree::from_records(&records)` gives the root, an inclusion proof for one record and a consistency proof between two heads, so you can hand one record or one stretch to an auditor without the rest. `verify_inclusion` and `verify_consistency` are pure; in JS, `verifyMerkleInclusion({ record, index, size, proof, root })` and `verifyMerkleConsistency({ first, second, firstRoot, secondRoot, proof })`.
+- **RFC 3161 time stamps** (feature `timestamp`, off by default; the core without it gains no dependency): `TimestampRequest::for_chain_head(head, nonce)` builds the request for the head, you send it to a TSA, and `timestamp::verify_response` (JS: `verifyTimestamp({ response, head, roots, nonce? })`, no network) checks the imprint, nonce, policy, signature and the certificate chain against the roots **you** supply. Without a root it refuses everything. `examples/timestamp_http.rs` sends the request with `curl`.
+- **Conformance report**: `strig audit report trail.jsonl --anchor-head <hash> --timestamp head.tsr --root ca.pem [--json]` summarizes the period, records per action and outcome, changes per actor, refusals per invariant, chain breaks, anchors and stamps, and exits `1` when the trail does not conform. The same data is `strig::audit_report::ConformanceReport`.
+
+The tree, the stamp and their test vectors, reproducible in another language, are in [docs/audit-format.md](docs/audit-format.md).
+
 ### When the sink fails
 
 By default a sink that fails refuses the change (`FailMode::Closed`). With `FailMode::Open` the change goes ahead and the record waits in an in-memory retry queue, in order, with a capacity and a backoff you set (`RetryPolicy`); `AuditStatus::Pending` says it is waiting and `Auditor::stats()` counts what is waiting or was dropped. The mode is chosen per call (`governance.at(now).fail_mode(..)`, `Auditor::grant_mutation_with`), per permission (`with_permission_fail_mode`) or as the auditor's default (`with_fail_mode`), in that order of precedence.

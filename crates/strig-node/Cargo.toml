@@ -18,13 +18,15 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 ## Módulo nativo para Node e Bun (N-API).
-napi = ["dep:napi", "dep:napi-derive", "dsl-fs"]
+napi = ["dep:napi", "dep:napi-derive", "dsl-fs", "timestamp"]
 ## Expose the policy-language functions to another binding crate (Python) that reuses this core.
 dsl = []
 ## Ler um diretório de políticas (`loadProjectDir`); o wasm não tem IO.
 dsl-fs = ["strig/dsl-fs"]
+## Verificação de carimbo de tempo RFC 3161 (`verifyTimestamp`); fora do `dsl`, que os outros bindings reusam sem as dependências de criptografia.
+timestamp = ["strig/timestamp"]
 ## WebAssembly para navegador, Deno e fallback do Node/Bun.
-wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys"]
+wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys", "dep:getrandom", "timestamp"]
 
 [dependencies]
 strig = { workspace = true, features = ["exclusive", "dsl"] }
@@ -35,6 +37,8 @@ napi-derive = { version = "3", optional = true }
 wasm-bindgen = { version = "=0.2.130", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 js-sys = { version = "0.3", optional = true }
+# Linked only so the RNG of the RSA/ECDSA crates (never called when verifying) builds for wasm32-unknown-unknown.
+getrandom = { version = "0.2", features = ["js"], optional = true }
 
 [build-dependencies]
 napi-build = "2"

@@ -371,6 +371,16 @@ No nível `forensic`, cada registro leva o hash do anterior. `audit::verify_chai
 
 Os bytes exatos de um registro e o cálculo do hash, com um vetor de teste que outra linguagem consegue reproduzir, estão em [docs/audit-format.md](docs/audit-format.md) (em inglês). A mesma página explica como pegar só os registros e encadear no seu próprio log, e como ancorar a cabeça da cadeia fora (`Auditor::chain_head`, depois `verify_chain_anchored(&records, start, head)`), que é o que pega registros cortados do fim.
 
+### Verificável por terceiros
+
+Uma cadeia de hash prova que o log está íntegro para quem tem o log inteiro. Três adições deixam um auditor conferir a trilha sem confiar no host, e nenhuma muda o registro nem o hash dele:
+
+- **Provas Merkle** (`strig::merkle`, feature `audit`): os registros são as folhas de uma árvore RFC 6962 / RFC 9162. `MerkleTree::from_records(&records)` dá a raiz, a prova de inclusão de um registro e a de consistência entre duas cabeças, para entregar um registro ou um trecho ao auditor sem o resto. `verify_inclusion` e `verify_consistency` são puras; em JS, `verifyMerkleInclusion({ record, index, size, proof, root })` e `verifyMerkleConsistency({ first, second, firstRoot, secondRoot, proof })`.
+- **Carimbo de tempo RFC 3161** (feature `timestamp`, desligada por padrão; o núcleo sem ela não ganha dependência): `TimestampRequest::for_chain_head(head, nonce)` monta a requisição da cabeça, você a envia a uma TSA, e `timestamp::verify_response` (JS: `verifyTimestamp({ response, head, roots, nonce? })`, sem rede) confere o imprint, o nonce, a política, a assinatura e a cadeia de certificados contra as raízes que **você** fornece. Sem raiz, recusa tudo. `examples/timestamp_http.rs` envia a requisição com `curl`.
+- **Relatório de conformidade**: `strig audit report trilha.jsonl --anchor-head <hash> --timestamp head.tsr --root ca.pem [--json]` resume o período, os registros por ação e resultado, as mudanças por ator, as recusas por invariante, as quebras de cadeia, as âncoras e os carimbos, e sai com `1` quando a trilha não está conforme. Os mesmos dados são `strig::audit_report::ConformanceReport`.
+
+A árvore, o carimbo e os vetores de teste, reproduzíveis em outra linguagem, estão em [docs/audit-format.md](docs/audit-format.md).
+
 ### Quando o destino falha
 
 Por padrão, um destino que falha recusa a mudança (`FailMode::Closed`). Com `FailMode::Open` a mudança segue e o registro espera numa fila de retentativa em memória, em ordem, com capacidade e backoff configuráveis (`RetryPolicy`); `AuditStatus::Pending` diz que está esperando e `Auditor::stats()` conta o que espera ou foi descartado. O modo vem da chamada (`governance.at(now).fail_mode(..)`, `Auditor::grant_mutation_with`), da permissão (`with_permission_fail_mode`) ou do padrão do auditor (`with_fail_mode`), nessa ordem de precedência.
