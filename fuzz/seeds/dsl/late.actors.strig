@@ -1,0 +1,12 @@
+language actors
+
+user ana
+  allow doc.read on doc as g-first
+  role editor
+
+role editor
+  allow doc.read on doc as g-second
+
+catalog
+  kinds doc
+  doc.read on doc

@@ -1,0 +1,31 @@
+language blocks
+
+strategy = first_applicable
+target_kinds = [doc]
+
+permission doc.read {
+  targets = [doc]
+  label = "Read a document"
+}
+
+role editor {
+}
+
+// A deny wins by coming first.
+grant g-deny {
+  effect = deny
+  subject = role editor
+  permission = doc.read
+  target = doc
+}
+
+grant g-allow {
+  effect = allow
+  subject = role editor
+  permission = doc.read
+  target = doc
+}
+
+override resource_owner {
+  attr = "owner"
+}

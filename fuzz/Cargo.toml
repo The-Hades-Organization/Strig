@@ -1,0 +1,84 @@
+[package]
+name = "strig-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+strig = { path = "../crates/strig", features = ["dsl", "audit", "tz", "exclusive"] }
+strig-sync = { path = "../crates/strig-sync" }
+strig-server = { path = "../crates/strig-server", default-features = false }
+
+[workspace]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "dsl_parse"
+path = "fuzz_targets/dsl_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dsl_format"
+path = "fuzz_targets/dsl_format.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dsl_convert"
+path = "fuzz_targets/dsl_convert.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "spec_json"
+path = "fuzz_targets/spec_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "condition_eval"
+path = "fuzz_targets/condition_eval.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decide"
+path = "fuzz_targets/decide.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sync_protocol"
+path = "fuzz_targets/sync_protocol.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "server_wire"
+path = "fuzz_targets/server_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "audit_chain"
+path = "fuzz_targets/audit_chain.rs"
+test = false
+doc = false
+bench = false

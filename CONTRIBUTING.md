@@ -32,6 +32,16 @@ The published `@the-hades-organization/strig` holds the JS, the wasm and the loa
 
 `cargo bench -p strig --bench engine` (criterion, a dev-dependency only) and `node bench/bench.mjs` in `crates/strig-node/js` run the suite behind [docs/benchmarks.md](docs/benchmarks.md). They are not part of CI; the `benchmarks` workflow can be started by hand. Rerun them and update the page when you change the decision path, and say so in the pull request.
 
+### Fuzzing
+
+`fuzz/` holds `cargo-fuzz` (libFuzzer) targets outside the default workspace: `dsl_parse`, `dsl_format` (idempotent), `dsl_convert` (round trip between the three syntaxes), `spec_json`, `condition_eval`, `decide` (never an allow without a candidate grant), `sync_protocol`, `server_wire` and `audit_chain`. They need the nightly toolchain and `cargo install cargo-fuzz`.
+
+```sh
+./fuzz/run.sh dsl_convert 120     # one target for 120 seconds, seeded from fuzz/seeds
+```
+
+The seeds in `fuzz/seeds` are versioned; the corpus libFuzzer grows (`fuzz/corpus`), `fuzz/artifacts` and `fuzz/target` are not. A crash is written to `fuzz/artifacts/<target>/`: reproduce it with `cargo +nightly fuzz run <target> <file>`, fix it with a regression test in the ordinary suite, and mention it in the pull request. The `fuzz` workflow runs a short round on pull requests that touch the engine, sync, server or `fuzz/`, and a long one every night, keeping the crash as an artifact.
+
 ## Releases
 
 A release is its own pull request, made by a maintainer:
@@ -67,6 +77,7 @@ Issues e pull requests são bem-vindos em português ou inglês.
 - **Release:** uma PR só dela, feita por quem mantém: `Unreleased` do `CHANGELOG.md` vira `## [x.y.z] - AAAA-MM-DD`, a versão sobe no workspace (`Cargo.toml`, `workspace.dependencies`), em `package.json` e no `Cargo.lock`, e depois do merge se cria a tag `vx.y.z` na `main`, que dispara o workflow de release. A versão segue o [docs/versioning.md](docs/versioning.md).
 - **Depreciação:** siga a [política](docs/versioning.md#deprecation-policy): `#[deprecated]` em Rust, `@deprecated` mais `process.emitWarning` com código `STRIG_DEPnnn` em JS, aviso na linguagem de políticas; o comportamento se mantém, entra em **Deprecated** no changelog com o substituto, e a remoção espera a próxima major (antes da 1.0, ao menos uma minor).
 - **Benchmarks:** `cargo bench -p strig --bench engine` e `node bench/bench.mjs` em `crates/strig-node/js`; ficam fora do CI. Atualize o [docs/benchmarks.md](docs/benchmarks.md) quando mexer no caminho da decisão.
+- **Fuzzing:** `./fuzz/run.sh <alvo> [segundos]` (nightly + `cargo install cargo-fuzz`); os alvos e as sementes ficam em `fuzz/`. Um crash vira teste de regressão comum; o workflow `fuzz` roda uma rodada curta por PR e uma longa à noite.
 - **Quebra de compatibilidade:** linha em **Breaking** no `CHANGELOG.md` e entrada em [docs/migration.md](docs/migration.md).
 - **Pull request:** uma mudança por PR, com testes. Mudança que pode abrir acesso antes fechado precisa de teste mostrando que a negação continua negando. Atualize os dois READMEs quando mexer no que eles documentam e acrescente uma linha ao `CHANGELOG.md` em `Unreleased`. Os comandos que o CI roda estão na seção em inglês acima.
 

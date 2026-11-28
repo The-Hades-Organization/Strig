@@ -1,0 +1,58 @@
+language blocks
+
+target_kinds = [project, document]
+strategy = deny_overrides
+
+permission document.view {
+  targets = [project, document]
+}
+
+permission document.edit {
+  targets = [project, document]
+  implied_by = [document.view]
+}
+
+role editor {
+}
+
+subject user:ana {
+  attrs {
+    dept = "legal"
+    level = 3
+    active = true
+  }
+  principals = [ana]
+  assign editor {
+  }
+}
+
+// Legal may edit what is theirs.
+grant g-dept {
+  effect = allow
+  subject = role editor
+  permission = document.edit
+  target = document
+  when = subject.dept == "legal" and subject.level >= 2
+}
+
+grant g-freeze {
+  effect = deny
+  subject = anyone
+  permission = document.edit
+  target = project:apollo
+  when = subject.active == false
+}
+
+grant g-user {
+  effect = allow
+  subject = user ana
+  permission = document.view
+  target = document:spec  // one document
+}
+
+grant g-principal {
+  effect = allow
+  subject = principal ana
+  permission = document.view
+  target = project
+}

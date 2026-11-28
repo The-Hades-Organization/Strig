@@ -1,0 +1,37 @@
+language blocks
+
+target_kinds = [org, doc]
+max_depth = 4
+
+permission doc.read {
+  targets = [doc]
+}
+
+role viewer {
+}
+
+// Owners and viewers of a document.
+relation doc#owner {
+  rewrite = this
+}
+
+relation doc#viewer {
+  rewrite = this | owner
+}
+
+relation org#member {
+  rewrite = this
+}
+
+tuples {
+  doc:d1#owner@user:bob
+  doc:d1#viewer@org:acme#member  // the whole organization
+  org:acme#member@user:ana
+}
+
+grant g-read {
+  effect = allow
+  subject = relation viewer
+  permission = doc.read
+  target = doc
+}

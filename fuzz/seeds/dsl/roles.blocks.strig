@@ -1,0 +1,61 @@
+// Documents of an organization: who may read, edit and manage them.
+language blocks
+
+target_kinds = [project, folder, document]
+broad_targets = [org]
+
+permission project.view {
+  label = "View project"
+  targets = [project]
+}
+
+// Reading a document follows from viewing its project.
+permission document.view {
+  targets = [project, folder, document]
+  implied_by = [project.view]
+}
+
+permission document.edit {
+  targets = [project, folder, document]
+  depends_on = [document.view]  // never alone
+}
+
+role viewer {
+}
+
+role editor {
+  inherits = [viewer]
+}
+
+role manager {
+  inherits = [editor]
+}
+
+// Ana runs the project.
+subject user:ana {
+  assign manager {
+    scope = project:apollo
+  }
+}
+
+subject user:bruno {
+  assign editor {
+    scope = project:apollo
+  }
+}
+
+grant g-view {
+  effect = allow
+  subject = role viewer
+  permission = project.view
+  target = project
+  scope = org:acme
+}
+
+grant g-edit {
+  effect = allow
+  subject = role editor
+  permission = document.edit
+  target = project
+  scope = org:acme
+}
