@@ -57,6 +57,7 @@ pub mod pending;
 pub mod query;
 pub mod rbac;
 pub mod rebac;
+pub mod recert;
 pub mod resource;
 pub mod revision;
 pub mod separation;
@@ -74,7 +75,7 @@ pub use attr::{Attributes, Value};
 pub use audit::{
     AuditAction, AuditError, AuditLevel, AuditOutcome, AuditRecord, AuditSink, AuditStats, AuditStatus, Auditor,
     ChainError, DropHook, DroppedRecord, Emitted, FailMode, JsonLinesAudit, MemoryAuditLog, PendingQueue, PendingRef,
-    Redactor, RetryPolicy, RoleChange, chain_head, mask_attributes, verify_chain, verify_chain_anchored,
+    RecertRef, Redactor, RetryPolicy, RoleChange, chain_head, mask_attributes, verify_chain, verify_chain_anchored,
 };
 pub use catalog::{
     ActionConflict, Catalog, CatalogBuilder, CatalogError, CatalogErrors, CatalogExport, CatalogRule, ExclusiveKind,
@@ -121,6 +122,11 @@ pub use query::{
 };
 pub use rbac::{RbacError, RoleGraph};
 pub use rebac::{InMemoryTuples, RebacError, RelationSchema, Rewrite, Tuple, TupleIndex, TupleStore, TupleSubject};
+pub use recert::{
+    Campaign, CampaignReport, CampaignSpec, CampaignStatus, Closed, Decided, DefaultAction, Delegation, ItemState,
+    MemoryRecertStore, RecertDecision, RecertError, RecertItem, RecertScope, RecertStore, RecertTarget,
+    Recertifications, ReviewerRoute, ReviewerRule, ReviewerTally,
+};
 pub use resource::{Anchor, GLOBAL, ObjectRef, Resource};
 pub use revision::{DEFAULT_SCOPE, MemoryRevisions, Reached, Revised, Revision, RevisionParseError, RevisionSource};
 pub use separation::{Clash, SEPARATION_PREFIX, SeparationOfDuties, SeparationRule, clashes_of};
