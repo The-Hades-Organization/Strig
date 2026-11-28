@@ -6,5 +6,5 @@
     "types": ["node"],
     "outDir": "dist-node"
   },
-  "files": ["serve.ts", "engine.ts", "cases.ts", "test/smoke.ts"]
+  "files": ["serve.ts", "engine.ts", "cases.ts", "inspector-core.ts", "test/smoke.ts", "test/inspector.ts"]
 }

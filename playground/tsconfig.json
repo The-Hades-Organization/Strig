@@ -7,5 +7,5 @@
     "types": [],
     "outDir": "dist"
   },
-  "files": ["app.ts", "cases.ts", "engine.ts", "highlight.ts"]
+  "files": ["app.ts", "cases.ts", "engine.ts", "highlight.ts", "inspector.ts", "inspector-core.ts"]
 }

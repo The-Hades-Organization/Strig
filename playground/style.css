@@ -97,6 +97,7 @@ svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none;
   background: transparent; border-radius: var(--r2); color: var(--ink);
   transition: background var(--t1) var(--ease), border-color var(--t1) var(--ease);
 }
+a.iconbtn { text-decoration: none; }
 .iconbtn:hover { background: var(--panel); border-color: var(--mute); }
 
 .app {

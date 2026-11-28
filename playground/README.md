@@ -22,8 +22,11 @@ Open `http://127.0.0.1:8080`. The page needs HTTP, not `file://`, to load the wa
 - `favicon.svg`, `favicon-32.png`: the Strig mark as the tab icon (the SVG follows the light and dark schemes).
 - `app.ts`: the interface and the state kept in the URL hash (`#case=&syn=&tab=&ask=&fix=&theme=`).
 - `engine.ts`: the bridge to the wasm binding (compile, convert, evaluate, canonical JSON).
+- `inspector.html`, `inspector.css`, `inspector.ts`: the inspector page (`/inspector.html`): scenario, simulation, Evaluation, Matrix and Audit over the same engine. It fetches `examples/scenario.json` and `examples/audit.jsonl`, which `build.sh` copies from `crates/strig-inspect/examples/`.
+- `inspector-core.ts`: the inspector logic without DOM (reading a scenario and a trail, the matrix, the simulation, the chain check and the replay), tested in `test/inspector.ts`.
 - `cases.ts`: the example policies, in the three syntaxes, with the questions asked of each.
 - `highlight.ts`: syntax highlighting for the editor.
 - `serve.ts`: the static server for local use.
-- `test/smoke.ts`: every example compiles in the three syntaxes and the engine answers every question. After the build: `npm test --prefix playground` (runs `node --test dist-node/test/smoke.js`).
+- `test/smoke.ts`: every example compiles in the three syntaxes and the engine answers every question. After the build: `npm test --prefix playground` (runs `node --test dist-node/test/smoke.js dist-node/test/inspector.js`).
+- `test/inspector.ts`: the inspector logic against the real engine and the shipped example: scenario parsing, matrix, simulation diff, chain verification and trail replay.
 - `tsconfig.json` (the page, `moduleResolution: bundler`) and `tsconfig.node.json` (server and test, `NodeNext`); `types/engine/browser.d.ts` types `./engine/browser.js`, which `build.sh` assembles in `dist/`.
