@@ -4,6 +4,34 @@ What to change in your code when you upgrade, release by release. The newest rel
 [changelog](../CHANGELOG.md) lists every change; this page shows the before, the after and the step for the ones that
 need action. The rules for what counts as breaking are in [versioning.md](versioning.md).
 
+## 0.8.0
+
+Nothing breaks. Every change in 0.8.0 is additive and the defaults behave as in 0.7.0, so upgrading the crates and the
+npm package needs no edit to your code, your policies or your stored data.
+
+### New, no action: opt-in features
+
+- **`tracing`** (feature of `strig`, `strig-sync`, `strig-postgres`, `strig-redis` and `strig-server`, off by default):
+  spans through `tracing` and metrics through the `metrics` facade. With the feature off nothing is compiled in.
+- **`conformance`** (feature of `strig`, off by default, not stable API): `strig::exclusive_conformance::run`, the
+  battery to run against your own `ExclusiveStore`.
+- **React and Angular** (`@the-hades-organization/strig/react` and `/angular`): `react` (18 or 19) and
+  `@angular/core` (17+) are optional peers. Install them only if you import those subpaths.
+
+### New, no action: Postgres and Redis storage
+
+`PgStore`, `PgExclusiveStore` and `RedisExclusiveStore` are additions. `strig-postgres` migration v4 adds the
+`<prefix>_exclusive` table; `migrate` is idempotent and additive, so run it as you already do. The `ExclusiveStore`
+trait gained `acquire_lease`, `renew_lease`, `release_lease` and `remove_expired` with default bodies, so a store you
+implemented keeps compiling and working. `PgQueryError` is `#[non_exhaustive]`; an exhaustive `match` already needs a
+`_` arm.
+
+### New, no action: `checkMany` and `explainMany`
+
+`engine.checkMany(ctx, requests)` and `engine.explainMany(ctx, requests)` decide a batch in one call. `check`,
+`decide` and `explain` return the same results and throw the same errors as before; they only run faster for
+plain-JSON requests.
+
 ## 0.7.0
 
 ### Rust: `ChainError` has two new variants
