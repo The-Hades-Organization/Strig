@@ -118,6 +118,34 @@ for (const backend of ['native', 'wasm'] as const) {
     assert.deepEqual(policy.catalog.permissions.map((p) => p.key).sort(), ['doc.read', 'org.read', 'team.read']);
   });
 
+  await test(`${backend}: runTests devolve um resultado por caso`, () => {
+    const policy = strig.compile(ORG);
+    const ana = { kind: 'user', id: 'ana' };
+    const check = (name: string, expect: 'allow' | 'deny', permission = 'org.read') => ({
+      kind: 'check' as const, name, subject: ana, permission, resource: 'org:1', expect,
+    });
+    const report = strig.runTests(policy, [
+      { cases: [check('denies', 'deny'), check('wrong', 'allow'), check('typo', 'deny', 'org.raed')] },
+      JSON.stringify({ cases: [check('from text', 'deny')] }),
+    ]);
+    assert.deepEqual(
+      report.results.map((r) => [r.file, r.name, r.outcome]),
+      [['tests[0]', 'denies', 'passed'], ['tests[0]', 'wrong', 'failed'], ['tests[0]', 'typo', 'errored'], ['tests[1]', 'from text', 'passed']],
+    );
+    const wrong = report.results[1]!;
+    assert.equal(wrong.expected, 'allow');
+    assert.match(wrong.actual, /^deny, reason no_applicable_grant/);
+    assert.ok(wrong.explanation);
+    assert.match(report.results[2]!.actual, /org\.raed/);
+  });
+
+  await test(`${backend}: runTests recusa entrada que não é arquivo de teste`, () => {
+    const policy = strig.compile(ORG);
+    assert.equal(failure(() => strig.runTests(policy, [{ cases: [], extra: 1 } as never])).code, 'INVALID_INPUT');
+    assert.equal(failure(() => strig.runTests(policy, { cases: [] } as never)).code, 'INVALID_ARGUMENT');
+    assert.equal(failure(() => strig.runTests({ nope: 1 } as never, [])).code, 'INVALID_INPUT');
+  });
+
   await test(`${backend}: conflito entre fontes aponta os dois lados`, () => {
     const full = ORG;
     const error = failure(() =>

@@ -66,6 +66,10 @@ name = "dsl_project"
 required-features = ["dsl"]
 
 [[test]]
+name = "dsl_testing"
+required-features = ["dsl"]
+
+[[test]]
 name = "dsl_fs"
 required-features = ["dsl-fs"]
 

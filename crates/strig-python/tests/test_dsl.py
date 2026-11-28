@@ -64,3 +64,24 @@ def test_load_project_dir_reads_files_and_reports_io(tmp_path):
     with pytest.raises(strig.DslError) as e:
         dsl.load_project_dir(str(tmp_path / "missing"))
     assert e.value.code == "DSL_IO"
+
+
+def test_run_tests_reports_each_case():
+    policy = dsl.compile(BLOCKS)
+    subject = {"kind": "user", "id": "a"}
+    tests = [{"cases": [
+        {"kind": "check", "name": "n", "subject": subject, "permission": "org.read",
+         "resource": "org:1", "expect": "deny", "reason": "no_applicable_grant"},
+        {"kind": "check", "name": "wrong", "subject": subject, "permission": "org.read",
+         "resource": "org:1", "expect": "allow"},
+    ]}]
+    report = dsl.run_tests(policy, tests)
+    assert [r["outcome"] for r in report["results"]] == ["passed", "failed"]
+    assert report["results"][0]["file"] == "tests[0]"
+
+
+def test_run_tests_refuses_bad_input():
+    policy = dsl.compile(BLOCKS)
+    with pytest.raises(dsl.DslError) as bad:
+        dsl.run_tests(policy, {"cases": []})  # type: ignore[arg-type]
+    assert bad.value.code == "INVALID_ARGUMENT"

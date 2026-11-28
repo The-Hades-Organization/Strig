@@ -1,0 +1,63 @@
+language blocks
+
+target_kinds = [org, project]
+
+permission project.read {
+  targets = [project]
+}
+
+permission project.write {
+  targets = [project]
+  depends_on = [project.read]
+}
+
+permission org.settings {
+  targets = [org]
+}
+
+role member {
+}
+
+role admin {
+  inherits = [member]
+}
+
+subject user:ana {
+  assign admin {
+    scope = org:acme
+  }
+}
+
+subject user:bruno {
+  assign member {
+    scope = org:acme
+  }
+}
+
+grant member-reads {
+  effect = allow
+  subject = role member
+  permission = project.read
+  target = project
+}
+
+grant member-writes-in-hours {
+  effect = allow
+  subject = role member
+  permission = project.write
+  target = project
+  when = time_between "09:00" "18:00" tz "America/Sao_Paulo"
+}
+
+grant admin-settings {
+  effect = allow
+  subject = role admin
+  permission = org.settings
+  target = org
+}
+
+invariant no_self_management {
+}
+
+invariant no_escalation {
+}

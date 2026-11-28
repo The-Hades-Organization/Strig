@@ -898,6 +898,18 @@ fn dsl_load_project_dir<'py>(py: Python<'py>, dir: &Bound<'_, PyAny>) -> PyResul
     envelope(py, (|| strig_node::dsl::load_project_dir(&dsl_arg(dir)?))())
 }
 
+#[pyfunction]
+fn dsl_run_tests<'py>(
+    py: Python<'py>,
+    policy: &Bound<'_, PyAny>,
+    tests: &Bound<'_, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    envelope(
+        py,
+        (|| strig_node::dsl::run_tests(&dsl_arg(policy)?, &dsl_arg(tests)?))(),
+    )
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyContext>()?;
@@ -912,5 +924,6 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(dsl_is_formatted, m)?)?;
     m.add_function(wrap_pyfunction!(dsl_load_project, m)?)?;
     m.add_function(wrap_pyfunction!(dsl_load_project_dir, m)?)?;
+    m.add_function(wrap_pyfunction!(dsl_run_tests, m)?)?;
     Ok(())
 }

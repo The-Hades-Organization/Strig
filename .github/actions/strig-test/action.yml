@@ -1,0 +1,50 @@
+name: Strig policy tests
+description: Installs the `strig` command and runs the tests that sit beside a Strig policy (`*.strig-test.json`).
+author: The Hades Organization
+
+inputs:
+  path:
+    description: Directory with the `*.strig` policy files and their `*.strig-test.json` files.
+    required: false
+    default: "."
+  junit:
+    description: File to write a JUnit XML report to (for a test-report action). Empty for none.
+    required: false
+    default: ""
+  version:
+    description: Version of the `strig-cli` crate to install. Pin it; empty installs the latest published one.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Cache the strig binary
+      if: inputs.version != ''
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/bin/strig
+        key: strig-cli-${{ runner.os }}-${{ inputs.version }}
+    - name: Install strig
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        STRIG_VERSION: ${{ inputs.version }}
+      run: |
+        if [ -n "$STRIG_VERSION" ]; then
+          cargo install strig-cli --locked --version "$STRIG_VERSION"
+        else
+          cargo install strig-cli --locked
+        fi
+    - name: Run the policy tests
+      shell: bash
+      env:
+        STRIG_PATH: ${{ inputs.path }}
+        STRIG_JUNIT: ${{ inputs.junit }}
+      run: |
+        if [ -n "$STRIG_JUNIT" ]; then
+          "$HOME/.cargo/bin/strig" test "$STRIG_PATH" --junit "$STRIG_JUNIT"
+        else
+          "$HOME/.cargo/bin/strig" test "$STRIG_PATH"
+        fi

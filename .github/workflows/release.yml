@@ -37,7 +37,7 @@ jobs:
       - name: Publish in dependency order
         run: |
           version="${GITHUB_REF_NAME#v}"
-          for crate in strig strig-macros strig-sync strig-redis strig-postgres strig-axum strig-server; do
+          for crate in strig strig-macros strig-sync strig-redis strig-postgres strig-axum strig-server strig-cli; do
             # A rerun after a partial publish (e.g. the crates.io rate limit for new crates) skips what is already out.
             if curl -sfA "strig-release (github.com/${{ github.repository }})" \
                 "https://crates.io/api/v1/crates/$crate/$version" >/dev/null; then

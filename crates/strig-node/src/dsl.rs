@@ -273,6 +273,30 @@ pub fn load_project_dir(dir: &Value) -> DslResult<Value> {
     build(&project)
 }
 
+/// `runTests(policy, tests)`: roda os arquivos de teste (`TestFile`, objetos ou o texto JSON de cada
+/// um) contra a política, sem IO. Um `fixture` dado como caminho não é lido aqui: o caso vira erro.
+pub fn run_tests(policy: &Value, tests: &Value) -> DslResult<Value> {
+    use strig::dsl::testing::{self, TestFile};
+
+    let policy = dsl::Policy::from_json(&policy.to_string()).map_err(|e| BindingError::invalid_input("policy", e))?;
+    policy.validate().map_err(|found| failure(DslCode::Validate, &found))?;
+    let list = tests
+        .as_array()
+        .ok_or_else(|| BindingError::invalid_argument("tests", "esperada uma lista de arquivos de teste"))?;
+    let mut files = Vec::with_capacity(list.len());
+    for (at, item) in list.iter().enumerate() {
+        let text = match item {
+            Value::String(text) => text.clone(),
+            other => other.to_string(),
+        };
+        let file =
+            TestFile::parse(&format!("tests[{at}]"), &text).map_err(|e| BindingError::invalid_input("tests", e))?;
+        files.push(file);
+    }
+    let report = testing::run(&policy, &files);
+    serde_json::to_value(&report).map_err(|e| BindingError::new("INTERNAL", e.to_string()).into())
+}
+
 /// O resultado de uma chamada como o JavaScript o recebe: `{ ok: true, value }` ou
 /// `{ ok: false, code, message, diagnostics }`. `dsl.js` o abre e lança o `Error`.
 pub fn envelope<T: Into<Value>>(result: DslResult<T>) -> Value {
@@ -331,6 +355,37 @@ mod tests {
     fn bad_language_and_text_are_invalid_argument() {
         assert_eq!(code(convert(&json!(BLOCKS), &json!("yaml"))), "INVALID_ARGUMENT");
         assert_eq!(code(compile(&json!(1), None)), "INVALID_ARGUMENT");
+    }
+
+    #[test]
+    fn run_tests_reports_each_case() {
+        let policy = compile(&json!(BLOCKS), None).unwrap();
+        let tests = json!([{"cases": [
+            {"kind": "check", "name": "n", "subject": {"kind": "user", "id": "a"}, "permission": "org.read",
+             "resource": "org:1", "expect": "deny", "reason": "no_applicable_grant"},
+            {"kind": "check", "name": "wrong", "subject": {"kind": "user", "id": "a"}, "permission": "org.read",
+             "resource": "org:1", "expect": "allow"}
+        ]}]);
+        let report = run_tests(&policy, &tests).unwrap();
+        let outcomes: Vec<_> = report["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["outcome"].clone())
+            .collect();
+        assert_eq!(outcomes, [json!("passed"), json!("failed")]);
+        assert_eq!(report["results"][0]["file"], "tests[0]");
+    }
+
+    #[test]
+    fn run_tests_refuses_bad_input() {
+        let policy = compile(&json!(BLOCKS), None).unwrap();
+        assert_eq!(code(run_tests(&policy, &json!({"cases": []}))), "INVALID_ARGUMENT");
+        assert_eq!(
+            code(run_tests(&policy, &json!([{"cases": [], "extra": 1}]))),
+            "INVALID_INPUT"
+        );
+        assert_eq!(code(run_tests(&json!({"nope": 1}), &json!([]))), "INVALID_INPUT");
     }
 
     #[test]

@@ -31,6 +31,7 @@ mod lex;
 mod policy;
 mod project;
 mod rules;
+pub mod testing;
 mod time;
 mod validate;
 

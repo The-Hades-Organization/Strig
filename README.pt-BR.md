@@ -114,6 +114,7 @@ Todos os crates, menos `strig-inspect`, `strig-node` e `strig-python`, estão no
 | `strig-macros` | `policy!` e `include_policy!`: a política é validada em tempo de compilação | `strig` |
 | `strig-node` | O pacote npm: módulo nativo (N-API) para Node e Bun, WebAssembly para navegador | `napi` ou `wasm-bindgen` |
 | `strig-python` | O pacote PyPI `strig-auth` (`import strig`): extensão nativa (PyO3, abi3) sobre o mesmo núcleo do `strig-node` | `pyo3` |
+| `strig-cli` | O comando `strig`: `strig test` roda os testes de uma política, para pessoas e para o CI (JUnit) | `strig` |
 | `strig-inspect` | Visualizador: rastro das decisões, simulação de grants, matriz de acesso, trilha de auditoria. Janela desktop e comandos de terminal | `gpui-pre`, `gpui-component` |
 
 ```toml
@@ -1016,6 +1017,26 @@ try {
   const [first] = error.diagnostics; // first.file === 'a.strig', first.line === 3
 }
 ```
+
+### Testando uma política
+
+Os testes ficam ao lado da política: arquivos `*.strig-test.json` com casos `check` (sujeito, permissão, recurso, instante
+e ambiente opcionais, `allow` ou `deny` esperado, e opcionalmente o motivo e o grant que decide) e casos `mutation` (um
+ator e uma mudança, aceita ou recusada, e opcionalmente por qual invariante). `strig test` os roda, e erro no próprio teste
+nunca é aprovação:
+
+```sh
+cargo install strig-cli --locked
+strig test policies/ --junit test-results/strig.xml   # exit 1 em falha, 2 em entrada inválida
+```
+
+```yaml
+- uses: The-Hades-Organization/Strig/.github/actions/strig-test@v0.9.0
+  with: { path: policies, version: 0.9.0 }
+```
+
+O mesmo runner é `strig::dsl::testing` em Rust e `strig.runTests(policy, tests)` em JavaScript e `strig.dsl.run_tests(policy, tests)` em Python. O formato, o relatório e
+os códigos de saída estão [no guia](docs/dsl.pt-BR.md#testando-uma-politica); `examples/policy-tests/` tem um projeto que passa.
 
 ### Macros
 

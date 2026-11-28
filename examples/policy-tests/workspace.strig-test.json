@@ -1,0 +1,197 @@
+{
+  "name": "workspace policy",
+  "fixture": "workspace.fixture.json",
+  "cases": [
+    {
+      "kind": "check",
+      "name": "an admin reaches the org settings",
+      "subject": "user:ana",
+      "permission": "org.settings",
+      "resource": {
+        "path": [
+          {
+            "kind": "org",
+            "id": "acme"
+          }
+        ]
+      },
+      "expect": "allow",
+      "grant": "admin-settings"
+    },
+    {
+      "kind": "check",
+      "name": "a member does not",
+      "subject": "user:bruno",
+      "permission": "org.settings",
+      "resource": {
+        "path": [
+          {
+            "kind": "org",
+            "id": "acme"
+          }
+        ]
+      },
+      "expect": "deny",
+      "reason": "no_applicable_grant"
+    },
+    {
+      "kind": "check",
+      "name": "a member reads a project",
+      "subject": "user:bruno",
+      "permission": "project.read",
+      "resource": {
+        "path": [
+          {
+            "kind": "project",
+            "id": "p1"
+          },
+          {
+            "kind": "org",
+            "id": "acme"
+          }
+        ]
+      },
+      "expect": "allow",
+      "grant": "member-reads"
+    },
+    {
+      "kind": "check",
+      "name": "a member writes during working hours in Sao Paulo",
+      "subject": "user:bruno",
+      "permission": "project.write",
+      "resource": {
+        "path": [
+          {
+            "kind": "project",
+            "id": "p1"
+          },
+          {
+            "kind": "org",
+            "id": "acme"
+          }
+        ]
+      },
+      "now": 1772636400000,
+      "expect": "allow",
+      "grant": "member-writes-in-hours"
+    },
+    {
+      "kind": "check",
+      "name": "and not at night",
+      "subject": "user:bruno",
+      "permission": "project.write",
+      "resource": {
+        "path": [
+          {
+            "kind": "project",
+            "id": "p1"
+          },
+          {
+            "kind": "org",
+            "id": "acme"
+          }
+        ]
+      },
+      "now": 1772665200000,
+      "expect": "deny"
+    },
+    {
+      "kind": "check",
+      "name": "without a clock the window never allows",
+      "subject": "user:bruno",
+      "permission": "project.write",
+      "resource": {
+        "path": [
+          {
+            "kind": "project",
+            "id": "p1"
+          },
+          {
+            "kind": "org",
+            "id": "acme"
+          }
+        ]
+      },
+      "expect": "deny"
+    },
+    {
+      "kind": "check",
+      "name": "someone with no role gets nothing",
+      "subject": "user:carla",
+      "permission": "project.read",
+      "resource": {
+        "path": [
+          {
+            "kind": "project",
+            "id": "p1"
+          },
+          {
+            "kind": "org",
+            "id": "acme"
+          }
+        ]
+      },
+      "expect": "deny"
+    },
+    {
+      "kind": "mutation",
+      "name": "an admin may grant what they hold to someone else",
+      "actor": "user:ana",
+      "mutation": {
+        "add": {
+          "id": "carla-settings",
+          "subject": {
+            "kind": "user",
+            "id": "carla"
+          },
+          "permission": "org.settings",
+          "target": {
+            "kind": "org",
+            "id": "acme"
+          },
+          "effect": "allow"
+        }
+      },
+      "expect": "accepted"
+    },
+    {
+      "kind": "mutation",
+      "name": "a member cannot grant what they lack",
+      "actor": "user:bruno",
+      "mutation": {
+        "add": {
+          "id": "sneaky",
+          "subject": {
+            "kind": "user",
+            "id": "bruno"
+          },
+          "permission": "org.settings",
+          "target": {
+            "kind": "org"
+          },
+          "effect": "allow"
+        }
+      },
+      "expect": "refused",
+      "invariant": "no_escalation"
+    },
+    {
+      "kind": "mutation",
+      "name": "nobody promotes themselves",
+      "actor": "user:ana",
+      "mutation": {
+        "assign_role": {
+          "subject": {
+            "kind": "user",
+            "id": "ana"
+          },
+          "role": {
+            "role": "member"
+          }
+        }
+      },
+      "expect": "refused",
+      "invariant": "no_self_management"
+    }
+  ]
+}

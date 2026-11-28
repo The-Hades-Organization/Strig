@@ -71,3 +71,12 @@ def load_project_dir(directory: str) -> Dict[str, Any]:
     """One policy from the `.strig` files of a directory."""
     result: Dict[str, Any] = _open(_native.dsl_load_project_dir(str(directory)))
     return result
+
+
+def run_tests(policy: Dict[str, Any], tests: List[Any]) -> Dict[str, Any]:
+    """Run test files (`TestFile` dicts or their JSON text) against a policy, without IO.
+
+    Returns the report: `{"results": [...], ...}`, one entry per case with its `outcome`.
+    """
+    result: Dict[str, Any] = _open(_native.dsl_run_tests(policy, tests))
+    return result

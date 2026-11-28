@@ -843,6 +843,68 @@ export interface PolicySource {
   text: string;
 }
 
+/** A fixture of a test file: more subjects, grants and tuples than the policy has, and the base environment. Written inline; a path is only read by `strig test`. */
+export interface PolicyTestFixture {
+  subjects?: unknown[];
+  grants?: unknown[];
+  tuples?: unknown[];
+  env?: Record<string, unknown>;
+}
+
+/** A test file as `strig test` reads it from `*.strig-test.json`. A subject is `"kind:id"` (declared in the policy or the fixture), `"anonymous"` or the subject object; a resource is `"global"`, `"kind:id"` or the resource object. */
+export interface PolicyTestFile {
+  name?: string;
+  fixture?: PolicyTestFixture;
+  cases: PolicyTestCase[];
+}
+
+export type PolicyTestCase =
+  | {
+      kind: 'check';
+      name?: string;
+      subject: string | object;
+      permission: string;
+      resource: string | object;
+      env?: Record<string, unknown>;
+      /** Milliseconds since the Unix epoch. */
+      now?: number;
+      expect: 'allow' | 'deny';
+      reason?: 'override' | 'grant' | 'no_applicable_grant' | 'unknown_permission' | 'missing_prerequisite';
+      /** The id of the grant that must decide. */
+      grant?: string;
+    }
+  | {
+      kind: 'mutation';
+      name?: string;
+      actor: string | object;
+      /** `{ add: grant }`, `{ remove: { id } }`, `{ assign_role: { subject, role } }` or `{ revoke_role: { subject, role } }`. */
+      mutation: object;
+      now?: number;
+      expect: 'accepted' | 'refused';
+      /** For a refusal: an invariant that must be among the ones that refuse. */
+      invariant?: string;
+    };
+
+/** `passed`: the answer is the expected one. `failed`: it differs. `errored`: the case could not be judged (unknown subject, a permission outside the catalog, a bad fixture): the test is wrong, not the policy. */
+export type PolicyTestOutcome = 'passed' | 'failed' | 'errored';
+
+export interface PolicyTestResult {
+  /** `tests[i]` for the i-th file passed to `runTests`. */
+  file: string;
+  name: string;
+  outcome: PolicyTestOutcome;
+  expected: string;
+  actual: string;
+  /** For a failed `check`: the grants considered and what became of each. */
+  trace?: string[];
+  /** For a failed `check`: the full explanation of the decision. */
+  explanation?: unknown;
+}
+
+export interface PolicyTestReport {
+  results: PolicyTestResult[];
+}
+
 export interface PolicyLanguageApi {
   /** Reads a source in the syntax it declares and validates it. `file` names it in the positions. Throws `DSL_PARSE` or `DSL_VALIDATE`. */
   compile(text: string, options?: { file?: string }): PolicyDocument;
@@ -856,6 +918,8 @@ export interface PolicyLanguageApi {
   isFormatted(text: string, options?: { file?: string }): boolean;
   /** Merges sources, each in its own syntax, into one policy. Throws `DSL_CONFLICT` with both positions when two declare the same thing, `DSL_DUPLICATE_SOURCE` for a repeated `path` and `DSL_LIMIT` past the size and count limits. */
   loadProject(sources: PolicySource[]): PolicyDocument;
+  /** Runs test files (objects, or the JSON text of each) against a policy, with the runner `strig test` uses. No IO: a `fixture` given as a path makes its cases error. A file that is not a test file throws `INVALID_INPUT`; an invalid policy throws `DSL_VALIDATE`. A case that fails is in the report, never thrown. */
+  runTests(policy: PolicyDocument, tests: (PolicyTestFile | string)[]): PolicyTestReport;
 }
 
 export interface NativePolicyLanguageApi extends PolicyLanguageApi {
