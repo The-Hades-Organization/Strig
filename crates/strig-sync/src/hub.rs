@@ -171,8 +171,21 @@ impl Hub {
     pub async fn publish(&self, mut change: Change) -> Result<Change, TransportError> {
         self.stamp(&mut change);
         self.deliver(&change);
+        #[cfg(feature = "tracing")]
+        crate::obs::change(&change, "published");
         if let Some(transport) = &self.inner.transport {
-            transport.publish(&change).await?;
+            let published = transport.publish(&change);
+            #[cfg(feature = "tracing")]
+            let published = tracing::Instrument::instrument(
+                published,
+                tracing::info_span!("strig.sync.publish", transport = transport.name()),
+            );
+            let result = published.await;
+            #[cfg(feature = "tracing")]
+            if result.is_err() {
+                crate::obs::publish_failed(Some(transport.name()));
+            }
+            result?;
         }
         Ok(change)
     }
@@ -304,15 +317,25 @@ impl Hub {
     /// nothing. The relay stops when the [`RelayHandle`] is dropped.
     pub fn spawn_relay(&self) -> RelayHandle {
         let hub = self.clone();
-        let task = tokio::spawn(async move {
+        let relay = async move {
             let Some(transport) = hub.inner.transport.clone() else {
                 return;
             };
             let mut backoff = Duration::from_millis(100);
             let mut connected_before = false;
             loop {
-                if let Ok(mut stream) = transport.subscribe().await {
+                let subscribed = transport.subscribe().await;
+                #[cfg(feature = "tracing")]
+                if subscribed.is_err() {
+                    crate::obs::transport_failed(transport.name(), "subscribe");
+                }
+                if let Ok(mut stream) = subscribed {
                     if connected_before {
+                        #[cfg(feature = "tracing")]
+                        {
+                            crate::obs::transport_reconnected(transport.name());
+                            crate::obs::resync("reconnect");
+                        }
                         hub.deliver(&Change::resync());
                     }
                     connected_before = true;
@@ -320,16 +343,27 @@ impl Hub {
                     while let Some(item) = stream.next().await {
                         match item {
                             Ok(change) if change.origin == hub.inner.origin => {}
-                            Ok(change) => hub.deliver(&change),
+                            Ok(change) => {
+                                #[cfg(feature = "tracing")]
+                                crate::obs::change(&change, "received");
+                                hub.deliver(&change);
+                            }
                             Err(TransportError::Decode(_)) => {}
-                            Err(_) => break,
+                            Err(_) => {
+                                #[cfg(feature = "tracing")]
+                                crate::obs::transport_failed(transport.name(), "stream");
+                                break;
+                            }
                         }
                     }
                 }
                 tokio::time::sleep(backoff).await;
                 backoff = (backoff * 2).min(Duration::from_secs(5));
             }
-        });
+        };
+        #[cfg(feature = "tracing")]
+        let relay = tracing::Instrument::instrument(relay, tracing::info_span!("strig.sync.relay"));
+        let task = tokio::spawn(relay);
         RelayHandle { task }
     }
 }

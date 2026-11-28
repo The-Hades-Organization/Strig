@@ -206,6 +206,8 @@ impl From<QueryError> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        #[cfg(feature = "tracing")]
+        crate::obs::error(self.code.as_str());
         if self.code.is_fail_closed() {
             tracing::warn!(code = self.code.as_str(), "answering 503, access denied");
         }

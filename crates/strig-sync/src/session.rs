@@ -83,8 +83,13 @@ impl Session {
             scopes,
             provider,
             deadline: None,
+            #[cfg(feature = "tracing")]
+            _open: crate::obs::SessionGuard::open(),
         };
-        tokio::spawn(worker.run(hub.origin().to_string(), changes, control, heartbeat));
+        let run = worker.run(hub.origin().to_string(), changes, control, heartbeat);
+        #[cfg(feature = "tracing")]
+        let run = tracing::Instrument::instrument(run, tracing::info_span!("strig.sync.session"));
+        tokio::spawn(run);
         (SessionControl { tx }, ReceiverStream::new(stream))
     }
 }
@@ -100,6 +105,8 @@ struct Worker {
     /// Next validity boundary of a subject without an id: nothing narrower than "everyone" can name
     /// it on the hub, so the session waits for it itself instead of waking every session.
     deadline: Option<Instant>,
+    #[cfg(feature = "tracing")]
+    _open: crate::obs::SessionGuard,
 }
 
 impl Drop for Worker {
@@ -244,6 +251,8 @@ impl Worker {
             }
         }
         if lost || batch.iter().any(|c| c.kind == ChangeKind::Resync) {
+            #[cfg(feature = "tracing")]
+            crate::obs::resync(if lost { "lagged" } else { "notice" });
             return self.send(ServerMessage::Resync).await && self.push_all().await;
         }
         let subject = self.subject.id.clone();
