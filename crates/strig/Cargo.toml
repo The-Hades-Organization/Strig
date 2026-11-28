@@ -22,6 +22,8 @@ tz = ["dep:chrono-tz", "dep:chrono"]
 tracing = ["dep:tracing", "dep:metrics"]
 ## Posse exclusiva de recurso com prioridade, preempção e prazo.
 exclusive = []
+## `strig::exclusive_conformance`, the battery every `ExclusiveStore` must pass. For the tests of store adapters; not part of the stable API.
+conformance = ["exclusive"]
 ## Policy language: lexer, validator, Blocks syntax, `Project` and the canonical JSON. Pure (no IO, no clock) and wasm-friendly.
 dsl = []
 ## File access for the policy language (read a file, read a directory into a `Project`, write a file). Not for wasm.

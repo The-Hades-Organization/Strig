@@ -110,7 +110,7 @@ async fn migrate_is_idempotent_versioned_and_never_destructive() {
         .unwrap()
         .with_prefix("alt")
         .unwrap();
-    assert_eq!(migrate_with(&db.client, &other).await.unwrap(), vec![1, 2, 3]);
+    assert_eq!(migrate_with(&db.client, &other).await.unwrap(), vec![1, 2, 3, 4]);
     assert!(other.all_grants(&db.client).await.unwrap().is_empty());
     assert!(PgTables::default().in_schema("bad\"schema").is_err());
     db.drop_schema().await;

@@ -18,6 +18,11 @@
 //! dedicated pub/sub connection; when it drops, the stream ends and the hub reopens it and emits
 //! `Resync`.
 
+#[cfg(feature = "exclusive")]
+mod exclusive;
+#[cfg(feature = "exclusive")]
+pub use exclusive::RedisExclusiveStore;
+
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use redis::aio::ConnectionManager;

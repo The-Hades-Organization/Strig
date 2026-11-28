@@ -36,6 +36,7 @@ Features of the `strig` crate:
 |---|---|---|
 | `audit` | yes | Audit trail for grant changes and decisions, with a hash chain |
 | `exclusive` | no | One holder per resource, with priority and preemption |
+| `conformance` | no | Turns on `exclusive` and adds `strig::exclusive_conformance`, the battery an `ExclusiveStore` adapter runs in its tests (not stable API) |
 | `dsl` | no | The policy language: parse, validate, convert, format. No IO, works in wasm |
 | `dsl-fs` | no | `dsl` plus reading and writing `.strig` files and directories |
 
@@ -423,6 +424,21 @@ assert_eq!(first, Acquisition::Granted);
 let second = registry.acquire_checked(&engine, &ctx, &bob, &document, Terms::new(9, 60_000), now + 10)?;
 assert!(matches!(second, Acquisition::Preempted { .. }));
 ```
+
+### Across processes
+
+`ExclusiveRegistry::default()` keeps the leases in memory, so a resource is exclusive inside one process. To share it between instances, give the registry a store that decides atomically in the database:
+
+```rust
+// Postgres: run `migrate_with` first (schema version 4 adds `<prefix>_exclusive`).
+let store = PgExclusiveStore::connect(&url, PgTables::default()).await?;
+let mut registry = ExclusiveRegistry::new(store);
+
+// Redis: every instance that shares the resource uses the same prefix.
+let mut registry = ExclusiveRegistry::new(RedisExclusiveStore::new("redis://127.0.0.1/", "strig:exclusive")?);
+```
+
+Acquire, renew, release and the sweep (`expire`) are one atomic step in each store: a row lock in a transaction for Postgres, `WATCH`/`MULTI`/`EXEC` for Redis. Two instances racing for the same resource have exactly one winner. Both give the same answers as the in-memory store (`strig::exclusive_conformance::run` (feature `conformance`) is the battery every store passes), and whether a lease is active is always decided with the `now` you pass, never the clock of the database. In Redis the native expiry only reclaims memory, after the lease's lifetime plus a retention (one hour by default). The trait is synchronous: both stores block the caller for the round trip (use `spawn_blocking` inside an async task) and fail closed with a `StoreError` on a timeout or a lost connection. Postgres keeps its connection on a thread of its own, like `PgPendingStore`; Redis uses the synchronous connection of the `redis` crate with timeouts. Both crates have the `exclusive` feature, on by default. The JavaScript binding does not expose them yet.
 
 ## Real time
 
