@@ -578,6 +578,10 @@ fn section_line(cur: &mut Cursor, b: &mut Builder, section: Section) -> PResult<
                 cur.advance();
                 rules::kinds(cur, b, &head.span, word == "kinds")
             }
+            "mutually-exclusive" | "conflicting-actions" => {
+                cur.advance();
+                rules::separation(cur, b, word == "mutually-exclusive")
+            }
             _ => rules::permission(cur, b),
         },
         Section::Relations => rules::relation(cur, b),
@@ -841,6 +845,7 @@ fn sections(p: &mut Printer, policy: &Policy) -> Printed<()> {
     for def in &policy.catalog.permissions {
         lines.push(rules::permission_text(def)?);
     }
+    lines.extend(rules::separation_texts(policy)?);
     block(p, "catalog", lines);
 
     match &policy.relations {

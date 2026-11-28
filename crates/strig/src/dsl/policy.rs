@@ -139,6 +139,9 @@ const ZONES_SCHEMA: u32 = 3;
 /// The `schema` a document gets when a grant or a permission names fields.
 const FIELDS_SCHEMA: u32 = 4;
 
+/// The `schema` a document gets when it declares separation of duties.
+const SEPARATION_SCHEMA: u32 = 5;
+
 impl Policy {
     /// The engine part of the policy, ready for [`EngineSpec::builder`].
     pub fn engine_spec(&self) -> EngineSpec {
@@ -155,7 +158,8 @@ impl Policy {
     /// The canonical JSON of the policy. A policy that names a time zone in some condition starts
     /// with `"schema": 3`, so that a reader of schema 2 refuses it instead of ignoring the zone;
     /// one that names fields in a grant or a permission starts with `"schema": 4`, so that an older
-    /// reader refuses it instead of reading a field-restricted grant as a whole-resource one; any
+    /// reader refuses it instead of reading a field-restricted grant as a whole-resource one; one
+    /// that declares separation of duties starts with `"schema": 5`; any
     /// other policy carries no `schema`.
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         let json = serde_json::to_string_pretty(self)?;
@@ -165,9 +169,23 @@ impl Policy {
             .any(|grant| grant.condition.as_ref().is_some_and(Condition::uses_tz));
         let needs_fields = self.grants.iter().any(|grant| !grant.fields.is_empty())
             || self.catalog.permissions.iter().any(|def| !def.fields.is_empty());
-        let schema = if needs_fields { FIELDS_SCHEMA } else { ZONES_SCHEMA };
+        let needs_separation = !self.catalog.mutually_exclusive.is_empty()
+            || !self.catalog.conflicting_actions.is_empty()
+            || self
+                .invariants
+                .iter()
+                .any(|spec| matches!(spec, InvariantSpec::SeparationOfDuties { .. }));
+        let schema = if needs_separation {
+            SEPARATION_SCHEMA
+        } else if needs_fields {
+            FIELDS_SCHEMA
+        } else {
+            ZONES_SCHEMA
+        };
         Ok(match json.strip_prefix("{\n") {
-            Some(rest) if needs_zones || needs_fields => format!("{{\n  \"schema\": {schema},\n{rest}"),
+            Some(rest) if needs_zones || needs_fields || needs_separation => {
+                format!("{{\n  \"schema\": {schema},\n{rest}")
+            }
             _ => json,
         })
     }
@@ -284,6 +302,11 @@ pub mod ids {
 
     pub fn override_holder(permission: &str) -> String {
         format!("override:permission_holder:{permission}")
+    }
+
+    /// A `mutually_exclusive` set or a `conflicting_actions` rule, by name.
+    pub fn separation(name: &str) -> String {
+        format!("separation:{name}")
     }
 
     pub fn invariant(kind: &str, ordinal: usize) -> String {

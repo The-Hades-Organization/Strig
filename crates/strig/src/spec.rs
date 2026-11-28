@@ -18,6 +18,7 @@ use crate::overrides::{PermissionHolder, ResourceOwner};
 use crate::rbac::{RbacError, RoleGraph};
 use crate::rebac::{RelationSchema, Rewrite};
 use crate::resource::Resource;
+use crate::separation::SeparationOfDuties;
 use crate::strategy::{DenyOverrides, FirstApplicable, MostSpecific, PermitOverrides};
 use crate::subject::{RoleAssignment, Subject};
 
@@ -171,6 +172,12 @@ pub enum InvariantSpec {
         subject: SubjectMatcher,
         permissions: Vec<String>,
     },
+    /// [`SeparationOfDuties`]: nobody accumulates two members of a set the catalog declares
+    /// `mutually_exclusive`. `subjects` are the known subjects an added grant is also judged against.
+    SeparationOfDuties {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        subjects: Vec<Subject>,
+    },
 }
 
 /// Reserve of [`InvariantSpec::NoLockout`]: the administrator role and the subjects that may receive it.
@@ -212,6 +219,9 @@ impl InvariantSpec {
                 })
             }
             InvariantSpec::Forbid { subject, permissions } => governance.with(Forbid::new(subject, permissions)),
+            InvariantSpec::SeparationOfDuties { subjects } => {
+                governance.with(SeparationOfDuties::new().with_subjects(subjects))
+            }
         }
     }
 }

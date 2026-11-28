@@ -3,14 +3,15 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+use crate::catalog::DEFAULT_HISTORY_ATTR;
 use crate::dsl::error::PrintError;
 use crate::dsl::lex::{Tok, lex};
 use crate::dsl::policy::{Placement, Policy, ids};
 use crate::dsl::time;
 use crate::dsl::validate::{invariant_kind, is_attr_path};
 use crate::{
-    Anchor, Condition, Effect, InvariantSpec, Operand, OverrideRule, Resource, Rewrite, StrategySpec, Subject,
-    SubjectMatcher, TupleSubject, Value,
+    ActionConflict, Anchor, Condition, Effect, ExclusiveKind, InvariantSpec, MutualExclusion, Operand, OverrideRule,
+    Resource, Rewrite, StrategySpec, Subject, SubjectMatcher, TupleSubject, Value,
 };
 
 type Printed<T> = Result<T, PrintError>;
@@ -556,6 +557,14 @@ impl Printer {
             self.blank();
             self.permission(def)?;
         }
+        for set in &p.catalog.mutually_exclusive {
+            self.blank();
+            self.separation("mutually_exclusive", &set.name, exclusion_fields(set)?)?;
+        }
+        for rule in &p.catalog.conflicting_actions {
+            self.blank();
+            self.separation("conflicting_actions", &rule.name, conflict_fields(rule)?)?;
+        }
         for role in &p.roles {
             self.blank();
             self.role(role)?;
@@ -870,6 +879,14 @@ impl Printer {
         Ok(())
     }
 
+    fn separation(&mut self, head: &str, name: &str, fields: Vec<(&'static str, String)>) -> Printed<()> {
+        let id = ids::separation(word(name, "name")?);
+        self.open(0, &id, &format!("{head} {name}"));
+        self.fields(1, &id, fields, false);
+        self.close(0, &id, true);
+        Ok(())
+    }
+
     fn invariant(&mut self, spec: &InvariantSpec, kind: &str, id: &str) -> Printed<()> {
         let fields = invariant_fields(spec)?;
         self.open(0, id, &format!("invariant {kind}"));
@@ -928,7 +945,39 @@ pub(crate) fn invariant_fields(spec: &InvariantSpec) -> Printed<Vec<(&'static st
             fields.push(("subject", matcher(subject)?));
             fields.push(("permissions", words(permissions, "permission")?));
         }
+        InvariantSpec::SeparationOfDuties { subjects } if !subjects.is_empty() => {
+            fields.push(("subjects", member_list(subjects)?));
+        }
         _ => {}
+    }
+    Ok(fields)
+}
+
+/// The `name value` pairs of a `mutually_exclusive` set, as Blocks and Rules write them.
+pub(crate) fn exclusion_fields(set: &MutualExclusion) -> Printed<Vec<(&'static str, String)>> {
+    let mut fields = vec![("of", set.of.as_str().to_string())];
+    let what = match set.of {
+        ExclusiveKind::Roles => "role",
+        _ => "permission",
+    };
+    fields.push(("members", words(&set.members, what)?));
+    if let Some(anchor) = &set.anchor {
+        fields.push(("anchor", word(anchor, "kind")?.to_string()));
+    }
+    Ok(fields)
+}
+
+/// The `name value` pairs of a `conflicting_actions` rule, as Blocks and Rules write them.
+pub(crate) fn conflict_fields(rule: &ActionConflict) -> Printed<Vec<(&'static str, String)>> {
+    let mut fields = vec![
+        ("first", words(&rule.first, "permission")?),
+        ("then", words(&rule.then, "permission")?),
+    ];
+    if rule.history != DEFAULT_HISTORY_ATTR {
+        fields.push(("history", word(&rule.history, "attribute")?.to_string()));
+    }
+    if rule.distinct_roles {
+        fields.push(("distinct_roles", "true".to_string()));
     }
     Ok(fields)
 }

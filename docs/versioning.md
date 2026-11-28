@@ -47,7 +47,7 @@ returned one; changing the `code` of an error; dropping a supported Node or Bun 
 
 **Policy language and JSON spec.** A source or document that parsed before must parse to the same policy. Removing a
 keyword, `op`, field or syntax is breaking. Adding one is not, but a policy that uses it exports a higher `schema`
-number, so older readers refuse it instead of reading it wrongly (`DSL_SCHEMA` is 4 today). Making the validator
+number, so older readers refuse it instead of reading it wrongly (`DSL_SCHEMA` is 5 today). Making the validator
 reject what it accepted is breaking, and fixing the validator to stop accepting what the documentation never allowed is
 a fix.
 

@@ -58,6 +58,7 @@ pub mod query;
 pub mod rbac;
 pub mod rebac;
 pub mod resource;
+pub mod separation;
 pub mod spec;
 pub mod strategy;
 pub mod subject;
@@ -75,8 +76,8 @@ pub use audit::{
     Redactor, RetryPolicy, RoleChange, chain_head, mask_attributes, verify_chain, verify_chain_anchored,
 };
 pub use catalog::{
-    Catalog, CatalogBuilder, CatalogError, CatalogErrors, CatalogExport, CatalogRule, FnRule, PermissionDef,
-    RequireMeta,
+    ActionConflict, Catalog, CatalogBuilder, CatalogError, CatalogErrors, CatalogExport, CatalogRule, ExclusiveKind,
+    FnRule, MutualExclusion, PermissionDef, RequireMeta,
 };
 pub use condition::{Condition, ConditionError, ConditionRegistry, EvalContext, Operand};
 pub use decision::{Decision, Reason, Request};
@@ -119,6 +120,7 @@ pub use query::{
 pub use rbac::{RbacError, RoleGraph};
 pub use rebac::{InMemoryTuples, RebacError, RelationSchema, Rewrite, Tuple, TupleIndex, TupleStore, TupleSubject};
 pub use resource::{Anchor, GLOBAL, ObjectRef, Resource};
+pub use separation::{Clash, SEPARATION_PREFIX, SeparationOfDuties, SeparationRule, clashes_of};
 pub use spec::{
     EngineSpec, InvariantSpec, OverrideRule, OverrideSpec, RelationSpec, ReserveSpec, RoleSpec, SpecError, StrategySpec,
 };

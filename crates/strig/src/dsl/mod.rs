@@ -58,6 +58,11 @@ pub mod __macro_support {
     /// built against. Bump it with any change to that JSON that an older reader cannot take, and
     /// bump the same number in `strig-macros`.
     ///
+    /// 5: separation of duties (`mutually_exclusive`, `conflicting_actions` in the catalog and the
+    /// `separation_of_duties` invariant). A document that uses them is written with a top-level
+    /// `"schema": 5`, which a reader of schema 4 refuses instead of dropping the rule and letting
+    /// the duties be held together; any other document keeps the `schema` it had.
+    ///
     /// 4: fields on grants and on permissions (`fields`). A document that uses them is written with
     /// a top-level `"schema": 4`, which a reader of schema 3 refuses instead of reading a
     /// field-restricted grant as one that covers the whole resource; a document without fields
@@ -71,7 +76,7 @@ pub mod __macro_support {
     /// 2: the conditions `starts_with`, `ends_with`, `contains`, `any_in`, `all_in`, `ip_in`,
     /// `time_between` and `weekday_in`. A reader of schema 1 does not know those `op` values
     /// and fails on a policy that uses one.
-    pub const DSL_SCHEMA: u32 = 4;
+    pub const DSL_SCHEMA: u32 = 5;
 }
 
 /// One source read and validated.

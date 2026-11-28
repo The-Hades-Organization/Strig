@@ -119,7 +119,7 @@ pub(crate) fn same_subject(a: &Subject, b: &Subject) -> bool {
 /// the rule protects against what the holder will have, not only what they have at this instant;
 /// without an instant nothing is known to have ended. Compare with the engine, where only what is in
 /// force decides.
-fn standing_roles(subject: &Subject, now: Option<u64>) -> impl Iterator<Item = &RoleAssignment> {
+pub(crate) fn standing_roles(subject: &Subject, now: Option<u64>) -> impl Iterator<Item = &RoleAssignment> {
     subject
         .roles
         .iter()
@@ -1089,10 +1089,10 @@ fn grant_resource(grant: &Grant, role_scope: Option<&Anchor>) -> Resource {
 const KIND_WILDCARD: &str = "*";
 
 /// Id of the probe subject built from a grant's matcher.
-const PROBE_ID: &str = "strig:probe";
+pub(crate) const PROBE_ID: &str = "strig:probe";
 
 /// A subject that the grant's matcher selects. `None` for a relation, which depends on tuples.
-fn matcher_subject(matcher: &SubjectMatcher) -> Option<Subject> {
+pub(crate) fn matcher_subject(matcher: &SubjectMatcher) -> Option<Subject> {
     Some(match matcher {
         SubjectMatcher::User { id } => Subject::user(id.clone()),
         SubjectMatcher::Role { id } => Subject::user(PROBE_ID).with_role(id.clone()),

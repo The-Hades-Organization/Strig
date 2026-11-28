@@ -168,6 +168,60 @@ fn catalog_error(error: CatalogError, policy: &Policy, report: &mut Report<'_>) 
             format!("`{key}` breaks the catalog rule {rule}: {message}"),
             None,
         ),
+        CatalogError::InvalidSetName(name) => report.error(
+            &ids::separation(&name),
+            format!("`{name}` is not a valid name for a separation rule"),
+            hint("use lowercase letters, digits, `_`, `.` and `-`"),
+        ),
+        CatalogError::DuplicateSet(name) => report.error(
+            &ids::separation(&name),
+            format!("the separation rule `{name}` is declared twice"),
+            None,
+        ),
+        CatalogError::SetTooSmall(name) => report.error(
+            &ids::separation(&name),
+            format!("`{name}` needs at least two distinct members to separate anything"),
+            hint("list the roles or permissions nobody may hold together"),
+        ),
+        CatalogError::DuplicateSetMember { set, member } => report.error(
+            &ids::separation(&set),
+            format!("`{set}` lists `{member}` twice"),
+            None,
+        ),
+        CatalogError::UnknownSetMember { set, member } => report.error(
+            &ids::separation(&set),
+            format!("`{set}` names the permission `{member}`, which is not in the catalog"),
+            near(&member, permission_keys(policy), hint("declare it or fix the name")),
+        ),
+        CatalogError::UnknownSetAnchor { set, anchor } => report.error(
+            &ids::separation(&set),
+            format!("`{set}` is scoped to `{anchor}`, which is not in target_kinds or broad_targets"),
+            near(
+                &anchor,
+                policy
+                    .catalog
+                    .target_kinds
+                    .iter()
+                    .chain(&policy.catalog.broad_targets)
+                    .map(String::as_str),
+                hint("add it to target_kinds or drop the scope to make the set global"),
+            ),
+        ),
+        CatalogError::EmptyConflictSide { rule, side } => report.error(
+            &ids::separation(&rule),
+            format!("`{rule}` has no permissions in `{side}`"),
+            None,
+        ),
+        CatalogError::UnknownConflictPermission { rule, permission } => report.error(
+            &ids::separation(&rule),
+            format!("`{rule}` names the permission `{permission}`, which is not in the catalog"),
+            near(&permission, permission_keys(policy), hint("declare it or fix the name")),
+        ),
+        CatalogError::InvalidHistoryAttr { rule, attr } => report.error(
+            &ids::separation(&rule),
+            format!("`{attr}` is not a valid attribute name for the history of `{rule}`"),
+            hint("use words of letters, digits and _, joined by dots"),
+        ),
     }
 }
 
@@ -679,5 +733,6 @@ pub(crate) fn invariant_kind(spec: &InvariantSpec) -> &'static str {
         InvariantSpec::ManagementOnly { .. } => "management_only",
         InvariantSpec::NoEscalation { .. } => "no_escalation",
         InvariantSpec::Forbid { .. } => "forbid",
+        InvariantSpec::SeparationOfDuties { .. } => "separation_of_duties",
     }
 }
