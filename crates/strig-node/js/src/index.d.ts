@@ -1048,6 +1048,78 @@ export interface PolicyTestReport {
   results: PolicyTestResult[];
 }
 
+/** What decided a question on one side of a diff. */
+export interface PolicyDiffResponsible {
+  effect: 'allow' | 'deny';
+  reason: 'override' | 'grant' | 'no_applicable_grant' | 'unknown_permission' | 'missing_prerequisite';
+  /** The grant that decided, for a `grant` reason. */
+  grant?: string;
+  /** The override that decided, for an `override` reason. */
+  override?: string;
+  /** Where the grant is written (`file:line:column`), when known. */
+  at?: string;
+}
+
+/** A question whose answer differs between the two versions. */
+export interface PolicyDecisionChange {
+  /** `kind:id`, or `anonymous`. */
+  subject: string;
+  permission: string;
+  /** `global`, `kind:id`, or `kind:id in kind:id` for a path. */
+  resource: string;
+  /** `widened`: deny became allow. `narrowed`: allow became deny. */
+  change: 'widened' | 'narrowed';
+  before: PolicyDiffResponsible;
+  after: PolicyDiffResponsible;
+}
+
+/** The questions a diff asked. */
+export interface PolicyDiffUniverse {
+  subjects: number;
+  permissions: number;
+  resources: number;
+  questions: number;
+  /** True when subjects or resources were derived from the policies, not given. */
+  derived: boolean;
+  /** True when a limit stopped the diff early: no change found is not proof there is none. */
+  partial: boolean;
+}
+
+export interface PolicyDiff {
+  /** Ordered by subject, permission and resource. */
+  changes: PolicyDecisionChange[];
+  universe: PolicyDiffUniverse;
+}
+
+export interface PolicyDiffOptions {
+  /** Subjects, resources, permissions, grants, tuples and env every question is asked with, as in a test fixture; an object or its JSON text. Left out, they are derived from the policies. */
+  fixture?: PolicyTestFixture | string;
+  /** Most subjects asked about. */
+  maxSubjects?: number;
+  /** Most questions asked. */
+  maxDecisions?: number;
+}
+
+export interface PolicyLintFinding {
+  /** Stable code, such as `L001`. */
+  code: string;
+  /** Stable name, such as `shadowed-grant`. */
+  name: string;
+  severity: 'info' | 'warning' | 'error';
+  message: string;
+  hint: string;
+  /** The id of the grant, role, permission or field the finding is about. */
+  element: string;
+  file?: string;
+  line?: number;
+  column?: number;
+}
+
+export interface PolicyLintOptions {
+  /** Codes (`L004`) or names (`unused-role`) to leave out. */
+  ignore?: string[];
+}
+
 export interface PolicyLanguageApi {
   /** Reads a source in the syntax it declares and validates it. `file` names it in the positions. Throws `DSL_PARSE` or `DSL_VALIDATE`. */
   compile(text: string, options?: { file?: string }): PolicyDocument;
@@ -1063,6 +1135,10 @@ export interface PolicyLanguageApi {
   loadProject(sources: PolicySource[]): PolicyDocument;
   /** Runs test files (objects, or the JSON text of each) against a policy, with the runner `strig test` uses. No IO: a `fixture` given as a path makes its cases error. A file that is not a test file throws `INVALID_INPUT`; an invalid policy throws `DSL_VALIDATE`. A case that fails is in the report, never thrown. */
   runTests(policy: PolicyDocument, tests: (PolicyTestFile | string)[]): PolicyTestReport;
+  /** The decisions that change between two versions of a policy, each with the grant or override responsible on both sides. No IO: a `fixture` is an object or JSON text. Throws `INVALID_INPUT` for a bad fixture and `DSL_VALIDATE` for an invalid policy. */
+  diff(before: PolicyDocument, after: PolicyDocument, options?: PolicyDiffOptions): PolicyDiff;
+  /** Static findings about a policy: shadowed grants, unreachable denies, unused roles and more. A document carries no source positions, so a finding names its element by id. */
+  lint(policy: PolicyDocument, options?: PolicyLintOptions): PolicyLintFinding[];
 }
 
 export interface NativePolicyLanguageApi extends PolicyLanguageApi {

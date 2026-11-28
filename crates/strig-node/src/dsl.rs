@@ -481,6 +481,44 @@ mod tests {
         assert_eq!(code(run_tests(&json!({"nope": 1}), &json!([]))), "INVALID_INPUT");
     }
 
+    const WITH_ROLE: &str = "language blocks\n\ntarget_kinds = [org]\n\npermission org.read {\n  targets = [org]\n}\n\nrole r {\n}\n\nsubject user:ana {\n  assign r {\n  }\n}\n\n";
+    const GRANT_READ: &str = "grant g {\n  effect = allow\n  subject = role r\n  permission = org.read\n  target = org\n}\n";
+
+    #[test]
+    fn diff_reports_a_widening() {
+        let before = compile(&json!(WITH_ROLE), None).unwrap();
+        let after = compile(&json!(format!("{WITH_ROLE}{GRANT_READ}")), None).unwrap();
+        let fixture = json!({ "resources": ["org:1"] });
+        let found = diff_policies(&before, &after, Some(&json!({ "fixture": fixture }))).unwrap();
+        assert_eq!(found["changes"][0]["change"], "widened");
+        assert_eq!(found["changes"][0]["subject"], "user:ana");
+        assert_eq!(found["changes"][0]["after"]["grant"], "g");
+        assert_eq!(found["universe"]["partial"], false);
+        let same = diff_policies(&before, &before, Some(&json!({ "fixture": fixture }))).unwrap();
+        assert_eq!(same["changes"], json!([]));
+    }
+
+    #[test]
+    fn diff_refuses_bad_options() {
+        let policy = compile(&json!(WITH_ROLE), None).unwrap();
+        assert_eq!(code(diff_policies(&policy, &policy, Some(&json!({ "nope": 1 })))), "INVALID_ARGUMENT");
+        assert_eq!(code(diff_policies(&policy, &policy, Some(&json!({ "maxSubjects": "a" })))), "INVALID_ARGUMENT");
+        assert_eq!(code(diff_policies(&policy, &policy, Some(&json!({ "fixture": "{" })))), "INVALID_INPUT");
+        assert_eq!(code(diff_policies(&json!({ "nope": 1 }), &policy, None)), "INVALID_INPUT");
+    }
+
+    #[test]
+    fn lint_finds_and_ignores() {
+        let policy = compile(&json!(WITH_ROLE), None).unwrap();
+        let found = lint_policy(&policy, None).unwrap();
+        let names: Vec<_> = found.as_array().unwrap().iter().map(|f| f["name"].clone()).collect();
+        assert!(names.contains(&json!("unheld-permission")), "{names:?}");
+        let ignored = lint_policy(&policy, Some(&json!({ "ignore": ["L003", "unused-role"] }))).unwrap();
+        assert!(ignored.as_array().unwrap().iter().all(|f| f["code"] != "L003" && f["name"] != "unused-role"));
+        assert_eq!(code(lint_policy(&policy, Some(&json!({ "ignore": ["L999"] })))), "INVALID_ARGUMENT");
+        assert_eq!(code(lint_policy(&policy, Some(&json!({ "ignore": "L003" })))), "INVALID_ARGUMENT");
+    }
+
     #[test]
     fn envelope_shapes() {
         assert_eq!(envelope(Ok::<_, DslFailure>("x".to_string()))["ok"], true);
