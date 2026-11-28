@@ -6510,6 +6510,7 @@ dependencies = [
  "async-trait",
  "futures-util",
  "redis",
+ "serde_json",
  "strig",
  "strig-sync",
  "tokio",

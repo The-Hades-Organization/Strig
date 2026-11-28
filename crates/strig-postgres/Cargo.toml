@@ -12,6 +12,11 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 
+[features]
+default = ["exclusive"]
+## `PgExclusiveStore`, an `ExclusiveStore` over a Postgres table (migration v4).
+exclusive = ["strig/exclusive"]
+
 [dependencies]
 strig.workspace = true
 strig-sync.workspace = true

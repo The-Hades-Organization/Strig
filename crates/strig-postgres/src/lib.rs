@@ -30,6 +30,8 @@ mod store;
 mod window;
 
 pub use query::PgTables;
+#[cfg(feature = "exclusive")]
+pub use store::PgExclusiveStore;
 pub use store::{
     LATEST_VERSION, PgGrants, PgPendingStore, PgStore, PgTuples, connect, migrate, migrate_with, schema_version,
 };

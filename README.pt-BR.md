@@ -424,6 +424,21 @@ let second = registry.acquire_checked(&engine, &ctx, &bob, &document, Terms::new
 assert!(matches!(second, Acquisition::Preempted { .. }));
 ```
 
+### Entre processos
+
+`ExclusiveRegistry::default()` guarda as posses na memória, então o recurso é exclusivo dentro de um processo. Para dividi-lo entre instâncias, dê ao registro um store que decide de forma atômica no banco:
+
+```rust
+// Postgres: rode `migrate_with` antes (a versão 4 do esquema cria `<prefixo>_exclusive`).
+let store = PgExclusiveStore::connect(&url, PgTables::default()).await?;
+let mut registry = ExclusiveRegistry::new(store);
+
+// Redis: toda instância que divide o recurso usa o mesmo prefixo.
+let mut registry = ExclusiveRegistry::new(RedisExclusiveStore::new("redis://127.0.0.1/", "strig:exclusive")?);
+```
+
+Adquirir, renovar, liberar e a varredura (`expire`) são um passo atômico em cada store: trava de linha numa transação no Postgres, `WATCH`/`MULTI`/`EXEC` no Redis. Duas instâncias disputando o mesmo recurso têm exatamente um vencedor. Os dois dão as mesmas respostas do store em memória (`strig::exclusive_conformance::run` é a bateria que todo store passa), e a posse estar ativa é sempre decidido com o `now` que você passa, nunca com o relógio do banco. No Redis a expiração nativa só devolve memória, depois da vida da posse mais uma retenção (uma hora por padrão). O trait é síncrono: os dois stores bloqueiam quem chama pelo tempo da ida e volta (use `spawn_blocking` dentro de uma task async) e falham fechado com `StoreError` em timeout ou conexão perdida. O Postgres mantém a conexão numa thread própria, como o `PgPendingStore`; o Redis usa a conexão síncrona do crate `redis` com timeouts. Os dois crates têm a feature `exclusive`, ligada por padrão. O binding JavaScript ainda não os expõe.
+
 ## Tempo real
 
 ```text
