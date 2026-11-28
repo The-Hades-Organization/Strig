@@ -283,6 +283,13 @@ func (e *Engine) Apply(input any) (map[string]any, error) {
 	return e.change("apply", input)
 }
 
+// Impact answers what a change would do to access (who gains, who loses) without applying it;
+// ReviewImpact does the same for a pending request, as proposed and as it would be now.
+func (e *Engine) Impact(input any) (map[string]any, error) { return e.change("impact", input) }
+func (e *Engine) ReviewImpact(input any) (map[string]any, error) {
+	return e.change("reviewImpact", input)
+}
+
 // Propose, Resolve and Expire drive the approval flow like Apply.
 func (e *Engine) Propose(input any) (map[string]any, error) { return e.change("propose", input) }
 func (e *Engine) Resolve(input any) (map[string]any, error) { return e.change("resolve", input) }

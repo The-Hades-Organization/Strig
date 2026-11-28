@@ -47,6 +47,7 @@ pub mod explain;
 pub mod field;
 pub mod governance;
 pub mod grant;
+pub mod impact;
 #[cfg(feature = "import")]
 pub mod import;
 #[cfg(feature = "audit")]
@@ -91,17 +92,20 @@ pub use explain::{
 };
 pub use field::{FieldExplanation, FieldSet, FieldVerdict};
 pub use governance::{
-    Bypass, CatalogConformance, Forbid, Governance, GovernanceAt, Invariant, ManagementOnly, Mutation, MutationKind,
-    NoEscalation, NoLockout, NoSelfManagement, NonDelegable, Prerequisites, Proposal, RequirePermission, Suggestion,
-    Violation,
+    AppliedWithImpact, Bypass, CatalogConformance, Forbid, Governance, GovernanceAt, Invariant, ManagementOnly,
+    Mutation, MutationKind, NoEscalation, NoLockout, NoSelfManagement, NonDelegable, Prerequisites, Proposal,
+    RequirePermission, Suggestion, Violation,
 };
 pub use grant::{Effect, Grant, GrantIndex, GrantSource, SubjectMatcher, TargetSelector};
+pub use impact::{
+    AUDIT_EXAMPLES, Access, AccessChange, Impact, ImpactOptions, ImpactSource, ImpactSummary, SampleSpec,
+};
 pub use overrides::{
     FnOverride, Override, OverrideGate, OverrideReach, PermissionHolder, ReachRequest, ResourceOwner, SubjectsRequest,
 };
 pub use pending::{
-    ApprovalError, ApprovalPolicy, ApprovalRule, Approvals, Approved, MemoryPendingStore, PendingError, PendingRequest,
-    PendingStatus, PendingStore, Proposed, Review,
+    ApprovalError, ApprovalPolicy, ApprovalRule, Approvals, Approved, ImpactReview, MemoryPendingStore, PendingError,
+    PendingRequest, PendingStatus, PendingStore, Proposed, Review,
 };
 pub use query::{
     AccessFilter, AccessVia, CheckAnswer, Expr, FilterOutcome, FilterResidual, FilterResolution, FilterShape,

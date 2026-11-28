@@ -119,6 +119,16 @@ public final class Engine implements AutoCloseable {
     return change("apply", input);
   }
 
+  /** What a change would do to access ({@code {ok, impact?, violations?}}), without applying it. */
+  public Map<String, Object> impact(Object input) {
+    return change("impact", input);
+  }
+
+  /** The impact of a pending request as proposed and as it would be now. */
+  public Map<String, Object> reviewImpact(Object input) {
+    return change("reviewImpact", input);
+  }
+
   public Map<String, Object> propose(Object input) {
     return change("propose", input);
   }

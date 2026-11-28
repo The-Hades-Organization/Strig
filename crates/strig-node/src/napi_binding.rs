@@ -467,6 +467,22 @@ impl JsEngine {
             .map_err(err)
     }
 
+    /// What a change would do to access: who gains, who loses, what cannot be settled. Nothing is applied.
+    #[napi]
+    pub fn impact(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
+        self.inner
+            .impact(json(env, input)?, crate::clock_ms(std::time::SystemTime::now()))
+            .map_err(err)
+    }
+
+    /// The impact of a pending request as proposed and as it would be now.
+    #[napi]
+    pub fn review_impact(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
+        self.inner
+            .review_impact(json(env, input)?, crate::clock_ms(std::time::SystemTime::now()))
+            .map_err(err)
+    }
+
     /// Proposes a change: applied at once, or kept as a pending request when the approval policy asks for it.
     #[napi]
     pub fn propose(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
@@ -798,6 +814,28 @@ pub fn dsl_load_project(env: &Env, sources: Unknown<'_>) -> Value {
 pub fn dsl_run_tests(env: &Env, policy: Unknown<'_>, tests: Unknown<'_>) -> Value {
     crate::dsl::envelope((|| {
         crate::dsl::run_tests(&dsl_arg(env, policy)?, &dsl_arg(env, tests)?)
+    })())
+}
+
+#[napi]
+pub fn dsl_diff(env: &Env, before: Unknown<'_>, after: Unknown<'_>, options: Option<Unknown<'_>>) -> Value {
+    crate::dsl::envelope((|| {
+        let options = match options {
+            Some(o) => Some(dsl_arg(env, o)?),
+            None => None,
+        };
+        crate::dsl::diff_policies(&dsl_arg(env, before)?, &dsl_arg(env, after)?, options.as_ref())
+    })())
+}
+
+#[napi]
+pub fn dsl_lint(env: &Env, policy: Unknown<'_>, options: Option<Unknown<'_>>) -> Value {
+    crate::dsl::envelope((|| {
+        let options = match options {
+            Some(o) => Some(dsl_arg(env, o)?),
+            None => None,
+        };
+        crate::dsl::lint_policy(&dsl_arg(env, policy)?, options.as_ref())
     })())
 }
 

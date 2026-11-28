@@ -265,6 +265,32 @@ await flow.expire();
 
 `JsonFileStore` keeps the requests in the same file (`new Approvals(engine, store.pendingStore, options)`, and `store.approvePending(flow, id, approver)` persists the grants before marking the request approved). Without a rule for its kind, `propose` applies the change at once (`applied: true`).
 
+### Seeing the impact of a change before it applies
+
+`Governance::apply` says whether a change passes the invariants, not what it does to access. `Governance::impact` answers that without applying anything: it judges the change as `apply` does (a refused change returns its violations), then asks the same questions over the grants before and after, and returns an `Impact`: who gains, who loses, which permission, on which resource (and field).
+
+```rust
+let options = ImpactOptions::new(ImpactSource::sample(
+    SampleSpec::new().subject(bob).resource(project),
+)); // or ImpactSource::derived()
+let impact = governance.impact(&engine, &ana, &current, &Mutation::Add(grant), &options)?;
+for change in &impact.gained { /* change.subject, change.permission, change.resource */ }
+```
+
+The questions come from one of two sources. A **sample** is yours: subjects × resources × permissions (and fields); leave resources or permissions empty and they are the ones the change reaches and touches. **Derived** uses the reverse queries (`who_can_on`, `list`, `access_of`), restricted to the permissions the change touches, with the ones that imply them (`implied_by`) and the ones that depend on them (`depends_on`). A deny that cuts, an override and a field count as in `check`. `ImpactOptions` takes the tuples, the `env`, the `QueryLimits` and an instant; when a limit cuts, `partial` is `true` and `notes` says which, so absence from the list is not proof. What cannot be settled (a condition or an override that cannot be evaluated) is in `indeterminate`, never in `gained`: a change is a gain only when the answer was a certain deny and is now an allow.
+
+`Governance::apply_with_impact` applies and returns the grants with the impact; with an auditor at `detailed` or `forensic`, the record carries `impact` (counts and up to 10 examples, see [`docs/audit-format.md`](docs/audit-format.md)). `Approvals::with_impact(&options)` stores the impact in the pending request when it is proposed; `approve` recomputes it over the grants of that moment (`Approved::proposed_impact` keeps the first one) and `review_impact` shows the approver both and whether they differ, before deciding. The JSON store keeps the request whole, so older stores open unchanged.
+
+In JavaScript, `engine.impact(input)` takes the input of `apply` plus `impact: { source, env, limits }`, `apply` with `impact` returns it in `result.impact`, and `Approvals` takes `impact` in its options and has `reviewImpact(id, current)`; the Python binding has `engine.impact` and `engine.review_impact` and the Go and JVM ones `Impact`/`ReviewImpact`.
+
+```js
+const preview = engine.impact({
+  actor: ana, current: grants, mutation: { add: grant },
+  impact: { source: { kind: 'sample', subjects: [bob], resources: [project] } },
+});
+if (preview.ok) console.log(preview.impact.gained, preview.impact.lost, preview.impact.partial);
+```
+
 ### Rules declared in the catalog
 
 Some rules belong to a permission, so they are declared on its `PermissionDef`:
@@ -1200,6 +1226,28 @@ try {
   const [first] = error.diagnostics; // first.file === 'a.strig', first.line === 3
 }
 ```
+
+### Diff and lint of a policy
+
+`strig diff <before> <after>` lists the decisions that change between two versions of a policy (directories or `.strig`
+files): who, which permission, on what, whether access `widened` or `narrowed`, and the grant or override responsible on
+each side. `strig lint <dir>` finds policy that never acts: a shadowed grant, an unreachable deny, a permission nobody
+holds, an unused role, a redundant `implied_by`, a condition that is always false or true, a field never granted.
+
+```sh
+strig diff main/policies policies --fail-on allow     # exit 1 if any access widened
+strig lint policies/ --json                           # codes L001..L008, severity, position, hint
+```
+
+```js
+const found = strig.diff(before, after, { fixture: { resources: ['org:1'] } });
+const findings = strig.lint(policy, { ignore: ['unused-role'] });
+```
+
+Without a fixture the questions are derived from the catalogs and the grants and bounded by `QueryLimits`; a diff cut by
+a limit is marked `partial`, and finding no change then is not proof there is none. In Rust it is `strig::dsl::analysis`.
+The `strig-test` action takes `diff-base` to diff against the base of the pull request. See
+[the guide](docs/dsl.md#analyzing-a-policy).
 
 ### Testing a policy
 

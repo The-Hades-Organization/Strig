@@ -334,6 +334,49 @@ export type InvariantSpec =
   /** An invariant registered in the engine's `hooks.invariants`; `name` must be one of them. */
   | { kind: 'custom'; name: string };
 
+/** Where the subjects and the resources of an impact come from. */
+export type ImpactSource =
+  /** Your own list. Empty `resources`: the ones the change reaches; empty `permissions`: the ones it touches. */
+  | { kind: 'sample'; subjects?: Subject[]; resources?: Resource[]; permissions?: string[]; fields?: string[] }
+  /** From the reverse queries. Empty `resources`: the ones the change reaches. This is the default. */
+  | { kind: 'derived'; resources?: Resource[] };
+
+/** What the impact of a change is computed over; give it to `apply`, `impact`, `propose` or `resolve`. */
+export interface ImpactOptions {
+  source?: ImpactSource;
+  /** Attributes the questions run with. */
+  env?: Record<string, unknown>;
+  /** Caps on the parties and decisions; hitting one marks the impact `partial`. */
+  limits?: { maxParties?: number; maxDecisions?: number };
+}
+
+export type Access = 'allowed' | 'denied' | 'indeterminate';
+
+/** One question whose answer the change moves. `subject` reads `user:alice`, `role:editor`, `anyone`. */
+export interface AccessChange {
+  subject: string;
+  permission: string;
+  resource: Resource;
+  field?: string;
+  before: Access;
+  after: Access;
+}
+
+/**
+ * Who gains and who loses access with a change. `indeterminate` holds what the change moves toward or away
+ * from a decision that could not be settled (a condition or an override that cannot be evaluated): it never
+ * counts as a gain. `partial`: a limit cut the answer, so more may gain or lose than is listed.
+ */
+export interface Impact {
+  gained: AccessChange[];
+  lost: AccessChange[];
+  indeterminate: AccessChange[];
+  permissions: string[];
+  checked: number;
+  partial: boolean;
+  notes?: string[];
+}
+
 export interface ApplyInput {
   actor: Subject;
   current: Grant[];
@@ -348,6 +391,8 @@ export interface ApplyInput {
   meta?: Record<string, unknown>;
   /** Instant the governance judges the actor's windows at, in ms UTC. Defaults to the system clock; an invalid one (`NaN`, negative, text) throws `INVALID_ARGUMENT`, and a clock before 1970 is an error, never `0`. Never take it from a client: a past instant revives expired windows. */
   now?: number | bigint;
+  /** Computes the impact of the change and returns it in `ApplyResult.impact`; at audit `detailed` or `forensic` the record carries a summary of it. */
+  impact?: ImpactOptions;
 }
 
 export interface TemplateGrant {
@@ -534,7 +579,12 @@ export interface ApplyResult {
   audit?: Record<string, unknown> | null;
   /** With `audit`: `pending` means the sink failed in `open` mode and the record waits in the queue. */
   auditStatus?: AuditDelivery | null;
+  /** With `ApplyInput.impact`, on an accepted change. */
+  impact?: Impact;
 }
+
+/** `ok: true` with the `impact` of the change, nothing applied; `ok: false` with the invariants' `violations`. */
+export type ImpactResult = { ok: true; impact: Impact } | { ok: false; violations: Violation[] };
 
 /** Who may approve a kind of change: whoever holds `permission` on `resource`. */
 export interface ApprovalRule {
@@ -557,6 +607,8 @@ export interface PendingRequest {
   requestedAt: number;
   expiresAt?: number;
   status: PendingStatus;
+  /** The impact when the request was proposed, when `ProposeInput.impact` asked for it. */
+  impact?: Impact;
 }
 
 /** What `propose`, `resolve` and `expire` share with `apply`: the state they judge against and the audit. */
@@ -570,6 +622,8 @@ export interface ApprovalFlowInput {
   audit?: ApplyInput['audit'];
   meta?: Record<string, unknown>;
   now?: number | bigint;
+  /** Computes the impact: `propose` keeps it in the request, `resolve` recomputes it against `current`. */
+  impact?: ImpactOptions;
 }
 
 export interface ProposeInput extends ApprovalFlowInput {
@@ -587,6 +641,18 @@ export interface ResolveInput extends ApprovalFlowInput {
   decision: 'approve' | 'reject';
   /** Required by `reject`. */
   reason?: string;
+}
+
+export interface ReviewImpactInput extends ApprovalFlowInput {
+  request: PendingRequest;
+}
+
+/** The impact of a pending request as proposed and as it would be over `current` now; `changed` when they differ. */
+export interface ReviewImpactResult {
+  ok: true;
+  proposed?: Impact;
+  current?: Impact;
+  changed: boolean;
 }
 
 export interface ExpireInput extends ApprovalFlowInput {
@@ -616,7 +682,7 @@ export type ProposeResult = ApprovalAudit &
  */
 export type ResolveResult = ApprovalAudit &
   (
-    | { ok: true; request: PendingRequest; grants?: Grant[]; subject?: Subject }
+    | { ok: true; request: PendingRequest; grants?: Grant[]; subject?: Subject; proposedImpact?: Impact }
     | { ok: false; code: 'REFUSED'; violations: Violation[] }
     | { ok: false; code: 'EXPIRED'; request: PendingRequest }
     | { ok: false; code: 'NOT_PENDING' }
@@ -888,6 +954,10 @@ export declare class Engine<P extends string = string> {
   /** Materializes and applies the batch through the governance, in `depends_on` order. */
   applyTemplate(input: ApplyTemplateInput): ApplyTemplateResult;
   /** Applies the change at once, or leaves it as a pending request when `approval` asks for approval of its kind. Nothing is stored: keep `request` (see `Approvals` in `@the-hades-organization/strig/approvals`). */
+  /** What `mutation` would do to access, before applying it: who gains, who loses, what cannot be settled. */
+  impact(input: ApplyInput): ImpactResult;
+  /** The impact of a pending request as proposed and as it would be now, for the approver. */
+  reviewImpact(input: ReviewImpactInput): ReviewImpactResult;
   propose(input: ProposeInput): ProposeResult;
   /** Approves or refuses `request`. The author never decides their own request; an approval judges the change again over `current`. */
   resolve(input: ResolveInput): ResolveResult;
@@ -1099,6 +1169,86 @@ export interface PolicyTestReport {
   results: PolicyTestResult[];
 }
 
+/** What decided a question on one side of a diff. */
+export interface PolicyDiffResponsible {
+  effect: 'allow' | 'deny';
+  reason: 'override' | 'grant' | 'no_applicable_grant' | 'unknown_permission' | 'missing_prerequisite';
+  /** The grant that decided, for a `grant` reason. */
+  grant?: string;
+  /** The override that decided, for an `override` reason. */
+  override?: string;
+  /** Where the grant is written (`file:line:column`), when known. */
+  at?: string;
+}
+
+/** A question whose answer differs between the two versions. */
+export interface PolicyDecisionChange {
+  /** `kind:id`, or `anonymous`. */
+  subject: string;
+  permission: string;
+  /** `global`, `kind:id`, or `kind:id in kind:id` for a path. */
+  resource: string;
+  /** `widened`: deny became allow. `narrowed`: allow became deny. */
+  change: 'widened' | 'narrowed';
+  before: PolicyDiffResponsible;
+  after: PolicyDiffResponsible;
+}
+
+/** The questions a diff asked. */
+export interface PolicyDiffUniverse {
+  subjects: number;
+  permissions: number;
+  resources: number;
+  questions: number;
+  /** True when subjects or resources were derived from the policies, not given. */
+  derived: boolean;
+  /** True when a limit stopped the diff early: no change found is not proof there is none. */
+  partial: boolean;
+}
+
+export interface PolicyDiff {
+  /** Ordered by subject, permission and resource. */
+  changes: PolicyDecisionChange[];
+  universe: PolicyDiffUniverse;
+}
+
+/** What a diff asks about. Every list is optional: what is left out is derived from the policies. */
+export interface PolicyDiffFixture extends PolicyTestFixture {
+  /** `global`, `kind:id`, or the resource object. */
+  resources?: unknown[];
+  /** Permissions to ask about; by default every one of the two catalogs. */
+  permissions?: string[];
+}
+
+export interface PolicyDiffOptions {
+  /** Subjects, resources, permissions, grants, tuples and env every question is asked with, as in a test fixture; an object or its JSON text. Left out, they are derived from the policies. */
+  fixture?: PolicyDiffFixture | string;
+  /** Most subjects asked about. */
+  maxSubjects?: number;
+  /** Most questions asked. */
+  maxDecisions?: number;
+}
+
+export interface PolicyLintFinding {
+  /** Stable code, such as `L001`. */
+  code: string;
+  /** Stable name, such as `shadowed-grant`. */
+  name: string;
+  severity: 'info' | 'warning' | 'error';
+  message: string;
+  hint: string;
+  /** The id of the grant, role, permission or field the finding is about. */
+  element: string;
+  file?: string;
+  line?: number;
+  column?: number;
+}
+
+export interface PolicyLintOptions {
+  /** Codes (`L004`) or names (`unused-role`) to leave out. */
+  ignore?: string[];
+}
+
 export interface PolicyLanguageApi {
   /** Reads a source in the syntax it declares and validates it. `file` names it in the positions. Throws `DSL_PARSE` or `DSL_VALIDATE`. */
   compile(text: string, options?: { file?: string }): PolicyDocument;
@@ -1114,6 +1264,10 @@ export interface PolicyLanguageApi {
   loadProject(sources: PolicySource[]): PolicyDocument;
   /** Runs test files (objects, or the JSON text of each) against a policy, with the runner `strig test` uses. No IO: a `fixture` given as a path makes its cases error. A file that is not a test file throws `INVALID_INPUT`; an invalid policy throws `DSL_VALIDATE`. A case that fails is in the report, never thrown. */
   runTests(policy: PolicyDocument, tests: (PolicyTestFile | string)[]): PolicyTestReport;
+  /** The decisions that change between two versions of a policy, each with the grant or override responsible on both sides. No IO: a `fixture` is an object or JSON text. Throws `INVALID_INPUT` for a bad fixture and `DSL_VALIDATE` for an invalid policy. */
+  diff(before: PolicyDocument, after: PolicyDocument, options?: PolicyDiffOptions): PolicyDiff;
+  /** Static findings about a policy: shadowed grants, unreachable denies, unused roles and more. A document carries no source positions, so a finding names its element by id. */
+  lint(policy: PolicyDocument, options?: PolicyLintOptions): PolicyLintFinding[];
 }
 
 export interface NativePolicyLanguageApi extends PolicyLanguageApi {

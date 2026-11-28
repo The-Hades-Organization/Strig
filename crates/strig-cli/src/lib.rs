@@ -1,8 +1,11 @@
 //! The `strig` command, as a library so its behavior is testable without a process.
 
+mod analysis_support;
 mod audit_command;
+mod diff_command;
 mod import_command;
 mod junit;
+mod lint_command;
 mod report;
 mod test_command;
 
@@ -31,6 +34,12 @@ commands:
   import openfga <model> <tuples> -o <dir> [--language <l>]
                                 convert another library's model and policy into <dir>/policy.strig; exits 1 when
                                 part of it has no faithful translation
+  diff <before> <after> [--fixture <file>] [--now <ms>] [--json] [--fail-on allow|any]
+                [--max-subjects <n>] [--max-decisions <n>]
+                                decisions that change between two versions of a policy (directories or *.strig files);
+                                exits 1 when a change matches --fail-on (default any)
+  lint <dir> [--json] [--ignore <code>]... [--config <file>] [--fail-on error|warning|info|never]
+                                findings about dead or suspicious policy; exits 1 on a warning or worse
   help                          show this text
 ";
 
@@ -44,6 +53,8 @@ pub fn execute(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 
     match args.first().map(String::as_str) {
         Some("audit") => audit_command::run(&args[1..], out, err),
         Some("import") => import_command::run(&args[1..], out, err),
+        Some("diff") => diff_command::run(&args[1..], out, err),
+        Some("lint") => lint_command::run(&args[1..], out, err),
         Some("test") => test_command::run(&args[1..], out, err),
         Some("help" | "--help" | "-h") => {
             write!(out, "{USAGE}").ok();

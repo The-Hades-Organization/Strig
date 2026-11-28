@@ -265,6 +265,32 @@ await flow.expire();
 
 O `JsonFileStore` guarda os pedidos no mesmo arquivo (`new Approvals(engine, store.pendingStore, options)`, e `store.approvePending(flow, id, approver)` grava as grants antes de marcar o pedido como aprovado). Sem regra para o tipo, `propose` aplica a mudança na hora (`applied: true`).
 
+### Ver o impacto de uma mudança antes de aplicar
+
+`Governance::apply` diz se a mudança passa nas invariantes, não o que ela faz com o acesso. `Governance::impact` responde isso sem aplicar nada: julga a mudança como o `apply` (uma mudança recusada devolve as violações), pergunta o mesmo sobre os grants antes e depois e devolve um `Impact`: quem ganha, quem perde, qual permissão, em qual recurso (e campo).
+
+```rust
+let options = ImpactOptions::new(ImpactSource::sample(
+    SampleSpec::new().subject(bob).resource(project),
+)); // ou ImpactSource::derived()
+let impact = governance.impact(&engine, &ana, &current, &Mutation::Add(grant), &options)?;
+for change in &impact.gained { /* change.subject, change.permission, change.resource */ }
+```
+
+As perguntas vêm de uma de duas fontes. A **amostra** é sua: sujeitos × recursos × permissões (e campos); sem recursos ou permissões, valem os que a mudança alcança e toca. A **derivada** usa as consultas reversas (`who_can_on`, `list`, `access_of`), restrita às permissões que a mudança toca, com as que as implicam (`implied_by`) e as que dependem delas (`depends_on`). Um deny que recorta, um override e um campo contam como em `check`. `ImpactOptions` recebe as tuplas, o `env`, os `QueryLimits` e um instante; quando um limite corta, `partial` é `true` e `notes` diz qual, então a ausência na lista não prova nada. O que não se decide (condição ou override que não dá para avaliar) fica em `indeterminate`, nunca em `gained`: só é ganho o que era um deny certo e agora é allow.
+
+`Governance::apply_with_impact` aplica e devolve os grants com o impacto; com auditor em `detailed` ou `forensic`, o registro leva `impact` (contagens e até 10 exemplos, veja [`docs/audit-format.md`](docs/audit-format.md)). `Approvals::with_impact(&options)` guarda o impacto no pedido pendente ao propor; `approve` recalcula sobre os grants do momento (`Approved::proposed_impact` guarda o primeiro) e `review_impact` mostra os dois ao aprovador, e se diferem, antes de decidir. O store JSON guarda o pedido inteiro, então stores antigos abrem sem mudança.
+
+Em JavaScript, `engine.impact(input)` recebe a entrada do `apply` mais `impact: { source, env, limits }`, o `apply` com `impact` devolve o resultado em `result.impact`, e `Approvals` aceita `impact` nas opções e tem `reviewImpact(id, current)`; o binding Python tem `engine.impact` e `engine.review_impact`, e os de Go e JVM, `Impact`/`ReviewImpact`.
+
+```js
+const preview = engine.impact({
+  actor: ana, current: grants, mutation: { add: grant },
+  impact: { source: { kind: 'sample', subjects: [bob], resources: [project] } },
+});
+if (preview.ok) console.log(preview.impact.gained, preview.impact.lost, preview.impact.partial);
+```
+
 ### Regras declaradas no catálogo
 
 Algumas regras pertencem a uma permissão, então são declaradas no `PermissionDef` dela:
@@ -1200,6 +1226,27 @@ try {
   const [first] = error.diagnostics; // first.file === 'a.strig', first.line === 3
 }
 ```
+
+### Diff e lint de uma política
+
+`strig diff <antes> <depois>` lista as decisões que mudam entre duas versões de uma política (diretórios ou arquivos
+`.strig`): quem, qual permissão, sobre o quê, se o acesso `widened` (ampliou) ou `narrowed` (restringiu), e o grant ou
+override responsável em cada lado. `strig lint <dir>` acha política que nunca age: grant sombreado, deny inalcançável,
+permissão sem titular, papel sem uso, `implied_by` redundante, condição sempre falsa ou verdadeira, campo nunca concedido.
+
+```sh
+strig diff main/policies policies --fail-on allow     # exit 1 se algum acesso ampliou
+strig lint policies/ --json                           # códigos L001..L008, severidade, posição, dica
+```
+
+```js
+const found = strig.diff(before, after, { fixture: { resources: ['org:1'] } });
+const findings = strig.lint(policy, { ignore: ['unused-role'] });
+```
+
+Sem fixture as perguntas saem dos catálogos e dos grants e são limitadas por `QueryLimits`; um diff cortado por limite
+vem marcado `partial`, e não achar mudança então não prova que não há. Em Rust é `strig::dsl::analysis`. A action
+`strig-test` aceita `diff-base` para comparar com a base da PR. Veja [o guia](docs/dsl.pt-BR.md#analisando-uma-política).
 
 ### Testando uma política
 

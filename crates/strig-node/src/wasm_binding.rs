@@ -491,6 +491,25 @@ impl WasmEngine {
         )
     }
 
+    pub fn impact(&self, input: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .impact(from_js(input)?, crate::millis("now", js_sys::Date::now()))
+                .map_err(err)?,
+        )
+    }
+
+    #[wasm_bindgen(js_name = reviewImpact)]
+    pub fn review_impact(&self, input: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .review_impact(from_js(input)?, crate::millis("now", js_sys::Date::now()))
+                .map_err(err)?,
+        )
+    }
+
     pub fn propose(&self, input: JsValue) -> Result<JsValue, JsFailure> {
         to_js(
             &self
@@ -805,6 +824,30 @@ pub fn dsl_load_project(sources: JsValue) -> Result<JsValue, JsFailure> {
 #[wasm_bindgen(js_name = dslRunTests)]
 pub fn dsl_run_tests(policy: JsValue, tests: JsValue) -> Result<JsValue, JsFailure> {
     dsl_out((|| crate::dsl::run_tests(&dsl_arg(policy)?, &dsl_arg(tests)?))())
+}
+
+#[wasm_bindgen(js_name = dslDiff)]
+pub fn dsl_diff(before: JsValue, after: JsValue, options: JsValue) -> Result<JsValue, JsFailure> {
+    dsl_out((|| {
+        let options = if options.is_undefined() || options.is_null() {
+            None
+        } else {
+            Some(dsl_arg(options)?)
+        };
+        crate::dsl::diff_policies(&dsl_arg(before)?, &dsl_arg(after)?, options.as_ref())
+    })())
+}
+
+#[wasm_bindgen(js_name = dslLint)]
+pub fn dsl_lint(policy: JsValue, options: JsValue) -> Result<JsValue, JsFailure> {
+    dsl_out((|| {
+        let options = if options.is_undefined() || options.is_null() {
+            None
+        } else {
+            Some(dsl_arg(options)?)
+        };
+        crate::dsl::lint_policy(&dsl_arg(policy)?, options.as_ref())
+    })())
 }
 
 #[wasm_bindgen]

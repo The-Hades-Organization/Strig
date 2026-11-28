@@ -297,6 +297,104 @@ pub fn run_tests(policy: &Value, tests: &Value) -> DslResult<Value> {
     serde_json::to_value(&report).map_err(|e| BindingError::new("INTERNAL", e.to_string()).into())
 }
 
+fn policy_arg(value: &Value, argument: &str) -> DslResult<dsl::Policy> {
+    let policy = dsl::Policy::from_json(&value.to_string()).map_err(|e| BindingError::invalid_input(argument, e))?;
+    policy.validate().map_err(|found| failure(DslCode::Validate, &found))?;
+    Ok(policy)
+}
+
+fn options_object<'a>(
+    options: Option<&'a Value>,
+    allowed: &[&str],
+) -> DslResult<Option<&'a serde_json::Map<String, Value>>> {
+    let Some(options) = options.filter(|o| !o.is_null()) else {
+        return Ok(None);
+    };
+    let map = options
+        .as_object()
+        .ok_or_else(|| BindingError::invalid_argument("options", "expected an object"))?;
+    if let Some(unknown) = map.keys().find(|k| !allowed.contains(&k.as_str())) {
+        return Err(BindingError::invalid_argument("options", format!("unknown option `{unknown}`")).into());
+    }
+    Ok(Some(map))
+}
+
+/// `diff(before, after, options?)`: the decisions that change between two policy documents, with no
+/// IO. `options` is `{ fixture?, maxSubjects?, maxDecisions? }`; the fixture is the object or the
+/// JSON text of a `DiffFixture`. The document carries no source positions, so a responsible grant
+/// is named by id only.
+pub fn diff_policies(before: &Value, after: &Value, options: Option<&Value>) -> DslResult<Value> {
+    use strig::QueryLimits;
+    use strig::dsl::analysis::{self, DiffFixture, DiffOptions, DiffSide};
+
+    let before = policy_arg(before, "before")?;
+    let after = policy_arg(after, "after")?;
+    let map = options_object(options, &["fixture", "maxSubjects", "maxDecisions"])?;
+    let number = |key: &str| -> DslResult<Option<usize>> {
+        match map.and_then(|m| m.get(key)) {
+            None | Some(Value::Null) => Ok(None),
+            Some(value) => value
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+                .map(Some)
+                .ok_or_else(|| {
+                    BindingError::invalid_argument("options", format!("`{key}` must be a whole number")).into()
+                }),
+        }
+    };
+    let fixture = match map.and_then(|m| m.get("fixture")).filter(|f| !f.is_null()) {
+        None => DiffFixture::default(),
+        Some(value) => {
+            let text = match value {
+                Value::String(text) => text.clone(),
+                other => other.to_string(),
+            };
+            DiffFixture::parse("fixture", &text).map_err(|e| BindingError::invalid_input("fixture", e))?
+        }
+    };
+    let mut limits = QueryLimits::default();
+    if let Some(max) = number("maxSubjects")? {
+        limits = limits.with_max_parties(max);
+    }
+    if let Some(max) = number("maxDecisions")? {
+        limits = limits.with_max_decisions(max);
+    }
+    let found = analysis::diff(
+        DiffSide::new(&before),
+        DiffSide::new(&after),
+        &fixture,
+        &DiffOptions::default().with_limits(limits),
+    )
+    .map_err(|e| BindingError::invalid_input("policy", e))?;
+    serde_json::to_value(&found).map_err(|e| BindingError::new("INTERNAL", e.to_string()).into())
+}
+
+/// `lint(policy, options?)`: the findings about one policy document, with no IO. `options` is
+/// `{ ignore?: string[] }`, codes (`L004`) or names (`unused-role`). The document carries no source
+/// positions, so a finding names its element by id.
+pub fn lint_policy(policy: &Value, options: Option<&Value>) -> DslResult<Value> {
+    use strig::dsl::analysis::{self, LintCode, LintOptions};
+
+    let policy = policy_arg(policy, "policy")?;
+    let mut lint = LintOptions::default();
+    if let Some(list) = options_object(options, &["ignore"])?.and_then(|m| m.get("ignore")) {
+        let names = list
+            .as_array()
+            .and_then(|items| items.iter().map(Value::as_str).collect::<Option<Vec<_>>>())
+            .ok_or_else(|| BindingError::invalid_argument("options", "`ignore` must be a list of strings"))?;
+        for name in names {
+            if LintCode::parse(name).is_none() {
+                return Err(
+                    BindingError::invalid_argument("options", format!("`{name}` is not a lint code or name")).into(),
+                );
+            }
+            lint = lint.ignoring(name);
+        }
+    }
+    serde_json::to_value(analysis::lint(&policy, None, &lint))
+        .map_err(|e| BindingError::new("INTERNAL", e.to_string()).into())
+}
+
 /// O resultado de uma chamada como o JavaScript o recebe: `{ ok: true, value }` ou
 /// `{ ok: false, code, message, diagnostics }`. `dsl.js` o abre e lança o `Error`.
 pub fn envelope<T: Into<Value>>(result: DslResult<T>) -> Value {
@@ -386,6 +484,74 @@ mod tests {
             "INVALID_INPUT"
         );
         assert_eq!(code(run_tests(&json!({"nope": 1}), &json!([]))), "INVALID_INPUT");
+    }
+
+    const WITH_ROLE: &str = "language blocks\n\ntarget_kinds = [org]\n\npermission org.read {\n  targets = [org]\n}\n\nrole r {\n}\n\nsubject user:ana {\n  assign r {\n  }\n}\n\n";
+    const GRANT_READ: &str =
+        "grant g {\n  effect = allow\n  subject = role r\n  permission = org.read\n  target = org\n}\n";
+
+    #[test]
+    fn diff_reports_a_widening() {
+        let before = compile(&json!(WITH_ROLE), None).unwrap();
+        let after = compile(&json!(format!("{WITH_ROLE}{GRANT_READ}")), None).unwrap();
+        let fixture = json!({ "resources": ["org:1"] });
+        let found = diff_policies(&before, &after, Some(&json!({ "fixture": fixture }))).unwrap();
+        let ana = found["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["subject"] == "user:ana")
+            .unwrap();
+        assert_eq!(ana["change"], "widened");
+        assert_eq!(ana["after"]["grant"], "g");
+        assert_eq!(found["universe"]["partial"], false);
+        let same = diff_policies(&before, &before, Some(&json!({ "fixture": fixture }))).unwrap();
+        assert_eq!(same["changes"], json!([]));
+    }
+
+    #[test]
+    fn diff_refuses_bad_options() {
+        let policy = compile(&json!(WITH_ROLE), None).unwrap();
+        assert_eq!(
+            code(diff_policies(&policy, &policy, Some(&json!({ "nope": 1 })))),
+            "INVALID_ARGUMENT"
+        );
+        assert_eq!(
+            code(diff_policies(&policy, &policy, Some(&json!({ "maxSubjects": "a" })))),
+            "INVALID_ARGUMENT"
+        );
+        assert_eq!(
+            code(diff_policies(&policy, &policy, Some(&json!({ "fixture": "{" })))),
+            "INVALID_INPUT"
+        );
+        assert_eq!(
+            code(diff_policies(&json!({ "nope": 1 }), &policy, None)),
+            "INVALID_INPUT"
+        );
+    }
+
+    #[test]
+    fn lint_finds_and_ignores() {
+        let policy = compile(&json!(WITH_ROLE), None).unwrap();
+        let found = lint_policy(&policy, None).unwrap();
+        let names: Vec<_> = found.as_array().unwrap().iter().map(|f| f["name"].clone()).collect();
+        assert!(names.contains(&json!("unheld-permission")), "{names:?}");
+        let ignored = lint_policy(&policy, Some(&json!({ "ignore": ["L003", "unused-role"] }))).unwrap();
+        assert!(
+            ignored
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|f| f["code"] != "L003" && f["name"] != "unused-role")
+        );
+        assert_eq!(
+            code(lint_policy(&policy, Some(&json!({ "ignore": ["L999"] })))),
+            "INVALID_ARGUMENT"
+        );
+        assert_eq!(
+            code(lint_policy(&policy, Some(&json!({ "ignore": "L003" })))),
+            "INVALID_ARGUMENT"
+        );
     }
 
     #[test]
