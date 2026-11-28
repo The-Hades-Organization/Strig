@@ -1,4 +1,5 @@
-//! Postgres `LISTEN/NOTIFY` transport for the [`strig_sync::Hub`].
+//! Postgres `LISTEN/NOTIFY` transport for the [`strig_sync::Hub`], and Postgres storage for grants,
+//! tuples, roles and pending requests (see [`PgStore`], [`PgPendingStore`] and [`migrate`]).
 //!
 //! See the [repository README](https://github.com/The-Hades-Organization/Strig) for the full guide.
 //!
@@ -25,7 +26,13 @@
 //! (`postgres-native-tls`, `tokio-postgres-rustls`).
 
 pub mod query;
+mod store;
 mod window;
+
+pub use query::PgTables;
+pub use store::{
+    LATEST_VERSION, PgGrants, PgPendingStore, PgStore, PgTuples, connect, migrate, migrate_with, schema_version,
+};
 
 pub use window::{InstantOutOfRange, WindowColumns, WindowPredicate, candidate_predicate, window_predicate};
 
