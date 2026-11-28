@@ -35,6 +35,7 @@ pub enum SpecError {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[non_exhaustive]
 pub struct EngineSpec {
     pub catalog: CatalogExport,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -53,6 +54,7 @@ pub struct EngineSpec {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct RoleSpec {
     pub role: String,
     pub inherits: Vec<String>,
@@ -60,6 +62,7 @@ pub struct RoleSpec {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct RelationSpec {
     pub kind: String,
     pub relation: String,
@@ -187,6 +190,7 @@ pub enum InvariantSpec {
 /// Reserve of [`InvariantSpec::NoLockout`]: the administrator role and the subjects that may receive it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ReserveSpec {
     pub admin_role: RoleAssignment,
     pub subjects: Vec<Subject>,

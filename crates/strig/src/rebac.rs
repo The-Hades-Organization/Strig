@@ -29,6 +29,7 @@ impl fmt::Display for TupleSubject {
 
 /// Relation fact: `object#relation@subject`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Tuple {
     pub object: ObjectRef,
     pub relation: String,

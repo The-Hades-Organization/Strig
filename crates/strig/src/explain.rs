@@ -12,6 +12,7 @@ use crate::resource::{Anchor, Resource};
 use crate::subject::Subject;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Explanation {
     pub subject: Subject,
     pub permission: String,
@@ -38,6 +39,7 @@ pub struct Explanation {
 
 /// A prerequisite consulted in a decision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PrerequisiteStep {
     pub permission: String,
     /// The prerequisite is allowed on the same resource.
@@ -63,6 +65,7 @@ impl Explanation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct OverrideStep {
     pub name: String,
     pub outcome: OverrideOutcome,
@@ -135,6 +138,7 @@ impl Verdict {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct GrantTrace {
     pub grant: Grant,
     pub verdict: Verdict,
@@ -160,6 +164,7 @@ pub enum TraceResult {
 
 /// Evaluation of a condition, node by node, with the resolved values in the label.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ConditionTrace {
     pub label: String,
     pub result: TraceResult,

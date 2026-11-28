@@ -156,6 +156,7 @@ pub enum AuditOutcome {
 
 /// Summary of a decision, kept from [`AuditLevel::Standard`] upward.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct DecisionSummary {
     pub permission: String,
     /// Resource path as text (`document:d1/project:p1`).
@@ -179,6 +180,7 @@ fn path_text(resource: &Resource) -> String {
 
 /// Summary of a grant, kept from [`AuditLevel::Standard`] upward.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct GrantSummary {
     pub permission: String,
     pub subject: SubjectMatcher,
@@ -205,6 +207,7 @@ impl From<&Grant> for GrantSummary {
 
 /// Recorded role assignment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RoleChange {
     /// Subject id, or `<kind>:<anonymous>` when it has no id.
     pub subject: String,
@@ -228,6 +231,7 @@ impl RoleChange {
 
 /// The pending request an approval-flow record is about, kept from [`AuditLevel::Standard`] upward.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PendingRef {
     pub id: String,
     /// Actor id of whoever proposed the change, or its kind when anonymous.
@@ -391,6 +395,7 @@ pub enum AuditStatus {
 
 /// A record the retry queue could not keep.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct DroppedRecord {
     pub record: AuditRecord,
 }
@@ -432,6 +437,7 @@ impl fmt::Debug for RetryPolicy {
 
 /// Counters of the retry queue, for a metric or a health check.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct AuditStats {
     /// Records waiting for the sink.
     pub pending: usize,
@@ -617,6 +623,7 @@ impl PendingQueue {
 
 /// A record and where it ended up.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Emitted {
     pub record: AuditRecord,
     pub status: AuditStatus,

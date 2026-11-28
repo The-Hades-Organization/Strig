@@ -270,6 +270,7 @@ impl Impact {
 
 /// The impact of a change as the audit trail keeps it: counts and a bounded list of examples.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ImpactSummary {
     pub gained: usize,
     pub lost: usize,

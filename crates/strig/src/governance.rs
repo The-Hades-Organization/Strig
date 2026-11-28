@@ -232,6 +232,7 @@ impl Suggestion {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Violation {
     pub invariant: String,
     pub message: String,
@@ -1480,6 +1481,7 @@ impl Invariant for ManagementOnly {
 
 /// Permission that exempts its holder from [`NoEscalation`] on `resource`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Bypass {
     pub permission: String,
     pub resource: Resource,

@@ -82,6 +82,7 @@ impl RoleAssignment {
 
 /// Who requests the access.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Subject {
     pub kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -23,6 +23,7 @@ pub const META_TEMPLATE_VERSION: &str = "template_version";
 /// Model of one grant: everything but the subject, which is chosen at materialization.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct TemplateGrant {
     /// Unique inside the template; the materialized grant id is `<prefix>:<id>`.
     pub id: String,
@@ -70,6 +71,7 @@ impl TemplateGrant {
 /// Versioned set of model grants.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct RoleTemplate {
     pub id: String,
     pub version: u32,
@@ -139,6 +141,7 @@ impl RoleTemplate {
 /// through [`Materialized::apply`], skips the invariants.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Materialized {
     pub template: String,
     pub template_version: u32,

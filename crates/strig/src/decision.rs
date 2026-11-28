@@ -57,6 +57,7 @@ pub enum Reason {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Decision {
     pub effect: Effect,
     pub reason: Reason,

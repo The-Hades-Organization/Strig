@@ -50,6 +50,7 @@ use elevation::ElevationInfo;
 
 /// Who may approve a kind of change: whoever holds `permission` on `resource`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ApprovalRule {
     pub kind: MutationKind,
     pub permission: String,

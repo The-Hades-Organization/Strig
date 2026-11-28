@@ -13,6 +13,7 @@ static GLOBAL_ANCHOR: LazyLock<Anchor> = LazyLock::new(Anchor::global);
 
 /// Identified object, used by ReBAC (`document:42`, `user:alice`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ObjectRef {
     pub kind: String,
     pub id: String,

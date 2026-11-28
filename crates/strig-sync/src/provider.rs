@@ -58,6 +58,7 @@ pub trait CapabilityProvider: Send + Sync + 'static {
 
 /// Capabilities with the validity information a session needs to schedule its next recompute.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Evaluation {
     pub set: CapabilitySet,
     /// Instant the set was evaluated at, milliseconds since the Unix epoch.

@@ -27,6 +27,7 @@ pub enum ValidityError {
 /// Optional start (inclusive) and end (exclusive) of a validity window, in milliseconds since the
 /// Unix epoch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct Validity {
     pub valid_from: Option<u64>,
     pub valid_until: Option<u64>,

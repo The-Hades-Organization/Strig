@@ -84,6 +84,7 @@ impl Lease {
 
 /// Priority and duration of a claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Terms {
     /// Higher wins. Compared only against the current holder's priority.
     pub priority: i64,
@@ -100,6 +101,7 @@ impl Terms {
 
 /// Request to own `resource` on behalf of `holder`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Claim {
     pub resource: ObjectRef,
     pub holder: ObjectRef,

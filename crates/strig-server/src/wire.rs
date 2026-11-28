@@ -138,6 +138,7 @@ pub struct ListRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ListResponse {
     pub evaluated_at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -158,6 +159,7 @@ pub struct ListResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct WhoRequest {
     pub permission: String,
     /// With a resource: who holds the permission on it (`who_can_on`). Without: who is named by
@@ -171,6 +173,7 @@ pub struct WhoRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct WhoResponse {
     pub evaluated_at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -182,6 +185,7 @@ pub struct WhoResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct WhoEntry {
     pub subject: SubjectDto,
     /// How the party holds it. Absent for `who_can`, which evaluates nothing.
@@ -190,6 +194,7 @@ pub struct WhoEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct WhoExcept {
     pub allowed: SubjectDto,
     pub with: SubjectDto,
@@ -197,6 +202,7 @@ pub struct WhoExcept {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct AccessRequest {
     pub resource: Resource,
     #[serde(default, skip_serializing_if = "is_empty")]
@@ -206,6 +212,7 @@ pub struct AccessRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct AccessResponse {
     pub evaluated_at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -214,6 +221,7 @@ pub struct AccessResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PartyDto {
     pub subject: SubjectDto,
     pub permissions: Vec<String>,
