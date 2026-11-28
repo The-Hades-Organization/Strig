@@ -1,0 +1,22 @@
+language actors
+
+principal ana
+  // Names, tags and addresses.
+  allow document.view on document when resource.name starts_with "draft-" and resource.name ends_with ".md" and resource.name contains "-v" as g-names
+  allow document.edit on document when subject.tags any_in ["a", "z"] and subject.tags all_in ["a", "b", "c"] and subject.tags contains "b" as g-sets
+  allow document.view on document:runbook when time_between "22:00" "06:00" tz "America/Sao_Paulo" or env.ip ip_in "192.168.0.0/16" as g-night
+
+anyone
+  // Office network, working hours, weekdays only.
+  deny document.edit on document:ledger when not (env.ip ip_in ["10.0.0.0/8", "2001:db8::/32"]) or not (time_between "09:00" "17:30" and weekday_in ["mon", "tue", "wed", "thu", "fri"] tz "Europe/Lisbon") as g-network
+
+user ana
+  principal ana
+  attr ip = "10.1.2.3"
+  attr tags = ["a", "b"]
+  attr team = "docs"
+
+catalog
+  kinds document
+  document.view on document
+  document.edit on document

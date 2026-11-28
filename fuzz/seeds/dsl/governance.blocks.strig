@@ -1,0 +1,69 @@
+language blocks
+
+target_kinds = [org, doc]
+
+permission doc.read {
+  targets = [doc]
+}
+
+permission doc.edit {
+  targets = [doc]
+  implied_by = [doc.read]
+  non_delegable = true
+}
+
+permission org.settings {
+  targets = [org]
+  management_only = true
+}
+
+permission doc.purge {
+  label = "Purge for good"
+  targets = [doc]
+  override_only = true
+  meta {
+    risk = "high"
+  }
+}
+
+role viewer {
+}
+
+subject user:bob {
+  assign viewer {
+  }
+}
+
+// The owner of a document may do anything to it.
+override resource_owner {
+  attr = "owner"
+  except = [doc.purge]
+}
+
+override permission_holder {
+  permission = doc.read
+}
+
+invariant no_self_management {
+}
+
+invariant catalog_conformance {
+}
+
+invariant require_permission {
+  permission = doc.read
+  resource = org:acme > doc
+}
+
+invariant no_lockout {
+  permissions = [doc.read]
+  members = [user:bob]
+  resource = doc:d1
+  reserve_role = viewer
+  reserve_subjects = [user:bob]
+}
+
+invariant forbid {
+  subject = anyone
+  permissions = [doc.edit]
+}
