@@ -5,7 +5,6 @@ use serde::Deserialize;
 use serde_json::Value;
 use strig::audit::AuditRecord;
 use strig::merkle::{self, Hash, MerkleError};
-use strig::timestamp::{VerifyOptions, decode_hex, pem_certificates, verify_response};
 
 use crate::error::BindingError;
 use crate::{BindingResult, parse};
@@ -96,6 +95,7 @@ pub fn verify_merkle_consistency(input: Value) -> BindingResult<Value> {
     )
 }
 
+#[cfg(feature = "timestamp")]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TimestampInput {
@@ -116,6 +116,7 @@ struct TimestampInput {
     policy: Option<String>,
 }
 
+#[cfg(feature = "timestamp")]
 fn base64_decode(text: &str) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(text.len() / 4 * 3);
     let (mut bits, mut count, mut padding) = (0u32, 0u32, 0u32);
@@ -150,7 +151,10 @@ fn base64_decode(text: &str) -> Option<Vec<u8>> {
 /// Verifies an RFC 3161 time stamp of an audit chain head against the roots the auditor trusts.
 /// Answers `{ ok: true, genTime, time, serial, policy, algorithm, imprint, nonce, signerSubject }` or
 /// `{ ok: false, code, message }`; without a trusted root every response is refused.
+#[cfg(feature = "timestamp")]
 pub fn verify_timestamp(input: Value) -> BindingResult<Value> {
+    use strig::timestamp::{VerifyOptions, decode_hex, pem_certificates, verify_response};
+
     let input: TimestampInput = parse("input", input)?;
     let response = base64_decode(&input.response)
         .ok_or_else(|| BindingError::invalid_input("response", "expected the DER response in base64"))?;
@@ -183,7 +187,7 @@ pub fn verify_timestamp(input: Value) -> BindingResult<Value> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "timestamp"))]
 mod tests {
     use super::*;
 

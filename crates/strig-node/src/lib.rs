@@ -32,7 +32,9 @@ use strig::{
     RoleTemplate, Subject, Tuple,
 };
 
-pub use audit_proof::{verify_merkle_consistency, verify_merkle_inclusion, verify_timestamp};
+#[cfg(feature = "timestamp")]
+pub use audit_proof::verify_timestamp;
+pub use audit_proof::{verify_merkle_consistency, verify_merkle_inclusion};
 pub use error::{BindingError, BindingResult};
 pub use exclusive::ExclusiveHandle;
 pub use host::{AuditPolicy, HostCallbacks, HostFn, Redaction};
