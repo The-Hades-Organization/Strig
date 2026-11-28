@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-28
+
 ### Added
 
 - Inspector in the browser: `playground/inspector.html` (published beside the playground) runs the three tabs of `strig-inspect` over the WebAssembly engine. It loads the scenario JSON of `strig-inspect` from a file, a paste or the built-in example, and shows the decision with its path, roles, overrides and each grant (Evaluation), the permission by subject matrix on a resource (Matrix), and a JSON Lines trail with the `forensic` chain verified and `detailed` and `forensic` decisions re-evaluated against the current policy (Audit). Grants can be switched off or added to simulate, with the original decision shown beside a changed one. Same identity as the playground, light and dark, readable at 360 px, nothing leaves the browser. The playground build copies the example scenario and trail from `crates/strig-inspect/examples/`; the inspector logic (`inspector-core.ts`) has its own tests in `npm test --prefix playground`.
@@ -195,7 +197,8 @@ Before, after and the step to take for each of these, including the `DSL_SCHEMA`
 - `themis-node`: JavaScript bindings (N-API for Node and Bun, WebAssembly for the browser), real-time client and server in JS.
 - `themis-inspect`: inspector with evaluation trace, grant simulation, access matrix and audit trail reading, as terminal commands and an optional gpui window.
 
-[Unreleased]: https://github.com/The-Hades-Organization/Strig/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/The-Hades-Organization/Strig/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/The-Hades-Organization/Strig/compare/v0.6.0...v0.6.1
