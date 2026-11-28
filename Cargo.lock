@@ -6795,7 +6795,7 @@ dependencies = [
 
 [[package]]
 name = "strig-lsp"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "lsp-server",
  "lsp-types",
