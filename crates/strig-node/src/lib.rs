@@ -335,10 +335,26 @@ impl ContextData {
 }
 
 #[derive(Deserialize)]
-struct RequestInput {
-    subject: Subject,
-    permission: String,
-    resource: Resource,
+pub(crate) struct RequestInput {
+    pub(crate) subject: Subject,
+    pub(crate) permission: String,
+    pub(crate) resource: Resource,
+}
+
+#[cfg_attr(
+    not(any(feature = "napi", feature = "wasm")),
+    allow(dead_code, reason = "only the JavaScript bindings read requests from text")
+)]
+impl RequestInput {
+    /// A request from the text the JavaScript wrapper made with `JSON.stringify`: every number is
+    /// already a JSON integer or float, so no `integral` pass is needed.
+    pub(crate) fn from_json(text: &str) -> BindingResult<Self> {
+        serde_json::from_str(text).map_err(|e| BindingError::invalid_input("request", e))
+    }
+
+    pub(crate) fn many_from_json(text: &str) -> BindingResult<Vec<Self>> {
+        serde_json::from_str(text).map_err(|e| BindingError::invalid_input("requests", e))
+    }
 }
 
 #[derive(Deserialize)]
@@ -625,25 +641,101 @@ impl EngineHandle {
     }
 
     pub fn decide(&self, ctx: &ContextData, request: Value, now: Option<u64>) -> BindingResult<Value> {
-        host::forbid_reentry()?;
         let input: RequestInput = parse("request", request)?;
+        self.decide_input(ctx, &input, now)
+    }
+
+    pub(crate) fn decide_input(
+        &self,
+        ctx: &ContextData,
+        input: &RequestInput,
+        now: Option<u64>,
+    ) -> BindingResult<Value> {
+        host::forbid_reentry()?;
         let request = Request::new(&input.subject, &input.permission, &input.resource);
         Ok(to_value(&self.engine.decide(&ctx.context_at(now), &request)))
     }
 
     pub fn check(&self, ctx: &ContextData, request: Value, now: Option<u64>) -> BindingResult<bool> {
-        host::forbid_reentry()?;
         let input: RequestInput = parse("request", request)?;
+        self.check_input(ctx, &input, now)
+    }
+
+    /// `check` of a request already read from the host, with no JSON tree in between.
+    pub(crate) fn check_input(&self, ctx: &ContextData, input: &RequestInput, now: Option<u64>) -> BindingResult<bool> {
+        host::forbid_reentry()?;
         let request = Request::new(&input.subject, &input.permission, &input.resource);
         Ok(self.engine.check(&ctx.context_at(now), &request))
     }
 
+    /// `check` of every request, in order, against one `Context` and one instant: one crossing of
+    /// the boundary for the whole batch. A request that cannot be read fails the whole call
+    /// (`INVALID_INPUT`), never turning into a silent `false` for one slot.
+    pub fn check_many(&self, ctx: &ContextData, requests: Value, now: Option<u64>) -> BindingResult<Vec<bool>> {
+        let inputs: Vec<RequestInput> = parse("requests", requests)?;
+        self.check_inputs(ctx, &inputs, now)
+    }
+
+    pub(crate) fn check_inputs(
+        &self,
+        ctx: &ContextData,
+        inputs: &[RequestInput],
+        now: Option<u64>,
+    ) -> BindingResult<Vec<bool>> {
+        host::forbid_reentry()?;
+        let ctx = ctx.context_at(now);
+        Ok(inputs
+            .iter()
+            .map(|input| {
+                self.engine
+                    .check(&ctx, &Request::new(&input.subject, &input.permission, &input.resource))
+            })
+            .collect())
+    }
+
     /// A decisão com o rastro completo (`strig::Explanation`).
     pub fn explain(&self, ctx: &ContextData, request: Value, now: Option<u64>) -> BindingResult<Value> {
-        host::forbid_reentry()?;
         let input: RequestInput = parse("request", request)?;
+        self.explain_input(ctx, &input, now)
+    }
+
+    pub(crate) fn explain_input(
+        &self,
+        ctx: &ContextData,
+        input: &RequestInput,
+        now: Option<u64>,
+    ) -> BindingResult<Value> {
+        host::forbid_reentry()?;
         let request = Request::new(&input.subject, &input.permission, &input.resource);
         Ok(to_value(&self.engine.explain(&ctx.context_at(now), &request)))
+    }
+
+    /// `explain` of every request, in order, in one crossing.
+    pub fn explain_many(&self, ctx: &ContextData, requests: Value, now: Option<u64>) -> BindingResult<Value> {
+        let inputs: Vec<RequestInput> = parse("requests", requests)?;
+        self.explain_inputs(ctx, &inputs, now)
+    }
+
+    pub(crate) fn explain_inputs(
+        &self,
+        ctx: &ContextData,
+        inputs: &[RequestInput],
+        now: Option<u64>,
+    ) -> BindingResult<Value> {
+        host::forbid_reentry()?;
+        let ctx = ctx.context_at(now);
+        Ok(Value::Array(
+            inputs
+                .iter()
+                .map(|input| {
+                    to_value(
+                        &self
+                            .engine
+                            .explain(&ctx, &Request::new(&input.subject, &input.permission, &input.resource)),
+                    )
+                })
+                .collect(),
+        ))
     }
 
     pub fn capabilities(
@@ -1304,6 +1396,57 @@ mod tests {
 
     fn view(subject: &Value, id: &str) -> Value {
         json!({"subject": subject, "permission": "project.view", "resource": project(id)})
+    }
+
+    #[test]
+    fn batches_and_json_text_answer_like_one_call_per_request() {
+        let engine = EngineHandle::new(spec()).unwrap();
+        let ctx = ContextData::new(Some(json!({
+            "grants": [allow("g", json!({"kind": "user", "id": "ana"}), "project.view", json!({}))]
+        })))
+        .unwrap();
+        let requests = vec![view(&ana(), "p1"), view(&json!({"kind": "user", "id": "bob"}), "p1")];
+        let each: Vec<bool> = requests
+            .iter()
+            .map(|r| engine.check(&ctx, r.clone(), None).unwrap())
+            .collect();
+        assert_eq!(each, [true, false]);
+        assert_eq!(
+            engine.check_many(&ctx, Value::Array(requests.clone()), None).unwrap(),
+            each
+        );
+        let text = serde_json::to_string(&requests).unwrap();
+        let inputs = RequestInput::many_from_json(&text).unwrap();
+        assert_eq!(engine.check_inputs(&ctx, &inputs, None).unwrap(), each);
+        assert_eq!(
+            engine.explain_many(&ctx, Value::Array(requests.clone()), None).unwrap(),
+            Value::Array(
+                requests
+                    .iter()
+                    .map(|r| engine.explain(&ctx, r.clone(), None).unwrap())
+                    .collect()
+            )
+        );
+        assert_eq!(
+            engine.decide_input(&ctx, &inputs[0], None).unwrap(),
+            engine.decide(&ctx, requests[0].clone(), None).unwrap()
+        );
+    }
+
+    #[test]
+    fn an_unreadable_request_in_a_batch_fails_the_whole_call() {
+        let engine = EngineHandle::new(spec()).unwrap();
+        let ctx = ContextData::default();
+        let bad = json!([view(&ana(), "p1"), {"subject": ana()}]);
+        assert_eq!(engine.check_many(&ctx, bad, None).unwrap_err().code, "INVALID_INPUT");
+        assert_eq!(
+            RequestInput::from_json("{").map(|_| ()).unwrap_err().code,
+            "INVALID_INPUT"
+        );
+        assert_eq!(
+            engine.check_many(&ctx, json!("nope"), None).unwrap_err().code,
+            "INVALID_INPUT"
+        );
     }
 
     #[test]

@@ -684,6 +684,13 @@ export declare class Engine<P extends string = string> {
   check(context: Context, request: DecisionRequest<P>, now?: number | bigint): boolean;
   /** A decisão com o rastro: overrides, destino de cada grant e árvore das condições. */
   explain(context: Context, request: DecisionRequest<P>, now?: number | bigint): Explanation;
+  /**
+   * `check` of every request in one crossing of the boundary, against one `Context` and one instant:
+   * one boolean per request, in order. A request that cannot be read throws and decides none.
+   */
+  checkMany(context: Context, requests: readonly DecisionRequest<P>[], now?: number | bigint): boolean[];
+  /** `explain` of every request in one crossing, in order. */
+  explainMany(context: Context, requests: readonly DecisionRequest<P>[], now?: number | bigint): Explanation[];
   capabilities(context: Context, subject: Subject, scope: Resource, now?: number | bigint): CapabilitySet;
   validateGrant(grant: Grant): void;
   catalog(): unknown;

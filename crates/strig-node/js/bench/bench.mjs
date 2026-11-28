@@ -1,4 +1,4 @@
-// Benchmarks of the JS binding: decide, conditions and relations, list, apply with governance and audit.
+// Benchmarks of the JS binding: decide, check, batches, conditions and relations, list, apply with governance and audit.
 // Run from crates/strig-node/js after the native and wasm builds and `npm run build:ts`:
 //   node bench/bench.mjs [--backend native|wasm|both]
 //   bun bench/bench.mjs [--backend native|wasm|both]
@@ -16,6 +16,7 @@ const NOISE = 1_000;
 const WARMUP_MS = 300;
 const SAMPLE_MS = 500;
 const SAMPLES = 7;
+const BATCH = 100;
 
 const spec = {
   catalog: {
@@ -105,16 +106,26 @@ console.log(`runtime: ${runtime}`);
 for (const backend of backends) {
   const { Engine, Context } = await load({ backend });
   const rows = [];
-  const bench = (name, fn) => rows.push([name, measure(fn)]);
+  // `per` divides a batched call into the cost of one decision, which is what the table shows.
+  const bench = (name, fn, per = 1) => {
+    const r = measure(fn);
+    rows.push([per > 1 ? `${name} (per decision)` : name, { median: r.median / per, min: r.min / per, max: r.max / per }]);
+  };
 
   const engine = new Engine(spec);
   const simple = new Context({ grants: simpleGrants, now: NOW });
   const viewRequest = { subject: member, permission: 'document.view', resource: document(1) };
   bench('decide/simple', () => engine.decide(simple, viewRequest));
+  bench('check/simple', () => engine.check(simple, viewRequest));
+  bench('explain/simple', () => engine.explain(simple, viewRequest));
+  const batch = Array.from({ length: BATCH }, () => viewRequest);
+  bench(`checkMany/simple_x${BATCH}`, () => engine.checkMany(simple, batch), BATCH);
+  bench(`explainMany/simple_x${BATCH}`, () => engine.explainMany(simple, batch), BATCH);
 
   const rich = new Context({ grants: richGrants, tuples, now: NOW });
   const editRequest = { subject: member, permission: 'document.edit', resource: document(3) };
   bench('decide/conditions_and_relations', () => engine.decide(rich, editRequest));
+  bench('check/conditions_and_relations', () => engine.check(rich, editRequest));
 
   const docs = Array.from({ length: ROWS }, (_, n) => document(n));
   const layout = ['document', 'project', 'org'];

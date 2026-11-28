@@ -6,7 +6,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- JS binding: `engine.checkMany(ctx, requests)` and `engine.explainMany(ctx, requests)` decide a batch in one crossing of the boundary against one `Context` and one instant.
 - Postgres storage in `strig-postgres`: `PgStore` loads the grants and the ReBAC tuples into a snapshot that serves the synchronous `GrantSource`/`GrantIndex` (`PgGrants`) and `TupleStore`/`TupleIndex` (`PgTuples`), and reloads on a `Change` through `PgStore::follow` (a failed reload keeps the previous snapshot and shows in `is_stale()`). `PgTables` gains the writes (`delete_grant`, `delete_tuple`, `all_grants`, `all_tuples`), role assignments per subject (`assign_role`, `revoke_role`, `roles_of`, `subject`), pending requests (`insert_pending`, `update_pending`, `due_pending`, ...) and `commit_mutation`, which writes what a governed `Mutation` changes and sends its `NOTIFY` in the caller's transaction (`lock_governance` serialises judge-then-write). `PgPendingStore` is a `PendingStore` with expiry over its own connection. `migrate`/`migrate_with` embed versioned, idempotent, additive SQL (`<prefix>_migrations`); `PgTables::in_schema` and `with_prefix` configure schema and table names. `PgQueryError` gains `Invalid` and `Notify`.
+
+### Changed
+
+- JS binding: `check`, `decide` and `explain` send a plain-JSON request as one string and read the decision back as one string, instead of walking objects through N-API/wasm-bindgen; `decide/simple` on Node native goes from 16.1 µs to 6.5 µs and `check` takes 3.5 µs. Requests that are not plain JSON keep the original path, with the same errors.
 
 ### Fixed
 
