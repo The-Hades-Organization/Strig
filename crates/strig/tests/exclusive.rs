@@ -496,6 +496,7 @@ fn max_ttl_caps_acquisition_and_renewal() {
 }
 
 #[test]
+#[cfg(feature = "conformance")]
 fn memory_store_passes_the_conformance_battery() {
     strig::exclusive_conformance::run(strig::MemoryExclusiveStore::new);
 }

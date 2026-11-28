@@ -27,6 +27,6 @@ redis = { version = "1.8", default-features = false, features = ["aio", "tokio-c
 tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
-strig.workspace = true
+strig = { workspace = true, features = ["conformance"] }
 redis = { version = "1.8", default-features = false }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

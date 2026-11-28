@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { makeDsl, type DslBinding } from './dsl.js';
+import { installFastPaths } from './fast.js';
 import type { Strig } from './index.js';
 
 type Backend = 'auto' | 'native' | 'wasm';
@@ -14,6 +15,7 @@ const require = createRequire(import.meta.url);
 const cache = new Map<string, Promise<Strig>>();
 
 function wrap(mod: Binding, backend: 'native' | 'wasm'): Strig {
+  installFastPaths(mod);
   return {
     Engine: mod.Engine,
     Context: mod.Context,

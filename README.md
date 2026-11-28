@@ -36,6 +36,7 @@ Features of the `strig` crate:
 |---|---|---|
 | `audit` | yes | Audit trail for grant changes and decisions, with a hash chain |
 | `exclusive` | no | One holder per resource, with priority and preemption |
+| `conformance` | no | Turns on `exclusive` and adds `strig::exclusive_conformance`, the battery an `ExclusiveStore` adapter runs in its tests (not stable API) |
 | `dsl` | no | The policy language: parse, validate, convert, format. No IO, works in wasm |
 | `dsl-fs` | no | `dsl` plus reading and writing `.strig` files and directories |
 
@@ -437,7 +438,7 @@ let mut registry = ExclusiveRegistry::new(store);
 let mut registry = ExclusiveRegistry::new(RedisExclusiveStore::new("redis://127.0.0.1/", "strig:exclusive")?);
 ```
 
-Acquire, renew, release and the sweep (`expire`) are one atomic step in each store: a row lock in a transaction for Postgres, `WATCH`/`MULTI`/`EXEC` for Redis. Two instances racing for the same resource have exactly one winner. Both give the same answers as the in-memory store (`strig::exclusive_conformance::run` is the battery every store passes), and whether a lease is active is always decided with the `now` you pass, never the clock of the database. In Redis the native expiry only reclaims memory, after the lease's lifetime plus a retention (one hour by default). The trait is synchronous: both stores block the caller for the round trip (use `spawn_blocking` inside an async task) and fail closed with a `StoreError` on a timeout or a lost connection. Postgres keeps its connection on a thread of its own, like `PgPendingStore`; Redis uses the synchronous connection of the `redis` crate with timeouts. Both crates have the `exclusive` feature, on by default. The JavaScript binding does not expose them yet.
+Acquire, renew, release and the sweep (`expire`) are one atomic step in each store: a row lock in a transaction for Postgres, `WATCH`/`MULTI`/`EXEC` for Redis. Two instances racing for the same resource have exactly one winner. Both give the same answers as the in-memory store (`strig::exclusive_conformance::run` (feature `conformance`) is the battery every store passes), and whether a lease is active is always decided with the `now` you pass, never the clock of the database. In Redis the native expiry only reclaims memory, after the lease's lifetime plus a retention (one hour by default). The trait is synchronous: both stores block the caller for the round trip (use `spawn_blocking` inside an async task) and fail closed with a `StoreError` on a timeout or a lost connection. Postgres keeps its connection on a thread of its own, like `PgPendingStore`; Redis uses the synchronous connection of the `redis` crate with timeouts. Both crates have the `exclusive` feature, on by default. The JavaScript binding does not expose them yet.
 
 ## Real time
 
@@ -565,6 +566,19 @@ const client = new PermissionClient({ url: '/permissions/events', scopes, strig,
 client.on('capabilities', () => render());
 client.can('document.edit', resource);
 ```
+
+### Cost of a call and batches
+
+A `Context` keeps its grants, tuples, `env` and instant on the Rust side, so a decision never sends them again; change them with `addGrant` (the same `id` replaces), `removeGrant`, `addTuple`, `removeTuple`, `setNow` and `setEnv`. What still crosses the boundary on each call is the request, and the binding sends it as one `JSON.stringify` string (the decision comes back the same way) when it is plain JSON; a request with `undefined`, `NaN`, functions, bigints or class instances takes the original path and its errors. `check` answers a boolean without building the `Decision`.
+
+To decide many requests against one `Context` and one instant, cross the boundary once:
+
+```js
+const allowed = engine.checkMany(ctx, requests);   // boolean[], in order
+const traces = engine.explainMany(ctx, requests);  // Explanation[], in order
+```
+
+A request that cannot be read throws and decides none; it never becomes a silent `false`. Numbers per case are in [`docs/benchmarks.md`](docs/benchmarks.md).
 
 ### Rules written in JavaScript
 

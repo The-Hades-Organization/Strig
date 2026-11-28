@@ -29,4 +29,5 @@ tokio-postgres = "0.7"
 tokio-stream = { workspace = true }
 
 [dev-dependencies]
+strig = { workspace = true, features = ["conformance"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

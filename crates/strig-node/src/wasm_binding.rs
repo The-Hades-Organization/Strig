@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 
 use std::sync::Arc;
 
-use crate::{BindingError, ContextData, EngineHandle, ExclusiveHandle, HostCallbacks, HostFn};
+use crate::{BindingError, ContextData, EngineHandle, ExclusiveHandle, HostCallbacks, HostFn, RequestInput};
 
 /// Um `Error` do JavaScript com o `code` estável do binding.
 type JsFailure = JsValue;
@@ -357,6 +357,70 @@ impl WasmEngine {
                 .explain(&ctx.inner, from_js(request)?, now_of(now)?)
                 .map_err(err)?,
         )
+    }
+
+    #[wasm_bindgen(js_name = checkMany)]
+    pub fn check_many(&self, ctx: &WasmContext, requests: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
+        let answers = self
+            .inner
+            .check_many(&ctx.inner, from_js(requests)?, now_of(now)?)
+            .map_err(err)?;
+        to_js(&Value::Array(answers.into_iter().map(Value::Bool).collect()))
+    }
+
+    #[wasm_bindgen(js_name = explainMany)]
+    pub fn explain_many(&self, ctx: &WasmContext, requests: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .explain_many(&ctx.inner, from_js(requests)?, now_of(now)?)
+                .map_err(err)?,
+        )
+    }
+
+    /// Fast paths: the request arrives as the text the wrapper made with `JSON.stringify`, and the
+    /// decision leaves as text for `JSON.parse`, instead of walking the object through the glue.
+    #[wasm_bindgen(js_name = checkJson)]
+    pub fn check_json(&self, ctx: &WasmContext, request: &str, now: JsValue) -> Result<bool, JsFailure> {
+        let input = RequestInput::from_json(request).map_err(err)?;
+        self.inner.check_input(&ctx.inner, &input, now_of(now)?).map_err(err)
+    }
+
+    #[wasm_bindgen(js_name = decideJson)]
+    pub fn decide_json(&self, ctx: &WasmContext, request: &str, now: JsValue) -> Result<String, JsFailure> {
+        let input = RequestInput::from_json(request).map_err(err)?;
+        let decision = self.inner.decide_input(&ctx.inner, &input, now_of(now)?).map_err(err)?;
+        Ok(decision.to_string())
+    }
+
+    #[wasm_bindgen(js_name = explainJson)]
+    pub fn explain_json(&self, ctx: &WasmContext, request: &str, now: JsValue) -> Result<String, JsFailure> {
+        let input = RequestInput::from_json(request).map_err(err)?;
+        let explanation = self
+            .inner
+            .explain_input(&ctx.inner, &input, now_of(now)?)
+            .map_err(err)?;
+        Ok(explanation.to_string())
+    }
+
+    #[wasm_bindgen(js_name = checkManyJson)]
+    pub fn check_many_json(&self, ctx: &WasmContext, requests: &str, now: JsValue) -> Result<JsValue, JsFailure> {
+        let inputs = RequestInput::many_from_json(requests).map_err(err)?;
+        let answers = self
+            .inner
+            .check_inputs(&ctx.inner, &inputs, now_of(now)?)
+            .map_err(err)?;
+        to_js(&Value::Array(answers.into_iter().map(Value::Bool).collect()))
+    }
+
+    #[wasm_bindgen(js_name = explainManyJson)]
+    pub fn explain_many_json(&self, ctx: &WasmContext, requests: &str, now: JsValue) -> Result<String, JsFailure> {
+        let inputs = RequestInput::many_from_json(requests).map_err(err)?;
+        let all = self
+            .inner
+            .explain_inputs(&ctx.inner, &inputs, now_of(now)?)
+            .map_err(err)?;
+        Ok(all.to_string())
     }
 
     pub fn capabilities(

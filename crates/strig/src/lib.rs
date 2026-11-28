@@ -36,8 +36,8 @@ pub mod dsl;
 pub mod engine;
 #[cfg(feature = "exclusive")]
 pub mod exclusive;
-/// Battery of scenarios every [`ExclusiveStore`] implementation must pass.
-#[cfg(feature = "exclusive")]
+/// Battery of scenarios every [`ExclusiveStore`] implementation must pass. Test support (feature `conformance`), outside the stable API.
+#[cfg(feature = "conformance")]
 #[path = "exclusive_conformance.rs"]
 pub mod exclusive_conformance;
 pub mod explain;
