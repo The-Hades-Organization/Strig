@@ -341,6 +341,19 @@ pub(crate) struct RequestInput {
     pub(crate) subject: Subject,
     pub(crate) permission: String,
     pub(crate) resource: Resource,
+    /// The field the question is about; absent asks about the resource as a whole.
+    #[serde(default)]
+    pub(crate) field: Option<String>,
+}
+
+impl RequestInput {
+    pub(crate) fn request(&self) -> Request<'_> {
+        let request = Request::new(&self.subject, &self.permission, &self.resource);
+        match &self.field {
+            Some(field) => request.field(field),
+            None => request,
+        }
+    }
 }
 
 #[cfg_attr(
@@ -654,7 +667,7 @@ impl EngineHandle {
         now: Option<u64>,
     ) -> BindingResult<Value> {
         host::forbid_reentry()?;
-        let request = Request::new(&input.subject, &input.permission, &input.resource);
+        let request = input.request();
         Ok(to_value(&self.engine.decide(&ctx.context_at(now), &request)))
     }
 
@@ -666,7 +679,7 @@ impl EngineHandle {
     /// `check` of a request already read from the host, with no JSON tree in between.
     pub(crate) fn check_input(&self, ctx: &ContextData, input: &RequestInput, now: Option<u64>) -> BindingResult<bool> {
         host::forbid_reentry()?;
-        let request = Request::new(&input.subject, &input.permission, &input.resource);
+        let request = input.request();
         Ok(self.engine.check(&ctx.context_at(now), &request))
     }
 
@@ -688,10 +701,7 @@ impl EngineHandle {
         let ctx = ctx.context_at(now);
         Ok(inputs
             .iter()
-            .map(|input| {
-                self.engine
-                    .check(&ctx, &Request::new(&input.subject, &input.permission, &input.resource))
-            })
+            .map(|input| self.engine.check(&ctx, &input.request()))
             .collect())
     }
 
@@ -708,7 +718,7 @@ impl EngineHandle {
         now: Option<u64>,
     ) -> BindingResult<Value> {
         host::forbid_reentry()?;
-        let request = Request::new(&input.subject, &input.permission, &input.resource);
+        let request = input.request();
         Ok(to_value(&self.engine.explain(&ctx.context_at(now), &request)))
     }
 
@@ -729,15 +739,35 @@ impl EngineHandle {
         Ok(Value::Array(
             inputs
                 .iter()
-                .map(|input| {
-                    to_value(
-                        &self
-                            .engine
-                            .explain(&ctx, &Request::new(&input.subject, &input.permission, &input.resource)),
-                    )
-                })
+                .map(|input| to_value(&self.engine.explain(&ctx, &input.request())))
                 .collect(),
         ))
+    }
+
+    /// The fields the request's subject may use for its permission on its resource
+    /// (`strig::FieldSet`). The `field` of the request, if any, is ignored.
+    pub fn allowed_fields(&self, ctx: &ContextData, request: Value, now: Option<u64>) -> BindingResult<Value> {
+        let input: RequestInput = parse("request", request)?;
+        host::forbid_reentry()?;
+        Ok(to_value(&self.engine.allowed_fields(
+            &ctx.context_at(now),
+            &input.subject,
+            &input.permission,
+            &input.resource,
+        )))
+    }
+
+    /// `allowed_fields` with, for each field, the grants that gave it and the ones that took it
+    /// away (`strig::FieldExplanation`).
+    pub fn explain_fields(&self, ctx: &ContextData, request: Value, now: Option<u64>) -> BindingResult<Value> {
+        let input: RequestInput = parse("request", request)?;
+        host::forbid_reentry()?;
+        Ok(to_value(&self.engine.explain_fields(
+            &ctx.context_at(now),
+            &input.subject,
+            &input.permission,
+            &input.resource,
+        )))
     }
 
     pub fn capabilities(

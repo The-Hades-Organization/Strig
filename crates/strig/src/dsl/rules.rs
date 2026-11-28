@@ -46,9 +46,10 @@ const INVARIANT_WORDS: [&str; 9] = [
     "no-escalation",
     "forbid",
 ];
-const PERMISSION_CLAUSES: [&str; 9] = [
+const PERMISSION_CLAUSES: [&str; 10] = [
     "implied by",
     "depends_on",
+    "fields",
     "label",
     "about",
     "meta",
@@ -178,7 +179,7 @@ fn statement(cur: &mut Cursor, b: &mut Builder, state: &mut State) -> PResult<()
 // ---- small readers --------------------------------------------------------------------------
 
 /// `a, b, c`
-fn comma_words(cur: &mut Cursor, what: &str) -> PResult<Vec<Sp<String>>> {
+pub(crate) fn comma_words(cur: &mut Cursor, what: &str) -> PResult<Vec<Sp<String>>> {
     let mut items = vec![cur.word(what)?];
     while cur.eat_punct(",") {
         items.push(cur.word(what)?);
@@ -281,6 +282,7 @@ pub(crate) fn permission(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
         expect_word(cur, "on", "after the permission key, then the kinds it applies to")?;
         def.targets = marked_words(cur, b, &id, "targets", "a target kind")?;
         let (mut implied, mut depends_on, mut label, mut about, mut meta) = (None, None, None, None, None);
+        let mut fields = None;
         while !cur.at_eof() {
             let clause = cur.word("a clause")?;
             match clause.v.as_str() {
@@ -292,6 +294,10 @@ pub(crate) fn permission(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
                 "depends_on" => {
                     let list = marked_words(cur, b, &id, "depends_on", "a permission")?;
                     twice(&mut depends_on, &clause, list)?;
+                }
+                "fields" => {
+                    let list = marked_words(cur, b, &id, "fields", "a field")?;
+                    twice(&mut fields, &clause, list)?;
                 }
                 "needs" => {
                     return Err(Raw::new(clause.span, "`needs` is now `depends_on`").hint("write: depends_on <ids>"));
@@ -310,6 +316,7 @@ pub(crate) fn permission(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
         }
         def.implied_by = implied.unwrap_or_default();
         def.depends_on = depends_on.unwrap_or_default();
+        def.fields = fields.unwrap_or_default();
         def.label = label;
         def.description = about;
         def.meta = meta.unwrap_or_default();
@@ -473,9 +480,14 @@ fn grant(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
         let target = target(cur)?;
         mark(b, &id, "target", target_at);
         let (mut scope, mut when, mut from, mut until) = (None, None, None, None);
+        let mut fields = None;
         while !cur.at_eof() {
-            let clause = cur.word("in, when, from or until")?;
+            let clause = cur.word("in, fields, when, from or until")?;
             match clause.v.as_str() {
+                "fields" => {
+                    let list = marked_words(cur, b, &id, "fields", "a field")?;
+                    twice(&mut fields, &clause, list)?;
+                }
                 "in" => twice(&mut scope, &clause, crate::dsl::grammar::anchor(cur)?.anchor)?,
                 "when" => {
                     mark(b, &id, "when", cur.span());
@@ -488,7 +500,7 @@ fn grant(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
                 }
                 other => {
                     return Err(Raw::new(clause.span, format!("unexpected `{other}`"))
-                        .hint("a grant takes: in <scope> when <condition> from <date> until <date>"));
+                        .hint("a grant takes: in <scope> fields <names> when <condition> from <date> until <date>"));
                 }
             }
         }
@@ -502,6 +514,7 @@ fn grant(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
             condition: when,
             valid_from: from,
             valid_until: until,
+            fields: fields.unwrap_or_default(),
         })
     })?;
     if !repeated {
@@ -868,6 +881,9 @@ fn permission_parts(def: &PermissionDef) -> Printed<(String, String, Vec<String>
     if !def.depends_on.is_empty() {
         clauses.push(format!("depends_on {}", list(&def.depends_on, "permission")?));
     }
+    if !def.fields.is_empty() {
+        clauses.push(format!("fields {}", list(&def.fields, "field")?));
+    }
     if let Some(label) = &def.label {
         clauses.push(format!("label {}", bp::quote(label)));
     }
@@ -963,6 +979,9 @@ fn grant_line(p: &mut Printer, g: &Grant) -> Printed<()> {
     let mut clauses = Vec::new();
     if let Some(scope) = &g.scope {
         clauses.push(format!("in {}", bp::anchor(scope)?));
+    }
+    if !g.fields.is_empty() {
+        clauses.push(format!("fields {}", list(&g.fields, "field")?));
     }
     if let Some(when) = &g.condition {
         clauses.push(format!("when {}", bp::condition(when, 0)?));

@@ -24,7 +24,7 @@ export interface Change {
 
 export type ServerMessage =
   | { type: 'hello'; origin: string; subject?: string }
-  | { type: 'capabilities'; scope: Resource; set: { subject: unknown; grants: unknown[] } }
+  | { type: 'capabilities'; scope: Resource; set: { subject: unknown; grants: unknown[]; withFields?: unknown[] } }
   | { type: 'change'; change: Change }
   | { type: 'resync' }
   | { type: 'error'; message: string }
@@ -104,3 +104,4 @@ export async function readSse(body: ReadableStream<Uint8Array>, onMessage: (mess
     }
   }
 }
+export * from './fields.js';

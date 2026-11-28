@@ -15,6 +15,9 @@ use crate::subject::Subject;
 pub struct Explanation {
     pub subject: Subject,
     pub permission: String,
+    /// The field the question was about; absent for the resource as a whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
     pub resource: Resource,
     /// The requested permission and the ones that grant it. Empty if the permission is not in the catalog.
     pub effective: Vec<String>,
@@ -89,6 +92,7 @@ impl From<Option<Effect>> for OverrideOutcome {
 /// The fate of a grant during collection, in the order the engine checks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Verdict {
     /// Became a candidate.
     Candidate,
@@ -117,6 +121,8 @@ pub enum Verdict {
     },
     /// The grant, or the requested permission, is marked `override_only`: grants are ignored.
     OverrideOnly,
+    /// A question about one field: the grant names fields and this one is not among them.
+    FieldNotCovered,
     /// An override decided before collection.
     NotReached,
 }

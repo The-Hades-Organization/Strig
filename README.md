@@ -406,6 +406,56 @@ assert!(!engine.check(&Context::new(&grants), &request));
 
 `CapabilityCache` expires its entries at the next window boundary. Removing expired grants from storage is left to a job of yours.
 
+## Field permissions
+
+A grant can name the fields of the resource it covers, as CASL does: "`document.edit` only on `title` and `body`". A grant without fields covers the whole resource, exactly as before.
+
+```rust
+let catalog = Catalog::builder()
+    .target_kinds(["document"])
+    .permission(PermissionDef::new("document.edit").targets(["document"]).fields(["title", "body", "status"]))
+    .build()?;
+let engine = Engine::builder(catalog).build()?;
+
+let grants = vec![
+    Grant::allow("edit", SubjectMatcher::role("editor"), "document.edit", TargetSelector::kind("document")),
+    Grant::deny("freeze", SubjectMatcher::role("editor"), "document.edit", TargetSelector::kind("document"))
+        .fields(["status"]),
+];
+let ana = Subject::user("ana").with_role("editor");
+let doc = Resource::new("document", "d1");
+let ctx = Context::new(&grants);
+
+engine.allowed_fields(&ctx, &ana, "document.edit", &doc); // FieldSet::Only { title, body }
+engine.check(&ctx, &Request::new(&ana, "document.edit", &doc).field("title")); // true
+engine.check(&ctx, &Request::new(&ana, "document.edit", &doc).field("status")); // false
+```
+
+How the pieces combine:
+
+- **One field is one decision.** A question about a field (`Request::field`) is decided by the same strategy (`MostSpecific`, `DenyOverrides`, `PermitOverrides`, `FirstApplicable`) over the grants that cover that field. A `deny` with fields takes away only those fields; an `allow` with fields gives only those. There is no new rule to learn: each field is judged as if the grants that do not name it did not exist.
+- **The whole resource needs every field.** A question without a field is allowed only by a grant without fields, and a `deny` with fields blocks it as soon as the strategy would deny any of its fields. So `check` stays safe to use as a gate: a field-restricted `allow` never opens the resource, and it is `allowed_fields` that answers "which fields".
+- **`implied_by` carries the fields.** A grant of `document.manage` restricted to `title` gives `document.edit` on `title` only.
+- **`depends_on` is judged on the same field.** `document.edit` on `body` needs `document.view` on `body` (or on the whole resource).
+- **The catalog can declare the fields** of a permission. Then a grant that names another field is refused by `validate_grant` (and by the policy validator, with the line and a hint), and a request for an undeclared field is denied. Without a declaration the engine trusts the names the grants use, and `allowed_fields` can answer `AllExcept` ("everything but `status`"), since it cannot list the rest.
+- **It fails closed.** A condition that cannot be evaluated drops an `allow` and keeps a `deny`, field by field. An override that allows gives every field.
+- **A policy without fields decides as it always did.** The tests pin this.
+
+`Engine::explain_fields` returns, for each field, the grants that gave it and the ones that took it away; `Engine::explain` of a request with a field marks the grants that do not cover it (`FieldNotCovered`). Listings (`list`) and `who_can` answer for the whole resource: a field-restricted `allow` is left out and a field-restricted `deny` counts as a plain one.
+
+Governance follows: `NoEscalation` refuses to hand out a field the actor does not hold (and a whole-resource grant to someone who holds only some fields), and `CatalogConformance` validates the fields against the catalog.
+
+In the policy language, `fields` is a field of `permission` and of `grant` in the three syntaxes (`fields = [title, body]` in Blocks, `fields title, body` in Rules and Actors). A policy that uses fields exports `"schema": 4`, so a reader of an older schema refuses it instead of reading a field-restricted grant as a whole-resource one. See [docs/dsl.md](docs/dsl.md).
+
+In JavaScript, `engine.allowedFields(ctx, request)` returns `{ kind: 'all' | 'all_except' | 'only' | 'none', fields? }`, `request.field` asks about one field, and `pickAllowed(object, fields)` masks a response:
+
+```ts
+const fields = engine.allowedFields(ctx, { subject, permission: 'document.edit', resource });
+res.json(pickAllowed(document, fields)); // only title and body leave
+```
+
+`PermissionClient.allowedFields(permission, resource)` and `can(permission, resource, field)` decide locally. Capabilities that carry field-restricted grants are sent in two forms (`grants` for older readers, which never see a restricted `allow` and read a restricted `deny` as whole, and `withFields` with the real ones), so an older client fails closed.
+
 ## Reverse queries and filtered listing
 
 Ask who can do something, or what a subject can reach, instead of checking one request. `QueryContext` carries the grants (and `.at(now)`), `QueryLimits` bounds the work, and `PgTables` turns the answers into SQL.
@@ -1221,6 +1271,17 @@ The window has three tabs:
 **Simulation** works across the tabs: turn grants off or on, or add some with `--add`, and see whether the set would allow the access. When a decision changes, the original decision is shown next to it, and changed matrix cells are marked.
 
 Files reload when they change on disk. The window follows the system light or dark appearance, uses the playground's palette, and embeds its fonts (Noto Sans and JetBrains Mono, OFL) and icons, so it looks the same on any machine. The interface is in English.
+
+### In the browser
+
+The playground also hosts the inspector: [strig-playground.vercel.app/inspector.html](https://strig-playground.vercel.app/inspector.html). It has the same three tabs and the same simulation, over the engine compiled to WebAssembly, so there is nothing to install. It reads the same scenario JSON as `strig-inspect`, from a file, a paste or the built-in example (`crates/strig-inspect/examples/scenario.json`).
+
+- **Evaluation:** the decision, the reason, the path, the effective roles, each override and why each grant did or did not apply, over `explain`.
+- **Matrix:** every catalog permission for every subject on one resource. Click a cell to open its evaluation.
+- **Audit:** load a JSON Lines trail, verify the `forensic` chain with `verifyAuditChain` and re-evaluate `detailed` and `forensic` decisions against the current policy, flagging the ones that would change.
+- **Simulation:** turn grants off or add some from a form; a changed decision shows the original beside it, and changed matrix cells are marked.
+
+The page uses the playground's identity, follows the light or dark scheme and works from 360 px wide. The scenario and the trail are read in the page and never leave the browser. To run it locally, see [`playground/README.md`](playground/README.md).
 
 ## Extension points
 

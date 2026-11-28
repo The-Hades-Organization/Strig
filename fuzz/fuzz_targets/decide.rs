@@ -2,7 +2,7 @@
 
 use libfuzzer_sys::fuzz_target;
 use serde::Deserialize;
-use strig::{Attributes, Catalog, Context, Effect, Engine, Grant, PermissionDef, Request, Resource, Subject};
+use strig::{Attributes, Catalog, Context, Effect, Engine, FieldSet, Grant, PermissionDef, Request, Resource, Subject};
 
 #[derive(Deserialize)]
 struct Input {
@@ -50,6 +50,14 @@ fuzz_target!(|data: &[u8]| {
         "decision must be deterministic"
     );
     let _ = engine.explain(&ctx, &request);
+    if let FieldSet::Only { fields } = engine.allowed_fields(&ctx, &input.subject, &input.permission, &input.resource) {
+        for field in &fields {
+            assert!(
+                engine.check(&ctx, &request.field(field)),
+                "a field listed as allowed must be allowed on its own"
+            );
+        }
+    }
     let _ = engine.capabilities(&ctx, &input.subject, &input.resource);
 
     if decision.effect == Effect::Allow {

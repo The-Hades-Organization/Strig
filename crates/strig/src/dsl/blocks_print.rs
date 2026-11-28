@@ -694,6 +694,9 @@ impl Printer {
         if !def.depends_on.is_empty() {
             fields.push(("depends_on", words(&def.depends_on, "permission")?));
         }
+        if !def.fields.is_empty() {
+            fields.push(("fields", words(&def.fields, "field")?));
+        }
         for (name, on) in [
             ("non_delegable", def.non_delegable),
             ("management_only", def.management_only),
@@ -791,6 +794,9 @@ impl Printer {
         }
         if let Some(when) = &g.condition {
             fields.push(("when", condition(when, 0)?));
+        }
+        if !g.fields.is_empty() {
+            fields.push(("fields", words(&g.fields, "field")?));
         }
         if let Some(from) = g.valid_from {
             fields.push(("valid_from", date(from)?));

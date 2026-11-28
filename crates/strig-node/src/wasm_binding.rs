@@ -359,6 +359,26 @@ impl WasmEngine {
         )
     }
 
+    #[wasm_bindgen(js_name = allowedFields)]
+    pub fn allowed_fields(&self, ctx: &WasmContext, request: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .allowed_fields(&ctx.inner, from_js(request)?, now_of(now)?)
+                .map_err(err)?,
+        )
+    }
+
+    #[wasm_bindgen(js_name = explainFields)]
+    pub fn explain_fields(&self, ctx: &WasmContext, request: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .explain_fields(&ctx.inner, from_js(request)?, now_of(now)?)
+                .map_err(err)?,
+        )
+    }
+
     #[wasm_bindgen(js_name = checkMany)]
     pub fn check_many(&self, ctx: &WasmContext, requests: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
         let answers = self

@@ -5,7 +5,7 @@
   "scripts": {
     "build:ts": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
     "serve": "node dist-node/serve.js",
-    "test": "node --test dist-node/test/smoke.js"
+    "test": "node --test dist-node/test/smoke.js dist-node/test/inspector.js"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
