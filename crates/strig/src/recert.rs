@@ -751,6 +751,9 @@ impl RecertStore for MemoryRecertStore {
     }
 }
 
+/// The state an item moves to, the grants after it and the subject whose role changed.
+type Outcome = (ItemState, Option<Vec<Grant>>, Option<Subject>);
+
 /// The recertification flow over a [`Governance`] and a [`RecertStore`].
 pub struct Recertifications<'a> {
     governance: &'a Governance,
@@ -1128,7 +1131,7 @@ impl<'a> Recertifications<'a> {
         campaign: &Campaign,
         item: &RecertItem,
         grants: &[Grant],
-    ) -> Result<(ItemState, Option<Vec<Grant>>, Option<Subject>), RecertError> {
+    ) -> Result<Outcome, RecertError> {
         let at = review.now;
         let action = campaign.default_action;
         let recert = |reason: Option<String>| Trace {
