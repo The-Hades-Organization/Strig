@@ -28,7 +28,7 @@ A record is one JSON object in **compact JSON** (no whitespace), encoded as UTF-
 | 1 | `at` | integer, ms since the Unix epoch | always |
 | 2 | `level` | `minimal`, `standard`, `detailed`, `forensic` | always |
 | 3 | `actor` | string, the actor id (its kind when anonymous) | always |
-| 4 | `action` | `grant_add`, `grant_remove`, `tuple_add`, `tuple_remove`, `role_assign`, `role_revoke`, `decision`, `exclusive_acquire`, `exclusive_preempt`, `exclusive_release`, `exclusive_expire`, `mutation_propose`, `mutation_approve`, `mutation_reject`, `mutation_expire` | always |
+| 4 | `action` | `grant_add`, `grant_remove`, `tuple_add`, `tuple_remove`, `role_assign`, `role_revoke`, `decision`, `exclusive_acquire`, `exclusive_preempt`, `exclusive_release`, `exclusive_expire`, `mutation_propose`, `mutation_approve`, `mutation_reject`, `mutation_expire`, `elevation_review` | always |
 | 5 | `object` | string: grant id, `object#relation@subject`, `role@subject` (`role#scope@subject` with a scope), or `permission@path` | always |
 | 6 | `outcome` | `applied`, `rejected`, `allowed`, `denied`, `pending` | always |
 | 7 | `grant` | grant summary | `standard`+ on a grant change |
@@ -192,6 +192,13 @@ an approver, the `reason`. `outcome` says whether the step took effect:
 | `mutation_approve` | the approver | `applied` when the change then went through the governance, `rejected` when the approver was the author, lacked the permission or the invariants now refuse it (`violations` says which) |
 | `mutation_reject` | the approver | `applied` when the request was refused, `rejected` when the attempt was refused (`violations`) |
 | `mutation_expire` | `strig-expiry` | `applied` |
+| `elevation_review` | the reviewer | `applied` when the review of a break-glass elevation was closed (the note is the `reason`), `rejected` when the attempt was refused (the actor reviewing their own use, no permission, no open review, no forensic auditor) |
+
+An elevation (`Elevations` in Rust, `elevate` in the bindings) uses the same actions for its steps, with the
+record's metadata carrying `elevation`, `request_id`, `justification`, and, on a break-glass, `break_glass`
+and `approved_by` (the actor). The break-glass records (the approval and `elevation_review`) are written under
+`FailMode::Closed` and need an auditor at `forensic`; a revocation is a `grant_remove` or `role_revoke`
+with `revoked_by` and `reason`.
 
 An approval writes `mutation_approve` first and then the `grant_add`/`grant_remove`/`role_*` record of the
 change itself, with the author as `actor` and the approver in `meta.approved_by` and the request id in

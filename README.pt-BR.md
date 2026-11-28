@@ -291,6 +291,47 @@ const preview = engine.impact({
 if (preview.ok) console.log(preview.impact.gained, preview.impact.lost, preview.impact.partial);
 ```
 
+### Elevação temporária e break-glass
+
+Uma elevação é um papel ou uma permissão mantidos por um tempo. Ela anda sobre o fluxo de aprovação: a política diz, por papel ou permissão, quanto pode durar, quem aprova, se a justificativa é obrigatória e se o ator pode tomá-la numa emergência (break-glass).
+
+```rust
+let target = ElevationTarget::permission("project.edit", TargetSelector::exact("project", "p1")).scoped(org());
+let policy = ElevationPolicy::new().with(
+    ElevationRule::new(target.key(), 4 * HOUR, "org.approve", org_resource)
+        .requiring_justification()
+        .allowing_break_glass(HOUR), // nunca além do máximo da própria regra
+);
+let flow = Elevations::new(&governance, &policy, &store); // + .with_impact(&options)
+
+// Ana pede; fica à espera de um aprovador.
+let Elevated::Pending(request) = flow.request(&review, &ElevationRequest::new("e1", ana, target, 2 * HOUR).justified("incidente 42"), None)? else { unreachable!() };
+// Caio aprova: a janela é [aprovação, aprovação + 2h), nunca além do máximo.
+let approved = flow.approve(&review, &caio, "e1")?; // persista approved.grants
+flow.revoke(&review, &ana, "e1", Some("terminei"))?; // antes do prazo, pelo ator ou por um aprovador
+```
+
+- **Aprovação.** `approve` é o `Approvals::approve` com a janela abrindo no instante da aprovação: a elevação vira um grant allow `elevation:<id>` ou uma atribuição de papel com `valid_from` e `valid_until`, e o motor a descarta no instante, sem job. O autor nunca aprova o próprio pedido, as invariantes rodam de novo sobre `current` e o impacto (`with_impact`) fica no pedido, como em qualquer mudança. Uma política que apertou depois do pedido recusa a aprovação que passaria do novo máximo. Prazo além do máximo, justificativa ausente e papel ou permissão que a política não lista são recusados no pedido.
+- **Break-glass.** `ElevationRequest::break_glass()` só vale onde a regra tem `allowing_break_glass`, com máximo próprio e mais curto e uma justificativa. O ator o aprova sozinho: vale na hora, marcado como `break_glass` e com a revisão `pending`. Exige auditor em `forensic`, e seus registros são gravados com `FailMode::Closed` seja qual for a chamada, a permissão ou o auditor: se o sink falha, a elevação é negada. Outro ator que tenha a permissão de aprovador fecha a revisão com `close_review` (registro `elevation_review`, também forensic e fechado); `pending_reviews()` lista o que está aberto. O ator não fecha a própria.
+- **Revogação e renovação.** `revoke` tira o grant ou o papel pela governança e guarda a `Revocation` no pedido. Renovar é um novo pedido.
+- **Onde fica.** A elevação é o campo `elevation` do `PendingRequest`, então os stores não mudam de esquema. Um pedido já decidido recebe a revogação ou a revisão por `PendingStore::annotate` (a decisão não é tocada); implemente-o no seu store, o padrão recusa. `Elevations::active(now)` lista o que está em vigor.
+- **Tempo real.** No `strig-sync`, `hub.elevation_approved(&request, now)` publica o `Change` da elevação e agenda o aviso de expiração em `valid_until` (o mesmo mecanismo das janelas que o `CapabilityCache` acompanha); `hub.elevation_revoked(&request)` publica a revogação.
+- **Escolhas a conhecer.** A revogação é julgada pelas invariantes como quem revoga, então uma invariante como `NoSelfManagement` pode recusar a auto-revogação. Um pedido para papel ou permissão que a política não lista é recusado sem registro de audit, porque não há regra de onde tirar a permissão do aprovador; o mesmo vale para um `revoke` recusado sobre um pedido que não é elevação, não está aprovado, já foi revogado ou já terminou. O `annotate` roda depois de o grant ser aplicado: se falhar, o grant já saiu e o pedido fica sem a marca, então o chamador guarda os grants que recebeu.
+
+Em JavaScript, `Elevations` (`@the-hades-organization/strig/approvals`) guarda os pedidos sobre um `PendingStore` que tenha `annotate` (`MemoryPendingStore` e `JsonFileStore.pendingStore` têm) e chama `engine.elevate(input)`, que também existe em Python (`engine.elevate`) e na ABI Wasm (`elevate`):
+
+```js
+const flow = new Elevations(engine, store.pendingStore, {
+  elevation: [{ key: { permission: 'project.edit' }, maxDurationMs: 4 * HOUR, approverPermission: 'org.approve', approverResource: orgResource, requireJustification: true, breakGlass: { maxDurationMs: HOUR } }],
+  invariants,
+  audit: { level: 'forensic' },
+});
+await flow.request({ id: 'e1', actor: ana, target, durationMs: 2 * HOUR, justification: 'incidente 42' }, grants);
+await flow.approve('e1', caio, grants, { persist: (r) => saveGrants(r.grants) });
+await flow.revoke('e1', ana, grants, { reason: 'terminei', persist: (r) => saveGrants(r.grants) });
+await flow.closeReview('e2', caio, 'uso legítimo', grants); // depois de um break-glass
+```
+
 ### Regras declaradas no catálogo
 
 Algumas regras pertencem a uma permissão, então são declaradas no `PermissionDef` dela:
