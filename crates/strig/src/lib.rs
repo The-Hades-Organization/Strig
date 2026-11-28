@@ -99,7 +99,8 @@ pub use governance::{
 };
 pub use grant::{Effect, Grant, GrantIndex, GrantSource, SubjectMatcher, TargetSelector};
 pub use impact::{
-    AUDIT_EXAMPLES, Access, AccessChange, Impact, ImpactOptions, ImpactSource, ImpactSummary, SampleSpec,
+    AUDIT_EXAMPLES, Access, AccessChange, Impact, ImpactOptions, ImpactSource, ImpactSummary, PotentialClash,
+    SampleSpec,
 };
 pub use overrides::{
     FnOverride, Override, OverrideGate, OverrideReach, PermissionHolder, ReachRequest, ResourceOwner, SubjectsRequest,

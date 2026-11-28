@@ -357,3 +357,70 @@ fn the_history_may_come_from_env() {
     let decision = engine().decide(&ctx, &Request::new(&ana, "payment.approve", &resource));
     assert_eq!(decision.effect, Effect::Deny);
 }
+
+// ---- impact ----------------------------------------------------------------------------------
+
+#[test]
+fn the_impact_of_a_role_that_completes_a_set_lists_the_potential_clash() {
+    let ana = Subject::user("ana").with_role_in("maker", org("o1"));
+    let none = Governance::new();
+    let impact = none
+        .impact(
+            &engine(),
+            &admin(),
+            &[],
+            &assign(&ana, "checker", Some(org("o1"))),
+            &strig::ImpactOptions::new(strig::ImpactSource::derived()),
+        )
+        .unwrap();
+    let [risk] = impact.separation.as_slice() else {
+        panic!("{:?}", impact.separation);
+    };
+    assert_eq!(risk.subject, "user:ana");
+    assert_eq!(risk.clash.set, "payment_duties");
+    assert!(!impact.is_empty());
+}
+
+#[test]
+fn the_impact_of_a_harmless_role_lists_no_clash() {
+    let ana = Subject::user("ana").with_role_in("maker", org("o1"));
+    let impact = Governance::new()
+        .impact(
+            &engine(),
+            &admin(),
+            &[],
+            &assign(&ana, "checker", Some(org("o2"))),
+            &strig::ImpactOptions::new(strig::ImpactSource::derived()),
+        )
+        .unwrap();
+    assert!(impact.separation.is_empty());
+}
+
+#[test]
+fn the_impact_of_a_grant_that_completes_a_permission_set_lists_the_clash() {
+    let held = vec![allow("g1", "ana", "payment.create")];
+    let impact = Governance::new()
+        .impact(
+            &engine(),
+            &admin(),
+            &held,
+            &Mutation::Add(allow("g2", "ana", "payment.approve")),
+            &strig::ImpactOptions::new(strig::ImpactSource::derived()),
+        )
+        .unwrap();
+    assert_eq!(impact.separation.len(), 1, "{:?}", impact.separation);
+    assert_eq!(impact.separation[0].clash.set, "create_or_approve");
+}
+
+#[test]
+fn the_invariant_refuses_before_the_impact_is_computed() {
+    let ana = Subject::user("ana").with_role_in("maker", org("o1"));
+    let result = governance().impact(
+        &engine(),
+        &admin(),
+        &[],
+        &assign(&ana, "checker", Some(org("o1"))),
+        &strig::ImpactOptions::new(strig::ImpactSource::derived()),
+    );
+    assert!(result.is_err());
+}
