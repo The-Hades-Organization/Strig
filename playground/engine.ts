@@ -208,6 +208,19 @@ function prerequisiteSteps(explanation: Explanation): Step[] {
   ]);
 }
 
+/** An explanation the engine already gave, as a ruling the page can show. */
+export function rulingOf(explanation: Explanation): Ruling {
+  const { text, cite } = headline(explanation);
+  const decided = explanation.decision.effect;
+  const steps: Step[] = [
+    ...roleSteps(explanation),
+    ...explanation.grants.map(describeGrant).filter((s): s is Step => s !== null),
+    ...prerequisiteSteps(explanation),
+    ['note', `Strategy \`${explanation.strategy}\`: ${STRATEGY_NOTE[explanation.strategy]?.(decided) ?? 'see the engine documentation.'}`],
+  ];
+  return { verdict: decided, headline: text, cite, steps };
+}
+
 /** The engine's explanation of a question, as a ruling the page can show. */
 export function rule(strig: Strig, compiled: Compiled, ask: Ask, now: number): Ruling {
   if (!compiled.ok) throw new Error('rule needs a policy that compiled');
@@ -220,15 +233,7 @@ export function rule(strig: Strig, compiled: Compiled, ask: Ask, now: number): R
     compiled.engine ??= new strig.Engine(Object.fromEntries(SPEC_FIELDS.filter((k) => policy[k] != null).map((k) => [k, policy[k]])));
     const context: Context = new strig.Context({ grants: (policy.grants ?? []) as Grant[], tuples: policy.tuples ?? [], now });
     const explanation = compiled.engine.explain(context, { subject, permission: ask.permission, resource: resourceOf(ask) });
-    const { text, cite } = headline(explanation);
-    const decided = explanation.decision.effect;
-    const steps: Step[] = [
-      ...roleSteps(explanation),
-      ...explanation.grants.map(describeGrant).filter((s): s is Step => s !== null),
-      ...prerequisiteSteps(explanation),
-      ['note', `Strategy \`${explanation.strategy}\`: ${STRATEGY_NOTE[explanation.strategy]?.(decided) ?? 'see the engine documentation.'}`],
-    ];
-    return { verdict: decided, headline: text, cite, steps };
+    return rulingOf(explanation);
   } catch (error) {
     const code = errorCode(error);
     if (code === null) throw error;

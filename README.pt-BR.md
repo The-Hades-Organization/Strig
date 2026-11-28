@@ -1261,6 +1261,17 @@ A **simulação** vale para todas as abas: desligue ou ligue grants, ou acrescen
 
 Os arquivos recarregam quando mudam no disco. A janela segue o tema claro ou escuro do sistema, usa a paleta do playground e embute as fontes (Noto Sans e JetBrains Mono, OFL) e os ícones, então fica igual em qualquer máquina. A interface é em inglês.
 
+### No navegador
+
+O playground também hospeda o visualizador: [strig-playground.vercel.app/inspector.html](https://strig-playground.vercel.app/inspector.html). Ele tem as mesmas três abas e a mesma simulação, sobre o motor compilado para WebAssembly, então não há nada para instalar. Lê o mesmo JSON de cenário do `strig-inspect`, de um arquivo, de um texto colado ou do exemplo embutido (`crates/strig-inspect/examples/scenario.json`).
+
+- **Evaluation:** a decisão, o motivo, o caminho, os papéis efetivos, cada override e por que cada grant se aplicou ou não, sobre o `explain`.
+- **Matrix:** cada permissão do catálogo para cada sujeito sobre um recurso. Clique numa célula para abrir a avaliação.
+- **Audit:** carrega uma trilha JSON Lines, verifica a cadeia `forensic` com `verifyAuditChain` e reavalia as decisões `detailed` e `forensic` contra a política atual, marcando as que mudariam.
+- **Simulação:** desligue grants ou adicione outros por um formulário; quando uma decisão muda, a original aparece ao lado, e as células alteradas da matriz ficam marcadas.
+
+A página usa a identidade do playground, segue o tema claro ou escuro e funciona a partir de 360 px de largura. O cenário e a trilha são lidos na própria página e nunca saem do navegador. Para rodar localmente, veja [`playground/README.md`](playground/README.md).
+
 ## Pontos de extensão
 
 | Trait | Implemente para |

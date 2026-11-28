@@ -16,7 +16,9 @@ sh "$ROOT/crates/strig-node/scripts/build.sh" wasm
 rm -rf dist dist-node
 npm run build:ts
 mkdir -p dist/engine dist/wasm
-cp index.html style.css favicon.svg favicon-32.png dist/
+cp index.html inspector.html style.css inspector.css favicon.svg favicon-32.png dist/
+mkdir -p dist/examples
+cp "$ROOT/crates/strig-inspect/examples/scenario.json" "$ROOT/crates/strig-inspect/examples/audit.jsonl" dist/examples/
 cp "$JS/dist/browser.js" "$JS/dist/dsl.js" "$JS/dist/fast.js" "$JS/dist/protocol.js" "$JS/dist/fields.js" dist/engine/
 cp "$JS/wasm/strig.js" "$JS/wasm/strig_bg.wasm" dist/wasm/
 echo "playground built in playground/dist/"
