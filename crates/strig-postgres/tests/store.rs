@@ -260,14 +260,13 @@ async fn roles_are_stored_per_subject_and_build_the_subject() {
 }
 
 fn request(id: &str, requested_at: u64, expires_at: Option<u64>) -> PendingRequest {
-    PendingRequest {
-        id: id.to_string(),
-        actor: Subject::user("ana"),
-        mutation: Mutation::Add(role_grant(&format!("g-{id}"), "member", "project.edit")),
+    PendingRequest::new(
+        id,
+        Subject::user("ana"),
+        Mutation::Add(role_grant(&format!("g-{id}"), "member", "project.edit")),
         requested_at,
-        expires_at,
-        status: PendingStatus::Pending,
-    }
+    )
+    .expiring_at(expires_at)
 }
 
 #[tokio::test(flavor = "multi_thread")]

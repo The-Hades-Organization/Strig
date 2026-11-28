@@ -467,6 +467,22 @@ impl JsEngine {
             .map_err(err)
     }
 
+    /// What a change would do to access: who gains, who loses, what cannot be settled. Nothing is applied.
+    #[napi]
+    pub fn impact(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
+        self.inner
+            .impact(json(env, input)?, crate::clock_ms(std::time::SystemTime::now()))
+            .map_err(err)
+    }
+
+    /// The impact of a pending request as proposed and as it would be now.
+    #[napi]
+    pub fn review_impact(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
+        self.inner
+            .review_impact(json(env, input)?, crate::clock_ms(std::time::SystemTime::now()))
+            .map_err(err)
+    }
+
     /// Proposes a change: applied at once, or kept as a pending request when the approval policy asks for it.
     #[napi]
     pub fn propose(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {

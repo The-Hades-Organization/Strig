@@ -13,6 +13,7 @@ use crate::decision::Request;
 use crate::engine::{Context, Engine};
 use crate::explain::Explanation;
 use crate::grant::{Effect, Grant, SubjectMatcher};
+use crate::impact::{Impact, ImpactOptions};
 use crate::rebac::TupleStore;
 use crate::resource::{Anchor, Resource};
 use crate::subject::{RoleAssignment, Subject};
@@ -97,7 +98,7 @@ impl MutationKind {
     }
 }
 
-fn with_role_change(subject: &Subject, role: &RoleAssignment, assigned: bool) -> Subject {
+pub(crate) fn with_role_change(subject: &Subject, role: &RoleAssignment, assigned: bool) -> Subject {
     let mut next = subject.clone();
     if !assigned {
         next.roles.retain(|r| r != role);
@@ -278,6 +279,18 @@ type Delivery = Option<AuditStatus>;
 #[cfg(not(feature = "audit"))]
 type Delivery = Option<std::convert::Infallible>;
 
+/// What a governed change came to: the grants after it and its impact, or the violations.
+type Applied = Result<(Vec<Grant>, Option<Impact>), Vec<Violation>>;
+
+/// A change applied together with what it does to access, from [`Governance::apply_with_impact`].
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct AppliedWithImpact {
+    /// The grants after the change, as [`Governance::apply`] returns them.
+    pub grants: Vec<Grant>,
+    pub impact: Impact,
+}
+
 /// Applies grant and role changes only after they pass every invariant and, with the
 /// `audit` feature, after recording the decision.
 #[derive(Default)]
@@ -360,6 +373,51 @@ impl Governance {
         self.run(engine, actor, current, mutation, Scene { tuples, now: None }, meta)
     }
 
+    /// What `mutation` would do to access: who gains, who loses and what cannot be settled. The
+    /// invariants judge the change first, as in [`Governance::apply`], and refuse it with their
+    /// violations; nothing is recorded and nothing changes. See [`crate::impact`] for where the
+    /// subjects and resources come from and what the answer promises.
+    pub fn impact(
+        &self,
+        engine: &Engine,
+        actor: &Subject,
+        current: &[Grant],
+        mutation: &Mutation,
+        options: &ImpactOptions<'_>,
+    ) -> Result<Impact, Vec<Violation>> {
+        let scene = Scene {
+            tuples: options.tuples.map(upcast),
+            now: options.now,
+        };
+        let after = self.evaluate_inner(engine, actor, current, mutation, scene, true)?;
+        Ok(crate::impact::compute(engine, current, &after, mutation, options))
+    }
+
+    /// [`Governance::apply_with`] that also computes the impact before applying and returns it. With an
+    /// auditor at `detailed` or `forensic`, the record of the change carries a summary of it (counts and
+    /// a few examples). A refused change records no impact.
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_with_impact(
+        &self,
+        engine: &Engine,
+        actor: &Subject,
+        current: &[Grant],
+        mutation: &Mutation,
+        tuples: Option<&dyn TupleStore>,
+        meta: &Attributes,
+        options: &ImpactOptions<'_>,
+    ) -> Result<AppliedWithImpact, Vec<Violation>> {
+        let scene = Scene {
+            tuples,
+            now: options.now,
+        };
+        let (result, _) = self.run_impact(engine, actor, current, mutation, scene, meta, None, Some(options));
+        result.map(|(grants, impact)| AppliedWithImpact {
+            grants,
+            impact: impact.unwrap_or_default(),
+        })
+    }
+
     fn run(
         &self,
         engine: &Engine,
@@ -386,19 +444,55 @@ impl Governance {
         meta: &Attributes,
         call: CallMode,
     ) -> (Result<Vec<Grant>, Vec<Violation>>, Delivery) {
+        let (result, delivery) = self.run_impact(engine, actor, current, mutation, scene, meta, call, None);
+        (result.map(|(grants, _)| grants), delivery)
+    }
+
+    /// `run_reporting` that also computes the impact of an accepted change when `options` is given and
+    /// hands it to the audit record.
+    #[allow(clippy::too_many_arguments)]
+    fn run_impact(
+        &self,
+        engine: &Engine,
+        actor: &Subject,
+        current: &[Grant],
+        mutation: &Mutation,
+        scene: Scene<'_>,
+        meta: &Attributes,
+        call: CallMode,
+        options: Option<&ImpactOptions<'_>>,
+    ) -> (Applied, Delivery) {
         crate::obs::mutation(
             || {
-                let result = self.evaluate_inner(engine, actor, current, mutation, scene, true);
+                let evaluated = self.evaluate_inner(engine, actor, current, mutation, scene, true);
+                let impact = match (&evaluated, options) {
+                    (Ok(after), Some(options)) => {
+                        let options = ImpactOptions {
+                            now: scene.now.or(options.now),
+                            ..options.clone()
+                        };
+                        Some(crate::impact::compute(engine, current, after, mutation, &options))
+                    }
+                    _ => None,
+                };
                 #[cfg(feature = "audit")]
                 if let Some(auditor) = &self.auditor {
-                    return match auditor.grant_mutation_with(actor, mutation, current, &result, meta, call) {
-                        Ok(emitted) => (result, Some(emitted.status)),
+                    return match auditor.grant_mutation_impact(
+                        actor,
+                        mutation,
+                        current,
+                        &evaluated,
+                        meta,
+                        call,
+                        impact.as_ref(),
+                    ) {
+                        Ok(emitted) => (evaluated.map(|g| (g, impact)), Some(emitted.status)),
                         Err(error) => (Err(vec![Violation::new("audit", error.to_string())]), None),
                     };
                 }
                 #[cfg(not(feature = "audit"))]
                 let _ = (meta, call);
-                (result, None)
+                (evaluated.map(|g| (g, impact)), None)
             },
             |(result, _)| result.as_ref().err().map(Vec::as_slice),
         )
@@ -503,6 +597,10 @@ struct Scene<'a> {
     now: Option<u64>,
 }
 
+fn upcast(index: &dyn crate::rebac::TupleIndex) -> &dyn TupleStore {
+    index
+}
+
 /// [`Governance`] judging every change at one instant; see [`Governance::at`].
 pub struct GovernanceAt<'g> {
     governance: &'g Governance,
@@ -550,6 +648,54 @@ impl GovernanceAt<'_> {
         tuples: Option<&dyn TupleStore>,
     ) -> Result<Vec<Grant>, Vec<Violation>> {
         self.apply_with(engine, actor, current, mutation, tuples, &Attributes::new())
+    }
+
+    /// Like [`Governance::impact`], at the instant.
+    pub fn impact(
+        &self,
+        engine: &Engine,
+        actor: &Subject,
+        current: &[Grant],
+        mutation: &Mutation,
+        options: &ImpactOptions<'_>,
+    ) -> Result<Impact, Vec<Violation>> {
+        let options = ImpactOptions {
+            now: Some(self.now),
+            ..options.clone()
+        };
+        self.governance.impact(engine, actor, current, mutation, &options)
+    }
+
+    /// Like [`Governance::apply_with_impact`], at the instant.
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_with_impact(
+        &self,
+        engine: &Engine,
+        actor: &Subject,
+        current: &[Grant],
+        mutation: &Mutation,
+        tuples: Option<&dyn TupleStore>,
+        meta: &Attributes,
+        options: &ImpactOptions<'_>,
+    ) -> Result<AppliedWithImpact, Vec<Violation>> {
+        let scene = Scene {
+            tuples,
+            now: Some(self.now),
+        };
+        let (result, _) = self.governance.run_impact(
+            engine,
+            actor,
+            current,
+            mutation,
+            scene,
+            meta,
+            self.call_mode,
+            Some(options),
+        );
+        result.map(|(grants, impact)| AppliedWithImpact {
+            grants,
+            impact: impact.unwrap_or_default(),
+        })
     }
 
     /// Like [`Governance::apply_with`], at the instant.

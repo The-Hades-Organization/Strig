@@ -43,10 +43,16 @@ A record is one JSON object in **compact JSON** (no whitespace), encoded as UTF-
 | 15 | `tuple` | the ReBAC tuple | `detailed`+ on a tuple change |
 | 16 | `actor_detail` | the whole subject | `detailed`+ |
 | 17 | `meta` | map of request metadata | `detailed`+, when not empty |
+| 17b | `impact` | `{gained, lost, indeterminate, partial?, examples?}`: counts, `partial` only when `true`, and up to 10 example strings (`gained user:bob project.view project:p1`) | `detailed`+, only on a change applied with its impact |
 | 18 | `before_digest` | hex string | `forensic` |
 | 19 | `after_digest` | hex string | `forensic` |
 | 20 | `prev_hash` | hex string, hash of the previous record | `forensic`, omitted on the first record of a chain |
 | 21 | `hash` | hex string | `forensic` |
+
+`impact` is the optional field `17b`, written between `meta` and `before_digest`: it is absent from every
+record that does not carry an impact, so the canonical form and the hash of those records do not change.
+Its keys are `gained`, `lost`, `indeterminate` (integers), `partial` (omitted when `false`) and `examples`
+(omitted when empty), in that order.
 
 The order of the nested types is the order of their declaration: a subject is `kind`, `id`, `roles`,
 `principals`, `attrs`; a role assignment is `role` and then its scope and validity fields; a tuple is
