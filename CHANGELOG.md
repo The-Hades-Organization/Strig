@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- The Python sdist and wheels did not build in the release: `maturin-action` received `pyproject.toml` as `--manifest-path`. The release now passes `crates/strig-python/Cargo.toml`, and a new `python-build` workflow builds the sdist and a Linux wheel with the same arguments on pull requests that touch `crates/strig-python/**`, the workspace manifests or either workflow (also runnable by hand).
+
 ## [0.9.0] - 2026-11-28
 
 ### Added
