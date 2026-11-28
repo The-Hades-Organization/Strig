@@ -103,6 +103,10 @@ impl PgStore {
     /// # Errors
     ///
     /// [`PgQueryError::Database`] or [`PgQueryError::Decode`] when a table cannot be read.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "strig.postgres.store.load", level = "info", skip_all)
+    )]
     pub async fn load<C: GenericClient>(client: &C, tables: PgTables) -> Result<Self, PgQueryError> {
         let grants = tables.all_grants(client).await?;
         let tuples = tables.all_tuples(client).await?;
@@ -139,6 +143,10 @@ impl PgStore {
     /// # Errors
     ///
     /// The error of the read; the previous snapshot stays and the store becomes stale.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "strig.postgres.store.reload", level = "info", skip_all)
+    )]
     pub async fn reload<C: GenericClient>(&self, client: &C) -> Result<(), PgQueryError> {
         self.reload_part(client, Reload::Both).await
     }

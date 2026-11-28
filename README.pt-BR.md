@@ -559,7 +559,7 @@ Uma decisão que uma invariante ou um override seu toma enquanto a governança j
 | `strig.approval` | `propose`, `approve`, `reject`, `expire_due` | `step`, `outcome` |
 | `strig.audit.write` | cada registro de auditoria enviado ao sink | `mode` |
 | `strig.sync.publish`, `strig.sync.relay`, `strig.sync.session` | publicação no hub, relay do transporte, uma sessão de cliente | `transport` na publicação |
-| `strig.postgres.publish`, `strig.postgres.subscribe`, `strig.redis.publish`, `strig.redis.subscribe` | os transportes | nenhum |
+| `strig.postgres.publish`, `strig.postgres.subscribe`, `strig.postgres.store.load`, `strig.postgres.store.reload`, `strig.postgres.store.commit_mutation`, `strig.redis.publish`, `strig.redis.subscribe` | os transportes | nenhum |
 | `strig.server.request`, `strig.client.call` | o servidor de decisão e o cliente | `route`, `status` ou `outcome` |
 
 Eventos (registro de auditoria descartado, conexão `LISTEN` perdida, breaker mudando de fase) saem em `warn` ou `info`. Os spans de decisão e de consulta são `debug`, os demais `info`.

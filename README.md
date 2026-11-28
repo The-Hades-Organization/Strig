@@ -559,7 +559,7 @@ A decision a custom invariant or override makes while governance judges a change
 | `strig.approval` | `propose`, `approve`, `reject`, `expire_due` | `step`, `outcome` |
 | `strig.audit.write` | each audit record sent to the sink | `mode` |
 | `strig.sync.publish`, `strig.sync.relay`, `strig.sync.session` | hub publish, transport relay, one client session | `transport` on publish |
-| `strig.postgres.publish`, `strig.postgres.subscribe`, `strig.redis.publish`, `strig.redis.subscribe` | the transports | none |
+| `strig.postgres.publish`, `strig.postgres.subscribe`, `strig.postgres.store.load`, `strig.postgres.store.reload`, `strig.postgres.store.commit_mutation`, `strig.redis.publish`, `strig.redis.subscribe` | the transports | none |
 | `strig.server.request`, `strig.client.call` | the decision server and its client | `route`, `status` or `outcome` |
 
 Events (a dropped audit record, a lost `LISTEN` connection, a breaker changing phase) go out at `warn` or `info`. Decision and query spans are `debug`, the rest `info`.
