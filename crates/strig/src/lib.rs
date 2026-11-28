@@ -59,6 +59,7 @@ pub mod rbac;
 pub mod rebac;
 pub mod recert;
 pub mod resource;
+pub mod revision;
 pub mod separation;
 pub mod spec;
 pub mod strategy;
@@ -127,6 +128,7 @@ pub use recert::{
     Recertifications, ReviewerRoute, ReviewerRule, ReviewerTally,
 };
 pub use resource::{Anchor, GLOBAL, ObjectRef, Resource};
+pub use revision::{DEFAULT_SCOPE, MemoryRevisions, Reached, Revised, Revision, RevisionParseError, RevisionSource};
 pub use separation::{Clash, SEPARATION_PREFIX, SeparationOfDuties, SeparationRule, clashes_of};
 pub use spec::{
     EngineSpec, InvariantSpec, OverrideRule, OverrideSpec, RelationSpec, ReserveSpec, RoleSpec, SpecError, StrategySpec,

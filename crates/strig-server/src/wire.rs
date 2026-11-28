@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use strig::{
     AccessFilter, AccessVia, Anchor, Attributes, Condition, Decision, Expr, FilterResidual, FilterShape, ObjectRef,
-    Resource, Subject, SubjectRef, TargetSelector,
+    Resource, Revision, Subject, SubjectRef, TargetSelector,
 };
 
 use crate::error::{ApiError, ErrorCode};
@@ -15,6 +15,7 @@ fn is_empty(env: &Attributes) -> bool {
 /// One question: can `subject` `permission` on `resource`?
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct CheckRequest {
     pub subject: Subject,
     pub permission: String,
@@ -25,6 +26,10 @@ pub struct CheckRequest {
     /// The instant the caller believes it is, for the audit trail. The decision ignores it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<u64>,
+    /// Answer only from data at this revision or later; otherwise 503 `revision_not_reached` (or
+    /// `revision_mismatch`). The `x-strig-min-revision` header means the same on every route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_revision: Option<Revision>,
 }
 
 impl CheckRequest {
@@ -35,11 +40,34 @@ impl CheckRequest {
             resource,
             env: Attributes::new(),
             at: None,
+            min_revision: None,
         }
+    }
+
+    /// Environment attributes for ABAC conditions.
+    #[must_use]
+    pub fn with_env(mut self, env: Attributes) -> Self {
+        self.env = env;
+        self
+    }
+
+    /// The instant the caller believes it is, for the audit trail.
+    #[must_use]
+    pub fn at(mut self, at: u64) -> Self {
+        self.at = Some(at);
+        self
+    }
+
+    /// Answer only from data at this revision or later.
+    #[must_use]
+    pub fn with_min_revision(mut self, revision: Revision) -> Self {
+        self.min_revision = Some(revision);
+        self
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct CheckResponse {
     pub decision: Decision,
     /// The instant of the server clock the decision was made at (milliseconds since the epoch).
@@ -47,18 +75,46 @@ pub struct CheckResponse {
     /// Echo of the request's `at`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requested_at: Option<u64>,
+    /// The revision of the data the decision was made from, when the source tracks one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<Revision>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct BatchRequest {
     pub checks: Vec<CheckRequest>,
+    /// Answer only from data at this revision or later; otherwise 503 `revision_not_reached` (or
+    /// `revision_mismatch`). The `x-strig-min-revision` header means the same on every route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_revision: Option<Revision>,
+}
+
+impl BatchRequest {
+    pub fn new(checks: Vec<CheckRequest>) -> Self {
+        Self {
+            checks,
+            min_revision: None,
+        }
+    }
+
+    /// Answer only from data at this revision or later.
+    #[must_use]
+    pub fn with_min_revision(mut self, revision: Revision) -> Self {
+        self.min_revision = Some(revision);
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct BatchResponse {
     /// One answer per check, in the order of the request.
     pub results: Vec<CheckResponse>,
+    /// The revision of the data the answers were made from, when the source tracks one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<Revision>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
