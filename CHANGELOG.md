@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-28
+
 ### Added
 
 - Envoy External Authorization in `strig-server`: the `envoy` feature (off by default; `tonic` and `prost` only with it) adds `DecisionServer::envoy_service(EnvoyConfig)`, the `envoy.service.auth.v3.Authorization/Check` gRPC service over the same source, clock, limits and work slots as the HTTP routes, and `EnvoyService::serve`. `EnvoyConfig` maps a `CheckRequest` declaratively: the subject from a header or filter metadata (such as `jwt_authn` claims), roles from a header, a route table of methods and path patterns to `RouteRule::public()` or a permission on a `ResourceTemplate` over the path parameters, and an optional `PathResolver`. Allow is `OK`; deny, a route with no rule, no subject, a source that is down, a deadline or a panic are `PERMISSION_DENIED` with HTTP 403 and an optional fixed `x-strig-reason`; paths with dot segments or encoded separators match nothing. With `tracing`, a `strig.server.envoy.check` span and `strig_server_envoy_checks_total{outcome, reason}`. `examples/envoy.yaml` and `examples/envoy.rs`; see `crates/strig-server/API.md`.
@@ -194,7 +196,8 @@ Before, after and the step to take for each of these, including the `DSL_SCHEMA`
 - `themis-node`: JavaScript bindings (N-API for Node and Bun, WebAssembly for the browser), real-time client and server in JS.
 - `themis-inspect`: inspector with evaluation trace, grant simulation, access matrix and audit trail reading, as terminal commands and an optional gpui window.
 
-[Unreleased]: https://github.com/The-Hades-Organization/Strig/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/The-Hades-Organization/Strig/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/The-Hades-Organization/Strig/compare/v0.6.0...v0.6.1
