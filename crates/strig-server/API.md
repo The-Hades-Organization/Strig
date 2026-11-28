@@ -117,6 +117,75 @@ decided each one.
 `200 {"status":"ready"}` when the grant source answers. Otherwise `503` with the error body above, so an instance that
 cannot load grants leaves the pool instead of denying everything.
 
+## AuthZEN Authorization API
+
+With `DecisionServer::with_authzen(AuthzenConfig)` the router also serves the OpenID AuthZEN Authorization API 1.0
+(Final, 11 January 2026, <https://openid.net/specs/authorization-api-1_0.html>) next to `/v1`. Without it these routes do
+not exist (`404`). It is the same server: the same body limit, deadline (`x-strig-timeout-ms`), work budget, batch limit
+(`max_batch` also bounds `evaluations`) and observability (the routes are spans and metric labels like the others), and
+the same absence of authentication: the layers the embedder puts around the router cover both.
+
+All bodies are JSON objects; unknown fields are ignored; a missing required field is `400 invalid_request`.
+
+| Route | Spec | Notes |
+| --- | --- | --- |
+| `POST /access/v1/evaluation` | 6 | `{subject, action, resource, context?}` answers `{decision, context?}`. |
+| `POST /access/v1/evaluations` | 7 | Top-level `subject`/`action`/`resource`/`context` are defaults an item overrides. `options.evaluations_semantic` is `execute_all` (default), `deny_on_first_deny` or `permit_on_first_permit`; anything else is `400`. Without `evaluations` (or empty) it is one evaluation and answers `{decision}`. |
+| `POST /access/v1/search/subject` | 8.4 | Subjects of `subject.type` that hold `action.name` on `resource` (`who_can_on`). |
+| `POST /access/v1/search/action` | 8.6 | The permissions of the catalog that `subject` holds on `resource`. |
+| `POST /access/v1/search/resource` | 8.5 | Only with `AuthzenConfig::with_resource_catalog`; otherwise `404`. |
+| `GET /.well-known/authzen-configuration` | 9 | Only with `AuthzenConfig::with_issuer` (an `https` URL); otherwise `404`. |
+
+### Mapping
+
+| AuthZEN | Strig |
+| --- | --- |
+| `subject.type`, `subject.id` | `Subject.kind`, `Subject.id`. The kinds in `authenticated_kinds` (default `user`) also carry the `authenticated` principal, as `Subject::user` does. |
+| `subject.properties` | Attributes. A property named `roles` (default) holds the roles: strings, or `{role, scope?, valid_from?, valid_until?}`. A property named `principals` (default) holds principal names. Neither becomes an attribute. The names are configurable. |
+| `resource.type`, `resource.id` | The first step of the path, `type:id`. |
+| `resource.properties` | Attributes. A property named `path` (default) holds the broader steps, most specific first: `[{"kind": "org", "id": "o1"}]`. With a `PathResolver` configured the server's answer is used and the property is ignored; a resource it does not know is a deny with `context.error.status` `404`. |
+| `action.name` | The permission. `action.properties` is not read. |
+| `context` | `env`. The server replaces `now` with its clock. |
+
+Nested objects in `properties` and `context` become dotted attributes (`device.managed`); arrays must hold scalars. A value
+that cannot be an attribute, or two properties that write the same attribute, is a malformed request: `400` on
+`/evaluation`, and in `/evaluations` a deny for that item with `context.error` (`status` 400).
+
+### Answers
+
+`decision` is `true` only for an `allow`. A permission that is not in the catalog is `200 {"decision": false}`. With
+`with_reasons(true)` a request that sends `x-strig-reason: true` gets `context.reason`, one of `override`, `grant`,
+`no_applicable_grant`, `unknown_permission`, `missing_prerequisite`; never a grant id, role or permission.
+`deny_on_first_deny` marks the denial that ends the run with `context: {"code": "200", "reason": "deny_on_first_deny"}`, as the
+spec's example does, and the answer stops there; `permit_on_first_permit` stops at the first permit.
+
+### Errors
+
+The body is the error body above. Statuses are the ones of the spec: `400` for a request that does not fit, `500` for
+everything the server could not decide (the codes `source_unavailable`, `deadline_exceeded`, `overloaded`,
+`query_limit_exceeded`, ... are the `503` ones of `/v1`, answered `500` here), plus the transport statuses `404`, `405`,
+`413` and `415`. As everywhere, anything that is not a `200` is no access. `X-Request-ID` of the request is echoed on every
+answer.
+
+### Search
+
+Results are sorted, and every search takes `page: {token?, limit?}` and answers `page: {next_token, count, total}`;
+`next_token` is `""` on the last page. `limit` defaults to and is capped by `AuthzenConfig::with_max_page_size` (1000). The
+token is stateless and bound to the request: change an entity, the context or the limit and it is `400`.
+
+* **Subject search** answers the parties `who_can_on` names that are of the requested type (`user` for users, the kind for
+  `Object` parties), each one confirmed by a real decision. Roles, principals, usersets, wildcards and `anyone` are not
+  subjects of a type: when any is left out, `context.incomplete` is `true`.
+* **Resource search** decides every resource the `ResourceCatalog` lists for `resource.type` (at most `max_resources`,
+  inside the work budget). Strig does not enumerate resources it was never told about, so without the catalog the route is
+  not served and the metadata does not list it.
+* **Action search** decides every permission of the catalog on the resource.
+
+### Not covered
+
+`signed_metadata`, `capabilities`, tenant suffixes of the well-known URI, `action.properties` and `page.properties` are not
+read. The Rust client has no AuthZEN methods: a PEP that speaks the standard uses its own SDK.
+
 ## Client behavior (Rust, feature `client`)
 
 * Every call has a timeout, sent to the server as the deadline header.

@@ -17,10 +17,11 @@ use axum::{Json, response::IntoResponse};
 use futures_util::FutureExt;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use strig::{Attributes, Context, PathLayout, QueryContext, QueryLimits, Request, Value};
+use strig::{Attributes, Context, PathLayout, QueryContext, QueryLimits, Request, Subject, Value};
 use tokio::sync::Semaphore;
 use tokio::time::{Instant, timeout_at};
 
+use crate::authzen::{self, AuthzenConfig};
 use crate::clock::{Clock, SystemClock};
 use crate::config::ServerConfig;
 use crate::error::{ApiError, ErrorCode};
@@ -40,6 +41,7 @@ pub struct DecisionServer {
     source: Arc<dyn DecisionSource>,
     clock: Arc<dyn Clock>,
     config: ServerConfig,
+    authzen: Option<AuthzenConfig>,
 }
 
 impl DecisionServer {
@@ -49,6 +51,7 @@ impl DecisionServer {
             source,
             clock: Arc::new(SystemClock),
             config: ServerConfig::default(),
+            authzen: None,
         }
     }
 
@@ -65,21 +68,33 @@ impl DecisionServer {
         self
     }
 
+    /// Serves the OpenID AuthZEN Authorization API next to `/v1`, with the conventions of `config`.
+    /// Without it the `/access/v1` routes do not exist.
+    #[must_use]
+    pub fn with_authzen(mut self, config: AuthzenConfig) -> Self {
+        self.authzen = Some(config);
+        self
+    }
+
     /// The routes, ready for `axum::serve` or to be nested in a bigger router.
     ///
     /// A panic in any handler is caught and answered `503 internal`, so the connection never
     /// drops without a body.
     pub fn router(self) -> Router {
         let body_limit = self.config.max_body_bytes;
-        let state = AppState::new(self.source, self.clock, self.config);
-        // The deadline layer covers the decision routes only: the probes have their own wait.
-        let decisions = Router::new()
+        let mut state = AppState::new(self.source, self.clock, self.config);
+        let mut decisions = Router::new()
             .route("/v1/check", post(check))
             .route("/v1/check/batch", post(check_batch))
             .route("/v1/list", post(list))
             .route("/v1/who", post(who))
-            .route("/v1/access", post(access))
-            .layer(middleware::from_fn_with_state(state.clone(), set_deadline));
+            .route("/v1/access", post(access));
+        if let Some(config) = self.authzen {
+            decisions = decisions.merge(authzen::routes(&config));
+            state.authzen = Some(Arc::new(config));
+        }
+        // The deadline layer covers the decision routes only: the probes have their own wait.
+        let decisions = decisions.layer(middleware::from_fn_with_state(state.clone(), set_deadline));
         #[cfg(feature = "tracing")]
         let decisions = decisions.layer(middleware::from_fn(crate::obs::http::observe));
         Router::new()
@@ -95,10 +110,11 @@ impl DecisionServer {
 }
 
 #[derive(Clone)]
-struct AppState {
+pub(crate) struct AppState {
     source: Arc<dyn DecisionSource>,
     clock: Arc<dyn Clock>,
-    config: ServerConfig,
+    pub(crate) config: ServerConfig,
+    pub(crate) authzen: Option<Arc<AuthzenConfig>>,
     /// One permit per engine job in flight; see [`ServerConfig::max_concurrent_work`].
     workers: Arc<Semaphore>,
 }
@@ -110,6 +126,7 @@ impl AppState {
             clock,
             workers: Arc::new(Semaphore::new(config.max_concurrent_work.max(1))),
             config,
+            authzen: None,
         }
     }
 }
@@ -117,7 +134,7 @@ impl AppState {
 /// The instant a request has to be answered by. It covers the body, the source, the wait for a
 /// work slot and the work.
 #[derive(Debug, Clone, Copy)]
-struct Deadline(Instant);
+pub(crate) struct Deadline(Instant);
 
 impl Deadline {
     fn after(wait: Duration) -> Self {
@@ -182,16 +199,16 @@ impl Drop for CancelOnDrop {
 }
 
 /// What a request's work needs besides the snapshot.
-struct Run {
-    now: u64,
-    limits: QueryLimits,
+pub(crate) struct Run {
+    pub(crate) now: u64,
+    pub(crate) limits: QueryLimits,
     max_work: usize,
     cancel: Cancel,
 }
 
 impl Run {
     /// Stops the work once nobody waits for its answer.
-    fn ensure_live(&self) -> Result<(), ApiError> {
+    pub(crate) fn ensure_live(&self) -> Result<(), ApiError> {
         if self.cancel.is_set() {
             return Err(ApiError::new(ErrorCode::DeadlineExceeded));
         }
@@ -199,7 +216,7 @@ impl Run {
     }
 
     /// Refuses `items` evaluations over `grants` grants when they cost more than the budget.
-    fn ensure_budget(&self, items: usize, grants: usize) -> Result<(), ApiError> {
+    pub(crate) fn ensure_budget(&self, items: usize, grants: usize) -> Result<(), ApiError> {
         if items.saturating_mul(grants.max(1)) > self.max_work {
             tracing::warn!(items, grants, "the work of the request is over the server budget");
             return Err(ApiError::new(ErrorCode::QueryLimitExceeded));
@@ -216,7 +233,7 @@ impl AppState {
     /// `max_concurrent_work` slots until it really ends, it reads `Run::ensure_live` between its
     /// steps and stops once the deadline has passed, and a request that finds no slot before its
     /// deadline is answered `overloaded` instead of queueing.
-    async fn answer<T>(
+    pub(crate) async fn answer<T>(
         &self,
         deadline: Deadline,
         work: impl FnOnce(&Snapshot, &Run) -> Result<T, ApiError> + Send + 'static,
@@ -275,7 +292,7 @@ impl AppState {
 }
 
 /// `Json` with the stable error body for every way the body can be refused.
-struct ApiJson<T>(T);
+pub(crate) struct ApiJson<T>(pub(crate) T);
 
 impl<S, T> FromRequest<S> for ApiJson<T>
 where
@@ -434,7 +451,7 @@ async fn method_not_allowed() -> impl IntoResponse {
 
 /// The request's environment with `now` taken from the server clock, so the validity windows and
 /// the ABAC `env.now` read the same instant.
-fn env_at(env: &Attributes, now: u64) -> Result<Attributes, ApiError> {
+pub(crate) fn env_at(env: &Attributes, now: u64) -> Result<Attributes, ApiError> {
     let now = i64::try_from(now).map_err(|_| ApiError::new(ErrorCode::ClockUnavailable))?;
     let mut env = env.clone();
     env.insert("now".to_string(), Value::Int(now));
@@ -456,7 +473,7 @@ fn layout_of(request: &ListRequest) -> Result<PathLayout, ApiError> {
     }
 }
 
-fn query_context<'a>(snapshot: &'a Snapshot, env: &'a Attributes, run: &Run) -> QueryContext<'a> {
+pub(crate) fn query_context<'a>(snapshot: &'a Snapshot, env: &'a Attributes, run: &Run) -> QueryContext<'a> {
     let mut ctx = QueryContext::new(&snapshot.grants)
         .with_limits(run.limits)
         .with_env(env)
@@ -468,17 +485,36 @@ fn query_context<'a>(snapshot: &'a Snapshot, env: &'a Attributes, run: &Run) -> 
 }
 
 fn decide(snapshot: &Snapshot, now: u64, request: &CheckRequest) -> Result<CheckResponse, ApiError> {
-    let env = env_at(&request.env, now)?;
+    Ok(CheckResponse {
+        decision: decide_parts(
+            snapshot,
+            now,
+            &request.subject,
+            &request.permission,
+            &request.resource,
+            &request.env,
+        )?,
+        evaluated_at: now,
+        requested_at: request.at,
+    })
+}
+
+/// One decision at `now`, with the request's `env` and the server clock in `env.now`.
+pub(crate) fn decide_parts(
+    snapshot: &Snapshot,
+    now: u64,
+    subject: &Subject,
+    permission: &str,
+    resource: &strig::Resource,
+    env: &Attributes,
+) -> Result<strig::Decision, ApiError> {
+    let env = env_at(env, now)?;
     let mut ctx = Context::new(&snapshot.grants).with_env(&env).at(now);
     if let Some(tuples) = &snapshot.tuples {
         ctx = ctx.with_tuples(tuples);
     }
-    let asked = Request::new(&request.subject, &request.permission, &request.resource);
-    Ok(CheckResponse {
-        decision: snapshot.engine.decide(&ctx, &asked),
-        evaluated_at: now,
-        requested_at: request.at,
-    })
+    let asked = Request::new(subject, permission, resource);
+    Ok(snapshot.engine.decide(&ctx, &asked))
 }
 
 fn list_filter(
