@@ -16,6 +16,15 @@ inputs:
     required: false
     default: ""
 
+  diff-base:
+    description: Git ref to diff the policy against, such as the base of the pull request (`origin/main`). The ref must be fetched (`fetch-depth: 0`). Empty skips the diff.
+    required: false
+    default: ""
+  diff-fail-on:
+    description: "`allow` fails only when access widens; empty or `any` fails on any change. Needs a `strig-cli` version that has `strig diff`."
+    required: false
+    default: ""
+
 runs:
   using: composite
   steps:
@@ -47,4 +56,19 @@ runs:
           "$HOME/.cargo/bin/strig" test "$STRIG_PATH" --junit "$STRIG_JUNIT"
         else
           "$HOME/.cargo/bin/strig" test "$STRIG_PATH"
+        fi
+    - name: Diff the policy against the base
+      if: inputs.diff-base != ''
+      shell: bash
+      env:
+        STRIG_PATH: ${{ inputs.path }}
+        STRIG_BASE: ${{ inputs.diff-base }}
+        STRIG_FAIL_ON: ${{ inputs.diff-fail-on }}
+      run: |
+        base_dir="$(mktemp -d)"
+        git worktree add --detach "$base_dir/base" "$STRIG_BASE"
+        if [ -n "$STRIG_FAIL_ON" ]; then
+          "$HOME/.cargo/bin/strig" diff "$base_dir/base/$STRIG_PATH" "$STRIG_PATH" --fail-on "$STRIG_FAIL_ON"
+        else
+          "$HOME/.cargo/bin/strig" diff "$base_dir/base/$STRIG_PATH" "$STRIG_PATH"
         fi

@@ -1227,6 +1227,27 @@ try {
 }
 ```
 
+### Diff e lint de uma política
+
+`strig diff <antes> <depois>` lista as decisões que mudam entre duas versões de uma política (diretórios ou arquivos
+`.strig`): quem, qual permissão, sobre o quê, se o acesso `widened` (ampliou) ou `narrowed` (restringiu), e o grant ou
+override responsável em cada lado. `strig lint <dir>` acha política que nunca age: grant sombreado, deny inalcançável,
+permissão sem titular, papel sem uso, `implied_by` redundante, condição sempre falsa ou verdadeira, campo nunca concedido.
+
+```sh
+strig diff main/policies policies --fail-on allow     # exit 1 se algum acesso ampliou
+strig lint policies/ --json                           # códigos L001..L008, severidade, posição, dica
+```
+
+```js
+const found = strig.diff(before, after, { fixture: { resources: ['org:1'] } });
+const findings = strig.lint(policy, { ignore: ['unused-role'] });
+```
+
+Sem fixture as perguntas saem dos catálogos e dos grants e são limitadas por `QueryLimits`; um diff cortado por limite
+vem marcado `partial`, e não achar mudança então não prova que não há. Em Rust é `strig::dsl::analysis`. A action
+`strig-test` aceita `diff-base` para comparar com a base da PR. Veja [o guia](docs/dsl.pt-BR.md#analisando-uma-política).
+
 ### Testando uma política
 
 Os testes ficam ao lado da política: arquivos `*.strig-test.json` com casos `check` (sujeito, permissão, recurso, instante

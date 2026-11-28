@@ -18,6 +18,7 @@
 //! ```
 
 mod actors;
+pub mod analysis;
 mod blocks;
 mod blocks_print;
 mod build;

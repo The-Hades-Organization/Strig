@@ -413,6 +413,62 @@ There is no `macros` feature on `strig`. The macros run the parser while compili
 on `strig`; a re-export behind a feature would make a package cycle, which Cargo refuses. Depend on
 `strig-macros` directly, as above. The two crates are pinned to the same version.
 
+## Analyzing a policy
+
+`strig::dsl::analysis` answers two questions about policy without running a request: what changes between two versions,
+and what never acts. It is pure (no IO); `strig diff` and `strig lint` only read files and print.
+
+### Diff
+
+`diff(before, after, &fixture, &options)` asks the same questions of both versions and returns the ones whose answer
+differs, ordered by subject, permission and resource. Each change says `widened` (deny became allow) or `narrowed`, and
+what decided on each side: `effect`, `reason`, the `grant` or `override`, and where the grant is written (`at`).
+
+The questions come from a fixture, a JSON object like the one of a test file with two more lists: `resources` (`global`,
+`kind:id` or the full path) and `permissions`. A list left out is derived: subjects from the subjects, roles and grants
+of both versions, resources from the scopes and the catalog target kinds, permissions from both catalogs. The universe is
+bounded by `QueryLimits` (`maxSubjects`, `maxDecisions` in the binding); when a limit cuts it the diff is `partial` and
+no change found is not proof there is none. A grant of the fixture whose id a version already uses is an error.
+
+```sh
+strig diff before/ after/                        # human report; exit 1 on any change
+strig diff before/ after/ --fixture who.json     # only the questions of the fixture
+strig diff before/ after/ --json --fail-on allow # exit 1 only when access widened
+```
+
+Exit codes: `0` no change matches `--fail-on`, `1` a change matches, `2` usage or an input that does not load.
+
+### Lint
+
+| Code | Name | Finding |
+| --- | --- | --- |
+| `L001` | `shadowed-grant` | a grant never decides because another one always wins before it |
+| `L002` | `unreachable-deny` | a `deny` that takes away nothing that is ever allowed |
+| `L003` | `unheld-permission` | a catalog permission no `allow` gives to anyone |
+| `L004` | `unused-role` | a role no grant, subject or inheritance uses |
+| `L005` | `redundant-implied-by` | an `implied_by` entry already implied, repeated, or the permission itself |
+| `L006` | `condition-always-false` | a condition false whatever the subject, resource and environment |
+| `L007` | `condition-always-true` | a condition true whatever the subject, resource and environment |
+| `L008` | `field-never-granted` | a field no `allow` grant ever reaches |
+
+Each finding has the code, the name, a severity (`info`, `warning`, `error`), a message, a hint, the element it is about
+and, from the CLI, `file:line:column`. Codes are stable: one is added, never changed. Conditions are judged only when
+they can be settled statically; one that depends on data is left alone.
+
+```sh
+strig lint policies/                         # exit 1 on a warning or worse
+strig lint policies/ --ignore L004 --fail-on error
+strig lint policies/ --json                  # the findings as JSON
+```
+
+`strig-lint.json` in the directory (or `--config <file>`) holds `{"ignore": ["L004", "unused-role"]}`; `--ignore` adds to
+it. A name or code that does not exist is a usage error, never silently dropped.
+
+In JavaScript: `strig.diff(before, after, { fixture?, maxSubjects?, maxDecisions? })` and
+`strig.lint(policy, { ignore? })`, native and wasm; a document carries no source positions, so a finding names its
+element by id. In the `strig-test` action, `diff-base` (a git ref such as `origin/main`, with `fetch-depth: 0`) and
+`diff-fail-on` run the diff against the base of the pull request.
+
 ## Errors
 
 Every error carries `file:line:column`, a message and, when there is a likely fix, a hint:

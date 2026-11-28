@@ -124,6 +124,8 @@ fn dsl_op(name: &str, input: &Value) -> Result<Value, dsl::DslFailure> {
         "isFormatted" => dsl::is_formatted(field(input, "text")?, input.get("options")).map(Value::from),
         "loadProject" => dsl::load_project(field(input, "sources")?),
         "runTests" => dsl::run_tests(field(input, "policy")?, field(input, "tests")?),
+        "diff" => dsl::diff_policies(field(input, "before")?, field(input, "after")?, input.get("options")),
+        "lint" => dsl::lint_policy(field(input, "policy")?, input.get("options")),
         other => Err(BindingError::new("INVALID_ARGUMENT", format!("unknown operation `dsl.{other}`")).into()),
     }
 }

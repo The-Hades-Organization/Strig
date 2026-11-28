@@ -146,6 +146,39 @@ for (const backend of ['native', 'wasm'] as const) {
     assert.equal(failure(() => strig.runTests({ nope: 1 } as never, [])).code, 'INVALID_INPUT');
   });
 
+  const WITH_ROLE = `${ORG}\nrole r {\n}\n\nsubject user:ana {\n  assign r {\n  }\n}\n`;
+  const GRANT_READ = '\ngrant g {\n  effect = allow\n  subject = role r\n  permission = org.read\n  target = org\n}\n';
+
+  await test(`${backend}: diff lista a decisão que muda e o grant responsável`, () => {
+    const before = strig.compile(WITH_ROLE);
+    const after = strig.compile(WITH_ROLE + GRANT_READ);
+    const fixture = { resources: ['org:1'] };
+    const found = strig.diff(before, after, { fixture });
+    const ana = found.changes.find((c) => c.subject === 'user:ana');
+    assert.ok(ana, 'a mudança de user:ana');
+    assert.deepEqual([ana.permission, ana.resource, ana.change], ['org.read', 'org:1', 'widened']);
+    assert.equal(ana.after.grant, 'g');
+    assert.equal(found.universe.partial, false);
+    assert.equal(strig.diff(after, before, { fixture: JSON.stringify(fixture) }).changes.find((c) => c.subject === 'user:ana')?.change, 'narrowed');
+    assert.deepEqual(strig.diff(before, before, { fixture }).changes, []);
+  });
+
+  await test(`${backend}: diff recusa opção e fixture inválidas`, () => {
+    const policy = strig.compile(WITH_ROLE);
+    assert.equal(failure(() => strig.diff(policy, policy, { nope: 1 } as never)).code, 'INVALID_ARGUMENT');
+    assert.equal(failure(() => strig.diff(policy, policy, { fixture: '{' })).code, 'INVALID_INPUT');
+    assert.equal(failure(() => strig.diff({ nope: 1 } as never, policy)).code, 'INVALID_INPUT');
+  });
+
+  await test(`${backend}: lint acha, ignora por código ou nome e recusa código desconhecido`, () => {
+    const policy = strig.compile(WITH_ROLE);
+    const found = strig.lint(policy);
+    assert.ok(found.some((f) => f.name === 'unheld-permission' && f.code === 'L003'));
+    const ignored = strig.lint(policy, { ignore: ['L003', 'unused-role'] });
+    assert.ok(ignored.every((f) => f.code !== 'L003' && f.name !== 'unused-role'));
+    assert.equal(failure(() => strig.lint(policy, { ignore: ['L999'] })).code, 'INVALID_ARGUMENT');
+  });
+
   await test(`${backend}: conflito entre fontes aponta os dois lados`, () => {
     const full = ORG;
     const error = failure(() =>
