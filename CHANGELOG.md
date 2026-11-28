@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Policy tests: `*.strig-test.json` files beside a policy hold `check` cases (subject, permission, resource, optional `env` and `now`, expected `allow`/`deny`, optionally the reason and the deciding grant) and `mutation` cases (actor and change, `accepted`/`refused`, optionally the refusing invariant), over the grants, tuples and subjects of the policy plus an optional fixture. The runner is `strig::dsl::testing` (`TestFile`, `run`, `Report`; feature `dsl`, no IO) and `dsl::fs::read_tests` reads a directory, with fixtures kept inside it. A case that cannot be judged is `errored`, never a pass. See Testing a policy in `docs/dsl.md`.
+- `strig-cli`: the `strig` command, with `strig test <dir> [--junit <file>]` (human report with the diff and the grants considered, JUnit XML, exit `0`/`1`/`2`), and the composite GitHub Action `.github/actions/strig-test`.
+- JS binding: `strig.runTests(policy, tests)` runs the same runner natively and on wasm; types `PolicyTestFile`, `PolicyTestCase` and `PolicyTestReport` in `index.d.ts`.
 - ORM adapters for filtered listings: `@the-hades-organization/strig/prisma`, `/drizzle` and `/kysely` turn the `expr` of `engine.list(...)` into the `where` of Prisma Client, drizzle-orm and Kysely through a declarative mapping of the resource's anchors and attributes to columns, with the semantics of `PgTables` (allow by kind, anchor and exact id; denies that cut without dropping rows whose column is `NULL`; a residue stays in `residual` with `where` as the upper bound and `settled` as the lower). A kind, attribute or node the mapping cannot express throws `OrmFilterError`, never "all rows". Drizzle and Kysely are optional peers; Prisma needs none. Each module also exports an `OrmAdapter` typed over the `PermissionId`. See Filtering a listing in Prisma, Drizzle and Kysely in the README.
 
 ## [0.8.0] - 2026-11-28

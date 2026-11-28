@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use strig::dsl::fs::{FsError, MAX_FILES, read_dir, read_file, write_file};
+use strig::dsl::fs::{FsError, MAX_FILES, read_dir, read_file, read_tests, write_file};
 use strig::dsl::{Language, MAX_SOURCE_BYTES};
 
 const KINDS: &str = "language blocks\n\ntarget_kinds = [doc, org]\n";
@@ -199,4 +199,58 @@ fn a_policy_the_syntax_cannot_say_fails_before_touching_the_file() {
     let error = write_file(&out, &policy, Language::Rules).unwrap_err();
     assert!(matches!(error, FsError::Print(_)));
     assert!(!out.exists());
+}
+
+#[test]
+fn read_tests_picks_up_test_files_in_order_and_loads_the_fixture_they_name() {
+    let dir = Scratch::new("tests");
+    dir.write("b.strig-test.json", r#"{"fixture": "b.fixture.json", "cases": []}"#);
+    dir.write("a.strig-test.json", r#"{"cases": []}"#);
+    dir.write("b.fixture.json", r#"{"env": {"region": "br"}}"#);
+    dir.write("ignored.json", "not a test");
+    dir.write("p.strig", READ);
+    let files = read_tests(dir.path()).unwrap();
+    let names: Vec<_> = files
+        .iter()
+        .map(|f| f.file.rsplit('/').next().unwrap().to_string())
+        .collect();
+    assert_eq!(names, ["a.strig-test.json", "b.strig-test.json"]);
+    assert_eq!(files[1].fixture_path(), None, "the path was replaced by the content");
+}
+
+#[test]
+fn read_tests_refuses_a_fixture_that_leaves_the_directory() {
+    let dir = Scratch::new("tests-escape");
+    let outside = Scratch::new("tests-outside");
+    let target = outside.write("f.json", "{}");
+    for reference in ["../f.json", target.to_str().unwrap()] {
+        dir.write(
+            "t.strig-test.json",
+            &format!(r#"{{"fixture": {reference:?}, "cases": []}}"#),
+        );
+        assert!(
+            matches!(read_tests(dir.path()), Err(FsError::Outside { .. })),
+            "{reference}"
+        );
+    }
+}
+
+#[test]
+fn read_tests_reports_a_missing_or_invalid_fixture_and_a_bad_test_file() {
+    let dir = Scratch::new("tests-bad");
+    dir.write("t.strig-test.json", r#"{"fixture": "gone.json", "cases": []}"#);
+    assert!(matches!(read_tests(dir.path()), Err(FsError::Io { .. })));
+    dir.write("gone.json", "[1]");
+    assert!(matches!(read_tests(dir.path()), Err(FsError::Test(_))));
+    dir.write("t.strig-test.json", "{");
+    assert!(matches!(read_tests(dir.path()), Err(FsError::Test(_))));
+}
+
+#[cfg(unix)]
+#[test]
+fn read_tests_refuses_a_test_file_that_is_a_link() {
+    let dir = Scratch::new("tests-link");
+    let real = dir.write("real.json", r#"{"cases": []}"#);
+    std::os::unix::fs::symlink(&real, dir.path().join("l.strig-test.json")).unwrap();
+    assert!(matches!(read_tests(dir.path()), Err(FsError::Outside { .. })));
 }

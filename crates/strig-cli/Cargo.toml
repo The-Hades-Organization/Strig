@@ -1,0 +1,23 @@
+[package]
+name = "strig-cli"
+description = "The `strig` command: runs the tests of a Strig policy (`strig test`) and reports them for people and for CI."
+keywords = ["authorization", "permissions", "cli", "testing", "policy"]
+categories = ["authentication", "command-line-utilities", "development-tools::testing"]
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "strig"
+path = "src/main.rs"
+
+[dependencies]
+strig = { workspace = true, features = ["dsl-fs"] }
+serde_json.workspace = true
+
+[dev-dependencies]
