@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Postgres storage in `strig-postgres`: `PgStore` loads the grants and the ReBAC tuples into a snapshot that serves the synchronous `GrantSource`/`GrantIndex` (`PgGrants`) and `TupleStore`/`TupleIndex` (`PgTuples`), and reloads on a `Change` through `PgStore::follow` (a failed reload keeps the previous snapshot and shows in `is_stale()`). `PgTables` gains the writes (`delete_grant`, `delete_tuple`, `all_grants`, `all_tuples`), role assignments per subject (`assign_role`, `revoke_role`, `roles_of`, `subject`), pending requests (`insert_pending`, `update_pending`, `due_pending`, ...) and `commit_mutation`, which writes what a governed `Mutation` changes and sends its `NOTIFY` in the caller's transaction (`lock_governance` serialises judge-then-write). `PgPendingStore` is a `PendingStore` with expiry over its own connection. `migrate`/`migrate_with` embed versioned, idempotent, additive SQL (`<prefix>_migrations`); `PgTables::in_schema` and `with_prefix` configure schema and table names. `PgQueryError` gains `Invalid` and `Notify`.
+
 ### Fixed
 
 - The release workflow now generates the npm SBOM from a full `npm ci` with `--omit dev --omit peer`; the `--omit=dev` install left the peer and dev dependencies missing and failed the SBOM job, which skipped the GitHub release. The READMEs no longer say custom `call` conditions and overrides exist only in Rust.
