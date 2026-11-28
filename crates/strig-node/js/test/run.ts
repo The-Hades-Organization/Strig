@@ -15,6 +15,7 @@ import './web-core.js';
 import './web-express.js';
 import './web-fastify.js';
 import './web-nestjs.js';
+import './frameworks.js';
 import './web-routes.js';
 import './store.js';
 import './approvals.js';
