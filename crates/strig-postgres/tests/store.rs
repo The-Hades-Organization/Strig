@@ -313,6 +313,46 @@ async fn pending_store_keeps_requests_and_never_decides_one_twice() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn pending_store_annotates_a_decided_request_without_changing_the_decision() {
+    let Some(db) = Db::new().await else { return };
+    let store = PgPendingStore::connect(&db.url, db.tables.clone()).await.unwrap();
+    tokio::task::spawn_blocking(move || {
+        let info = strig::ElevationInfo::new(
+            strig::ElevationTarget::permission("project.edit", strig::TargetSelector::exact("project", "p1")),
+            1_000,
+        );
+        store.insert(request("e1", 100, None).with_elevation(info)).unwrap();
+        let mut decided = store.get("e1").unwrap().unwrap();
+        decided.status = PendingStatus::Approved {
+            by: "bob".into(),
+            at: 200,
+        };
+        store.update(decided.clone()).unwrap();
+
+        let mut revoked = decided.clone();
+        revoked.elevation.as_mut().unwrap().revoked = Some(strig::Revocation::new("ana", 300, None));
+        store.annotate(revoked.clone()).unwrap();
+        assert_eq!(store.get("e1").unwrap().unwrap(), revoked);
+
+        let mut flipped = revoked.clone();
+        flipped.status = PendingStatus::Rejected {
+            by: "eve".into(),
+            at: 400,
+            reason: "x".into(),
+        };
+        assert!(matches!(store.annotate(flipped), Err(PendingError::Store(_))));
+        assert_eq!(store.get("e1").unwrap().unwrap(), revoked);
+        assert_eq!(
+            store.annotate(request("ghost", 1, None)),
+            Err(PendingError::Unknown("ghost".into()))
+        );
+    })
+    .await
+    .unwrap();
+    db.drop_schema().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn pending_store_fails_closed_when_the_database_does_not_answer() {
     let Some(db) = Db::new().await else { return };
     let store = PgPendingStore::connect(&db.url, db.tables.clone())
