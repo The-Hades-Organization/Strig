@@ -203,6 +203,30 @@ for (const backend of ['native', 'wasm'] as const) {
     await assert.rejects(async () => reopened.pendingStore.update(saved.pending[0]), (e: unknown) => e instanceof PendingStoreError && e.code === 'PENDING_NOT_PENDING');
   });
 
+  await test(`${backend}: o impacto fica no pedido e é recalculado sobre o estado atual`, async () => {
+    const { Engine } = await load({ backend });
+    const store = new MemoryPendingStore();
+    const impact = { source: { kind: 'sample' as const, subjects: [{ kind: 'user', id: 'bia' }], resources: [project] } };
+    const flow = new Approvals(new Engine(SPEC), store, { approval, invariants, impact });
+    const waiting = await flow.propose(admin('ana'), add('g1'), [adminGrant], { id: 'r1', now: T0 });
+    assert.ok(waiting.ok && !waiting.applied);
+    assert.equal(waiting.request.impact?.gained[0]?.subject, 'user:bia');
+    assert.equal((await store.get('r1'))?.impact?.gained.length, 1);
+
+    const same = await flow.reviewImpact('r1', [adminGrant], { now: T0 + 1 });
+    assert.equal(same.changed, false);
+    const moved = [adminGrant, { ...grant('other') }];
+    const review = await flow.reviewImpact('r1', moved, { now: T0 + 1 });
+    assert.equal(review.changed, true);
+    assert.equal(review.current?.gained.length, 0, 'bia already had it');
+    assert.equal(review.proposed?.gained.length, 1);
+
+    const done = await flow.approve('r1', admin('caio'), moved, { now: T0 + 2 });
+    assert.ok(done.ok);
+    assert.equal(done.proposedImpact?.gained.length, 1);
+    assert.equal(done.request.impact?.gained.length, 0, 'the approval recomputed it');
+  });
+
   await test(`${backend}: arquivo de uma versão anterior, sem pedidos, abre e segue como estava`, async (dir) => {
     const path = join(dir, 'old.json');
     await writeFile(path, JSON.stringify({ version: 1, grants: [adminGrant], roles: {} }));

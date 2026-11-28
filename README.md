@@ -265,6 +265,32 @@ await flow.expire();
 
 `JsonFileStore` keeps the requests in the same file (`new Approvals(engine, store.pendingStore, options)`, and `store.approvePending(flow, id, approver)` persists the grants before marking the request approved). Without a rule for its kind, `propose` applies the change at once (`applied: true`).
 
+### Seeing the impact of a change before it applies
+
+`Governance::apply` says whether a change passes the invariants, not what it does to access. `Governance::impact` answers that without applying anything: it judges the change as `apply` does (a refused change returns its violations), then asks the same questions over the grants before and after, and returns an `Impact`: who gains, who loses, which permission, on which resource (and field).
+
+```rust
+let options = ImpactOptions::new(ImpactSource::sample(
+    SampleSpec::new().subject(bob).resource(project),
+)); // or ImpactSource::derived()
+let impact = governance.impact(&engine, &ana, &current, &Mutation::Add(grant), &options)?;
+for change in &impact.gained { /* change.subject, change.permission, change.resource */ }
+```
+
+The questions come from one of two sources. A **sample** is yours: subjects × resources × permissions (and fields); leave resources or permissions empty and they are the ones the change reaches and touches. **Derived** uses the reverse queries (`who_can_on`, `list`, `access_of`), restricted to the permissions the change touches, with the ones that imply them (`implied_by`) and the ones that depend on them (`depends_on`). A deny that cuts, an override and a field count as in `check`. `ImpactOptions` takes the tuples, the `env`, the `QueryLimits` and an instant; when a limit cuts, `partial` is `true` and `notes` says which, so absence from the list is not proof. What cannot be settled (a condition or an override that cannot be evaluated) is in `indeterminate`, never in `gained`: a change is a gain only when the answer was a certain deny and is now an allow.
+
+`Governance::apply_with_impact` applies and returns the grants with the impact; with an auditor at `detailed` or `forensic`, the record carries `impact` (counts and up to 10 examples, see [`docs/audit-format.md`](docs/audit-format.md)). `Approvals::with_impact(&options)` stores the impact in the pending request when it is proposed; `approve` recomputes it over the grants of that moment (`Approved::proposed_impact` keeps the first one) and `review_impact` shows the approver both and whether they differ, before deciding. The JSON store keeps the request whole, so older stores open unchanged.
+
+In JavaScript, `engine.impact(input)` takes the input of `apply` plus `impact: { source, env, limits }`, `apply` with `impact` returns it in `result.impact`, and `Approvals` takes `impact` in its options and has `reviewImpact(id, current)`; the Python binding has `engine.impact` and `engine.review_impact` and the Go and JVM ones `Impact`/`ReviewImpact`.
+
+```js
+const preview = engine.impact({
+  actor: ana, current: grants, mutation: { add: grant },
+  impact: { source: { kind: 'sample', subjects: [bob], resources: [project] } },
+});
+if (preview.ok) console.log(preview.impact.gained, preview.impact.lost, preview.impact.partial);
+```
+
 ### Rules declared in the catalog
 
 Some rules belong to a permission, so they are declared on its `PermissionDef`:
@@ -455,6 +481,36 @@ res.json(pickAllowed(document, fields)); // only title and body leave
 ```
 
 `PermissionClient.allowedFields(permission, resource)` and `can(permission, resource, field)` decide locally. Capabilities that carry field-restricted grants are sent in two forms (`grants` for older readers, which never see a restricted `allow` and read a restricted `deny` as whole, and `withFields` with the real ones), so an older client fails closed.
+
+## Why not? What would allow it
+
+`Engine::explain` says why a decision came out as it did. When it is a denial, `Engine::why_not(ctx, request, options)` adds what would turn it into an `allow`: the smallest changes, smallest and most specific first. It returns `None` when the request is already allowed.
+
+```rust
+let answer = engine.why_not(&ctx, &request, &WhyNotOptions::default()).expect("denied");
+println!("{:?}", answer.cause); // what denied it: Cause::NoApplicableGrant, Cause::Deny { .. }, Cause::Override { .. }, ...
+for remedy in &answer.remedies {
+    println!("{:?} {:?}", remedy.change, remedy.caveats);
+}
+```
+
+| Change | Meaning |
+|---|---|
+| `SatisfyCondition` | an otherwise applicable `allow` has a condition that failed (`failed`, with the values the engine saw) or could not be evaluated (`unresolved`, a missing attribute for example). No value is invented: it names what has to hold. |
+| `AddGrant` | an `allow` for the subject on the most specific step of the path (the exact target, then the kind), checked with `validate_grant`, so it respects the catalog's `targets` and `fields`; a field question asks for that field only |
+| `NarrowDeny` | take the asked field out of the `fields` of the `deny` that decided |
+| `AssignRole` | a role that has an applicable `allow`, scoped to the narrowest step of the path |
+| `RemoveDeny` | remove the `deny` that decided |
+
+Every remedy is **verified**: the engine applies it alone to a copy of the subject or of the grants and decides the request again. Only a change that comes out as `allow` is returned, so a suggestion that would not work (a role blocked by a deny, a grant a `DenyOverrides` strategy still beats) does not appear. Nothing is written.
+
+- A denial by an **override** (a suspended account, for example) comes back as `Cause::Override { name }` with no remedy: no change of grants or roles undoes it. The same goes for `UnknownPermission` and for an `override_only` permission (`Cause::OverrideOnlyPermission`). When a prerequisite (`depends_on`) is what is missing, the cause says which, with the cause of the prerequisite, and the remedies are for the prerequisite.
+- Each remedy carries `caveats` for the governance the catalog knows (`ManagementOnly`, `NonDelegable`, `OverrideOnly`) and `AffectsOthers` when the change edits a grant that is not the subject's own. The invariants of a `Governance` are not consulted: the change may still be refused when applied.
+- Grants of other subjects are never listed: only the `deny` that decided is named, and only a role's `allow` is used to suggest that role.
+- `WhyNotOptions` bounds the work: `limits.max_decisions` caps the verifications (the engine has no clock, so the bound is a count, as in the reverse queries) and `max_remedies` the list (16 by default). When either cuts the answer, `partial` is true.
+- Changes are single: a denial that needs two changes at once (an allow that is also beaten by a deny) shows the deny's removal only if that alone is enough.
+
+In JavaScript and Python: `engine.whyNot(ctx, request, now?, options?)` and `engine.why_not(ctx, request, now=None, options=None)`, with `options = { maxDecisions, maxRemedies }` (the limits of the `Context` apply by default); `null`/`None` when allowed. Values are JSON with the same camelCase names; `Remedies`, `Remedy` and the cause are typed in `index.d.ts`. The Wasm ABI has the `whyNot` operation. `strig-inspect explain` prints the remedies after a denial.
 
 ## Reverse queries and filtered listing
 

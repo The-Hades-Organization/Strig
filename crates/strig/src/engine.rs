@@ -241,6 +241,12 @@ impl Engine {
         self.decide_core(ctx, request, true, None)
     }
 
+    /// [`Engine::decide`] without the span and the metrics: for the engine's own what-if
+    /// verifications, which are not decisions the application asked for.
+    pub(crate) fn decide_unobserved(&self, ctx: &Context<'_>, request: &Request<'_>) -> Decision {
+        self.decide_inner(ctx, request, true, None)
+    }
+
     /// The same decision as [`Engine::decide`], with the trace of each override and of each grant
     /// delivered by the source. More expensive: it evaluates the condition tree and clones the grants.
     pub fn explain(&self, ctx: &Context<'_>, request: &Request<'_>) -> Explanation {
@@ -445,7 +451,7 @@ impl Engine {
 
     /// The request for a prerequisite: on the same field when the prerequisite can be restricted to
     /// it, and on the whole resource when the prerequisite declares fields that do not include it.
-    fn prerequisite_request<'a>(&self, request: &Request<'a>, prerequisite: &'a str) -> Request<'a> {
+    pub(crate) fn prerequisite_request<'a>(&self, request: &Request<'a>, prerequisite: &'a str) -> Request<'a> {
         let mut sub = *request;
         sub.permission = prerequisite;
         if let Some(field) = request.field {

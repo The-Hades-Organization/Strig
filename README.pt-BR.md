@@ -265,6 +265,32 @@ await flow.expire();
 
 O `JsonFileStore` guarda os pedidos no mesmo arquivo (`new Approvals(engine, store.pendingStore, options)`, e `store.approvePending(flow, id, approver)` grava as grants antes de marcar o pedido como aprovado). Sem regra para o tipo, `propose` aplica a mudança na hora (`applied: true`).
 
+### Ver o impacto de uma mudança antes de aplicar
+
+`Governance::apply` diz se a mudança passa nas invariantes, não o que ela faz com o acesso. `Governance::impact` responde isso sem aplicar nada: julga a mudança como o `apply` (uma mudança recusada devolve as violações), pergunta o mesmo sobre os grants antes e depois e devolve um `Impact`: quem ganha, quem perde, qual permissão, em qual recurso (e campo).
+
+```rust
+let options = ImpactOptions::new(ImpactSource::sample(
+    SampleSpec::new().subject(bob).resource(project),
+)); // ou ImpactSource::derived()
+let impact = governance.impact(&engine, &ana, &current, &Mutation::Add(grant), &options)?;
+for change in &impact.gained { /* change.subject, change.permission, change.resource */ }
+```
+
+As perguntas vêm de uma de duas fontes. A **amostra** é sua: sujeitos × recursos × permissões (e campos); sem recursos ou permissões, valem os que a mudança alcança e toca. A **derivada** usa as consultas reversas (`who_can_on`, `list`, `access_of`), restrita às permissões que a mudança toca, com as que as implicam (`implied_by`) e as que dependem delas (`depends_on`). Um deny que recorta, um override e um campo contam como em `check`. `ImpactOptions` recebe as tuplas, o `env`, os `QueryLimits` e um instante; quando um limite corta, `partial` é `true` e `notes` diz qual, então a ausência na lista não prova nada. O que não se decide (condição ou override que não dá para avaliar) fica em `indeterminate`, nunca em `gained`: só é ganho o que era um deny certo e agora é allow.
+
+`Governance::apply_with_impact` aplica e devolve os grants com o impacto; com auditor em `detailed` ou `forensic`, o registro leva `impact` (contagens e até 10 exemplos, veja [`docs/audit-format.md`](docs/audit-format.md)). `Approvals::with_impact(&options)` guarda o impacto no pedido pendente ao propor; `approve` recalcula sobre os grants do momento (`Approved::proposed_impact` guarda o primeiro) e `review_impact` mostra os dois ao aprovador, e se diferem, antes de decidir. O store JSON guarda o pedido inteiro, então stores antigos abrem sem mudança.
+
+Em JavaScript, `engine.impact(input)` recebe a entrada do `apply` mais `impact: { source, env, limits }`, o `apply` com `impact` devolve o resultado em `result.impact`, e `Approvals` aceita `impact` nas opções e tem `reviewImpact(id, current)`; o binding Python tem `engine.impact` e `engine.review_impact`, e os de Go e JVM, `Impact`/`ReviewImpact`.
+
+```js
+const preview = engine.impact({
+  actor: ana, current: grants, mutation: { add: grant },
+  impact: { source: { kind: 'sample', subjects: [bob], resources: [project] } },
+});
+if (preview.ok) console.log(preview.impact.gained, preview.impact.lost, preview.impact.partial);
+```
+
 ### Regras declaradas no catálogo
 
 Algumas regras pertencem a uma permissão, então são declaradas no `PermissionDef` dela:
@@ -455,6 +481,36 @@ res.json(pickAllowed(document, fields)); // só title e body saem
 ```
 
 `PermissionClient.allowedFields(permission, resource)` e `can(permission, resource, field)` decidem localmente. As capacidades que carregam grants restritos a campos vão em duas formas (`grants` para leitores antigos, que nunca veem um `allow` restrito e leem um `deny` restrito como inteiro, e `withFields` com os reais), então um cliente antigo falha fechado.
+
+## Por que não? O que permitiria
+
+`Engine::explain` diz por que uma decisão saiu como saiu. Quando é uma negação, `Engine::why_not(ctx, request, options)` acrescenta o que a transformaria em `allow`: as menores mudanças, a menor e mais específica primeiro. Devolve `None` quando o pedido já é permitido.
+
+```rust
+let resposta = engine.why_not(&ctx, &request, &WhyNotOptions::default()).expect("negado");
+println!("{:?}", resposta.cause); // o que negou: Cause::NoApplicableGrant, Cause::Deny { .. }, Cause::Override { .. }, ...
+for remedio in &resposta.remedies {
+    println!("{:?} {:?}", remedio.change, remedio.caveats);
+}
+```
+
+| Mudança | Significado |
+|---|---|
+| `SatisfyCondition` | um `allow` que seria aplicável tem uma condição que falhou (`failed`, com os valores que o motor viu) ou que não pôde ser avaliada (`unresolved`, um atributo ausente, por exemplo). Nenhum valor é inventado: ela nomeia o que precisa valer. |
+| `AddGrant` | um `allow` para o sujeito no passo mais específico do caminho (o alvo exato e depois o tipo), conferido com `validate_grant`, então respeita os `targets` e `fields` do catálogo; uma pergunta por campo pede só aquele campo |
+| `NarrowDeny` | tirar o campo perguntado dos `fields` do `deny` que decidiu |
+| `AssignRole` | um papel que tem um `allow` aplicável, com escopo no passo mais estreito do caminho |
+| `RemoveDeny` | remover o `deny` que decidiu |
+
+Cada remédio é **verificado**: o motor o aplica sozinho sobre uma cópia do sujeito ou dos grants e decide o pedido de novo. Só volta a mudança que resulta em `allow`, então uma sugestão que não funcionaria (um papel barrado por um deny, um grant que a estratégia `DenyOverrides` ainda vence) não aparece. Nada é gravado.
+
+- Uma negação por **override** (conta suspensa, por exemplo) volta como `Cause::Override { name }` sem remédio: nenhuma mudança de grants ou papéis a desfaz. O mesmo vale para `UnknownPermission` e para uma permissão `override_only` (`Cause::OverrideOnlyPermission`). Quando o que falta é um pré-requisito (`depends_on`), a causa diz qual, com a causa do pré-requisito, e os remédios são para o pré-requisito.
+- Cada remédio leva `caveats` para a governança que o catálogo conhece (`ManagementOnly`, `NonDelegable`, `OverrideOnly`) e `AffectsOthers` quando a mudança edita um grant que não é do próprio sujeito. As invariantes de uma `Governance` não são consultadas: a mudança ainda pode ser recusada ao ser aplicada.
+- Grants de outros sujeitos nunca são listados: só o `deny` que decidiu é nomeado, e só o `allow` de um papel serve para sugerir esse papel.
+- `WhyNotOptions` limita o trabalho: `limits.max_decisions` limita as verificações (o motor não tem relógio, então o limite é uma contagem, como nas consultas reversas) e `max_remedies` a lista (16 por padrão). Quando um deles corta a resposta, `partial` é verdadeiro.
+- As mudanças são únicas: uma negação que exige duas mudanças ao mesmo tempo (um allow que também é vencido por um deny) mostra a remoção do deny só se ela bastar sozinha.
+
+Em JavaScript e Python: `engine.whyNot(ctx, request, now?, options?)` e `engine.why_not(ctx, request, now=None, options=None)`, com `options = { maxDecisions, maxRemedies }` (os limites do `Context` valem por padrão); `null`/`None` quando permitido. Os valores são JSON com os mesmos nomes em camelCase; `Remedies`, `Remedy` e a causa têm tipos em `index.d.ts`. A ABI Wasm tem a operação `whyNot`. `strig-inspect explain` imprime os remédios depois de uma negação.
 
 ## Consultas reversas e listagem filtrada
 

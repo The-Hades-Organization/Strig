@@ -295,6 +295,26 @@ impl JsEngine {
             .map_err(err)
     }
 
+    /// The verified changes that would allow a denied request (`null` if it is allowed).
+    #[napi]
+    pub fn why_not(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        request: Unknown<'_>,
+        now: Option<Unknown<'_>>,
+        options: Option<Unknown<'_>>,
+    ) -> Result<Value> {
+        self.inner
+            .why_not(
+                &ctx.inner,
+                json(env, request)?,
+                now_of(env, now)?,
+                optional(env, options)?,
+            )
+            .map_err(err)
+    }
+
     #[napi]
     pub fn allowed_fields(
         &self,
@@ -444,6 +464,22 @@ impl JsEngine {
     pub fn apply(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
         self.inner
             .apply(json(env, input)?, crate::clock_ms(std::time::SystemTime::now()))
+            .map_err(err)
+    }
+
+    /// What a change would do to access: who gains, who loses, what cannot be settled. Nothing is applied.
+    #[napi]
+    pub fn impact(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
+        self.inner
+            .impact(json(env, input)?, crate::clock_ms(std::time::SystemTime::now()))
+            .map_err(err)
+    }
+
+    /// The impact of a pending request as proposed and as it would be now.
+    #[napi]
+    pub fn review_impact(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
+        self.inner
+            .review_impact(json(env, input)?, crate::clock_ms(std::time::SystemTime::now()))
             .map_err(err)
     }
 

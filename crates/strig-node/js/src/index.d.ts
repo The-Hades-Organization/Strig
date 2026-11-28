@@ -239,6 +239,51 @@ export interface FieldExplanation {
   fields: FieldVerdict[];
 }
 
+/** What denied a request, as `Engine.whyNot` names it. */
+export type WhyNotCause =
+  /** An override ruled before the grants: no change of grants or roles undoes it. */
+  | { kind: 'override'; name: string }
+  | { kind: 'deny'; grantId: string; permission: string; target: { kind: string; id?: string } }
+  | { kind: 'no_applicable_grant' }
+  | { kind: 'unknown_permission' }
+  /** The permission is `override_only`: only an override can allow it. */
+  | { kind: 'override_only_permission' }
+  | { kind: 'missing_prerequisite'; prerequisite: string; cause: WhyNotCause };
+
+/** One change that, applied alone, makes the decision `allow`. */
+export type WhyNotChange =
+  | { kind: 'assign_role'; role: string; scope?: { kind: string; id?: string } }
+  /** The `id` of the grant is a placeholder. */
+  | { kind: 'add_grant'; grant: Grant }
+  | { kind: 'remove_deny'; grantId: string; permission: string; target: { kind: string; id?: string } }
+  | { kind: 'narrow_deny'; grantId: string; field: string }
+  /** The leaves that were false (`failed`) or could not be evaluated (`unresolved`); no value is suggested. */
+  | { kind: 'satisfy_condition'; grantId: string; failed?: string[]; unresolved?: string[] };
+
+/** A governance rule the remedy runs into, known to the catalog or to the shape of the change. */
+export type WhyNotCaveat = 'override_only' | 'management_only' | 'non_delegable' | 'affects_others';
+
+export type Remedy = WhyNotChange & {
+  /** Position of the path step the change acts on (0 = most specific). */
+  rank?: number;
+  caveats?: WhyNotCaveat[];
+};
+
+export interface Remedies {
+  cause: WhyNotCause;
+  /** Verified, smallest and most specific first. Empty when nothing alone would allow. */
+  remedies: Remedy[];
+  /** The verification budget or `maxRemedies` cut the list: there may be more. */
+  partial?: boolean;
+}
+
+export interface WhyNotOptions {
+  /** Cap on verifications (one decision each); defaults to the `maxDecisions` of the context's limits. */
+  maxDecisions?: number;
+  /** Most remedies returned (16 by default). */
+  maxRemedies?: number;
+}
+
 /** Strict when `P` is given (a union of ids), any string at the default. */
 export type PermissionArg<P extends string = string> = string extends P ? string : P;
 
@@ -289,6 +334,49 @@ export type InvariantSpec =
   /** An invariant registered in the engine's `hooks.invariants`; `name` must be one of them. */
   | { kind: 'custom'; name: string };
 
+/** Where the subjects and the resources of an impact come from. */
+export type ImpactSource =
+  /** Your own list. Empty `resources`: the ones the change reaches; empty `permissions`: the ones it touches. */
+  | { kind: 'sample'; subjects?: Subject[]; resources?: Resource[]; permissions?: string[]; fields?: string[] }
+  /** From the reverse queries. Empty `resources`: the ones the change reaches. This is the default. */
+  | { kind: 'derived'; resources?: Resource[] };
+
+/** What the impact of a change is computed over; give it to `apply`, `impact`, `propose` or `resolve`. */
+export interface ImpactOptions {
+  source?: ImpactSource;
+  /** Attributes the questions run with. */
+  env?: Record<string, unknown>;
+  /** Caps on the parties and decisions; hitting one marks the impact `partial`. */
+  limits?: { maxParties?: number; maxDecisions?: number };
+}
+
+export type Access = 'allowed' | 'denied' | 'indeterminate';
+
+/** One question whose answer the change moves. `subject` reads `user:alice`, `role:editor`, `anyone`. */
+export interface AccessChange {
+  subject: string;
+  permission: string;
+  resource: Resource;
+  field?: string;
+  before: Access;
+  after: Access;
+}
+
+/**
+ * Who gains and who loses access with a change. `indeterminate` holds what the change moves toward or away
+ * from a decision that could not be settled (a condition or an override that cannot be evaluated): it never
+ * counts as a gain. `partial`: a limit cut the answer, so more may gain or lose than is listed.
+ */
+export interface Impact {
+  gained: AccessChange[];
+  lost: AccessChange[];
+  indeterminate: AccessChange[];
+  permissions: string[];
+  checked: number;
+  partial: boolean;
+  notes?: string[];
+}
+
 export interface ApplyInput {
   actor: Subject;
   current: Grant[];
@@ -303,6 +391,8 @@ export interface ApplyInput {
   meta?: Record<string, unknown>;
   /** Instant the governance judges the actor's windows at, in ms UTC. Defaults to the system clock; an invalid one (`NaN`, negative, text) throws `INVALID_ARGUMENT`, and a clock before 1970 is an error, never `0`. Never take it from a client: a past instant revives expired windows. */
   now?: number | bigint;
+  /** Computes the impact of the change and returns it in `ApplyResult.impact`; at audit `detailed` or `forensic` the record carries a summary of it. */
+  impact?: ImpactOptions;
 }
 
 export interface TemplateGrant {
@@ -489,7 +579,12 @@ export interface ApplyResult {
   audit?: Record<string, unknown> | null;
   /** With `audit`: `pending` means the sink failed in `open` mode and the record waits in the queue. */
   auditStatus?: AuditDelivery | null;
+  /** With `ApplyInput.impact`, on an accepted change. */
+  impact?: Impact;
 }
+
+/** `ok: true` with the `impact` of the change, nothing applied; `ok: false` with the invariants' `violations`. */
+export type ImpactResult = { ok: true; impact: Impact } | { ok: false; violations: Violation[] };
 
 /** Who may approve a kind of change: whoever holds `permission` on `resource`. */
 export interface ApprovalRule {
@@ -512,6 +607,8 @@ export interface PendingRequest {
   requestedAt: number;
   expiresAt?: number;
   status: PendingStatus;
+  /** The impact when the request was proposed, when `ProposeInput.impact` asked for it. */
+  impact?: Impact;
 }
 
 /** What `propose`, `resolve` and `expire` share with `apply`: the state they judge against and the audit. */
@@ -525,6 +622,8 @@ export interface ApprovalFlowInput {
   audit?: ApplyInput['audit'];
   meta?: Record<string, unknown>;
   now?: number | bigint;
+  /** Computes the impact: `propose` keeps it in the request, `resolve` recomputes it against `current`. */
+  impact?: ImpactOptions;
 }
 
 export interface ProposeInput extends ApprovalFlowInput {
@@ -542,6 +641,18 @@ export interface ResolveInput extends ApprovalFlowInput {
   decision: 'approve' | 'reject';
   /** Required by `reject`. */
   reason?: string;
+}
+
+export interface ReviewImpactInput extends ApprovalFlowInput {
+  request: PendingRequest;
+}
+
+/** The impact of a pending request as proposed and as it would be over `current` now; `changed` when they differ. */
+export interface ReviewImpactResult {
+  ok: true;
+  proposed?: Impact;
+  current?: Impact;
+  changed: boolean;
 }
 
 export interface ExpireInput extends ApprovalFlowInput {
@@ -571,7 +682,7 @@ export type ProposeResult = ApprovalAudit &
  */
 export type ResolveResult = ApprovalAudit &
   (
-    | { ok: true; request: PendingRequest; grants?: Grant[]; subject?: Subject }
+    | { ok: true; request: PendingRequest; grants?: Grant[]; subject?: Subject; proposedImpact?: Impact }
     | { ok: false; code: 'REFUSED'; violations: Violation[] }
     | { ok: false; code: 'EXPIRED'; request: PendingRequest }
     | { ok: false; code: 'NOT_PENDING' }
@@ -819,6 +930,12 @@ export declare class Engine<P extends string = string> {
    * request, if any, is ignored. A condition that cannot be evaluated never opens a field.
    */
   allowedFields(context: Context, request: DecisionRequest<P>, now?: number | bigint): FieldSet;
+  /**
+   * For a denied request, the changes that would allow it, smallest and most specific first, each one
+   * verified by deciding again on a copy. `null` when the request is already allowed. `options` narrow
+   * the limits of the context for the call.
+   */
+  whyNot(context: Context, request: DecisionRequest<P>, now?: number | bigint, options?: WhyNotOptions): Remedies | null;
   /** `allowedFields` with the grants that gave and the ones that took away each field. */
   explainFields(context: Context, request: DecisionRequest<P>, now?: number | bigint): FieldExplanation;
   /**
@@ -837,6 +954,10 @@ export declare class Engine<P extends string = string> {
   /** Materializes and applies the batch through the governance, in `depends_on` order. */
   applyTemplate(input: ApplyTemplateInput): ApplyTemplateResult;
   /** Applies the change at once, or leaves it as a pending request when `approval` asks for approval of its kind. Nothing is stored: keep `request` (see `Approvals` in `@the-hades-organization/strig/approvals`). */
+  /** What `mutation` would do to access, before applying it: who gains, who loses, what cannot be settled. */
+  impact(input: ApplyInput): ImpactResult;
+  /** The impact of a pending request as proposed and as it would be now, for the approver. */
+  reviewImpact(input: ReviewImpactInput): ReviewImpactResult;
   propose(input: ProposeInput): ProposeResult;
   /** Approves or refuses `request`. The author never decides their own request; an approval judges the change again over `current`. */
   resolve(input: ResolveInput): ResolveResult;

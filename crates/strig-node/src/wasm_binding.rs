@@ -359,6 +359,22 @@ impl WasmEngine {
         )
     }
 
+    #[wasm_bindgen(js_name = whyNot)]
+    pub fn why_not(
+        &self,
+        ctx: &WasmContext,
+        request: JsValue,
+        now: JsValue,
+        options: JsValue,
+    ) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .why_not(&ctx.inner, from_js(request)?, now_of(now)?, optional(options)?)
+                .map_err(err)?,
+        )
+    }
+
     #[wasm_bindgen(js_name = allowedFields)]
     pub fn allowed_fields(&self, ctx: &WasmContext, request: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
         to_js(
@@ -471,6 +487,25 @@ impl WasmEngine {
             &self
                 .inner
                 .apply(from_js(input)?, crate::millis("now", js_sys::Date::now()))
+                .map_err(err)?,
+        )
+    }
+
+    pub fn impact(&self, input: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .impact(from_js(input)?, crate::millis("now", js_sys::Date::now()))
+                .map_err(err)?,
+        )
+    }
+
+    #[wasm_bindgen(js_name = reviewImpact)]
+    pub fn review_impact(&self, input: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .review_impact(from_js(input)?, crate::millis("now", js_sys::Date::now()))
                 .map_err(err)?,
         )
     }
