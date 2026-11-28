@@ -28,6 +28,7 @@ The core does no IO, needs no async runtime and compiles to WebAssembly. Real ti
 cargo add strig                             # Rust
 cargo add strig --features dsl              # Rust, with the policy language
 npm install @the-hades-organization/strig   # Node, Bun and the browser
+pip install strig-authz                     # Python (import strig)
 ```
 
 Features of the `strig` crate:
@@ -100,7 +101,7 @@ cargo run -p strig-axum --example server      # real-time server over SSE and We
 
 ## Crates
 
-All crates except `strig-inspect` and `strig-node` are on crates.io at the same version.
+All crates except `strig-inspect`, `strig-node` and `strig-python` are on crates.io at the same version.
 
 | Crate | Use it for | Main dependencies |
 |---|---|---|
@@ -112,6 +113,7 @@ All crates except `strig-inspect` and `strig-node` are on crates.io at the same 
 | `strig-server` | HTTP decision server, and a Rust client that denies when it gets no answer | `axum`, `hyper-util` (client) |
 | `strig-macros` | `policy!` and `include_policy!`: the policy is validated at compile time | `strig` |
 | `strig-node` | The npm package: native module (N-API) for Node and Bun, WebAssembly for the browser | `napi` or `wasm-bindgen` |
+| `strig-python` | The PyPI package `strig-authz` (`import strig`): native extension (PyO3, abi3) over the same core as `strig-node` | `pyo3` |
 | `strig-inspect` | Inspector: decision traces, grant simulation, access matrix, audit trail. Desktop window and terminal commands | `gpui-pre`, `gpui-component` |
 
 ```toml
@@ -883,6 +885,46 @@ const rows2 = await db.selectFrom('document').selectAll().where(kyselyWhere).exe
 
 The unit tests check the object each adapter builds, and an oracle runs every scenario (allow by kind, by anchor, by exact id, denies that cut, a condition that stays a residue) against SQLite (Drizzle and Kysely) and an evaluator of the Prisma shape, comparing the rows with the ids `engine.list` resolves. TypeORM, Sequelize and MikroORM have no adapter yet; the mapping and the compiler (`bounds`, `Emitter`) are what a new one would reuse.
 
+## Python
+
+`strig-authz` is the Python binding over the same engine and the same JSON `EngineSpec` as the Rust and JavaScript APIs: a native extension (PyO3), one `abi3` wheel per platform for Python 3.9 and later, with type stubs (`py.typed`).
+
+```sh
+pip install strig-authz
+```
+
+```python
+import strig
+from strig import dsl
+
+spec = dsl.load_project_dir("policies")          # or a plain dict: the EngineSpec JSON
+engine = strig.Engine(spec)
+
+ctx = strig.Context(grants, tuples=[...], env={"dept": "eng"}, now=1_700_000_000_000)
+ctx.add_grant(grant); ctx.remove_grant("g1"); ctx.set_now(None)
+
+request = {"subject": {"kind": "user", "id": "ana"}, "permission": "project.edit",
+           "resource": strig.scope_from_string("project:p1/org:o1")}
+engine.check(ctx, request)                        # bool
+engine.decide(ctx, request)                       # {"effect": "allow", "matched": [...], "reason": {...}}
+engine.explain(ctx, request)                      # the trace
+engine.check_many(ctx, [request, other], now=1_700_000_000_000)
+engine.list(ctx, subject, "project.view", "project")
+engine.who_can(ctx, "project.view")
+
+result = engine.apply({"actor": actor, "current": grants, "mutation": {"add": grant},
+                       "invariants": [{"kind": "custom", "name": "role_in_use"}],
+                       "audit": {"level": "forensic", "failMode": "open"}})
+```
+
+- **Same JSON, same names.** Arguments and results are the dicts and lists the JavaScript API takes and returns, with the same camelCase fields (`validFrom`, `grantId`, `auditStatus`); methods and keyword arguments are snake_case (`check_many`, `who_can_on`, `audit_sink`). Anything that is not JSON (`nan`, a `set`, a non-text key, an int over 64 bits) is refused with `INVALID_ARGUMENT`; nothing is coerced.
+- **Errors are exceptions with a `code`.** A failed call raises `strig.StrigError` with `.code` equal to the `errorCode` of the JavaScript binding (`INVALID_INPUT`, `INVALID_ARGUMENT`, `UNKNOWN_SUBJECT`, `REENTRANT_CALL`, ...); match on the code, not on the message. The policy language raises `strig.DslError` (a `StrigError`) with `.diagnostics`.
+- **Rules written in Python.** `Engine(spec, conditions={...}, overrides=[{"name": ..., "except": [...], "evaluate": fn}], invariants={...}, audit_sink=fn, audit_redact=fn, on_audit_drop=fn, audit_policy={...})` take synchronous callables with the same contract as the JavaScript hooks: an exception denies (a condition that raises does not grant, an override that raises answers `denied`, an invariant that raises refuses with its message), a coroutine is a wrong answer, and a callback that calls the engine or changes a `Context` gets `REENTRANT_CALL`. The GIL stays held during a call, so a callback runs on the thread that is deciding.
+- **Time is explicit.** Every method that decides takes an optional `now` (ms UTC) that wins over `ctx.set_now`; without one the engine fails closed on validity windows. The system clock is used only by `apply`/`propose` for the audit record and by `Exclusive` when `now` is omitted.
+- `strig.Exclusive(...)`, `strig.verify_audit_chain(records, anchors)` and `strig.audit_estimate(level, records)` mirror the JavaScript ones. `strig.dsl` has `compile`, `print`, `convert`, `format`, `is_formatted`, `load_project` and `load_project_dir`.
+
+To build it from the repository: `pip install maturin && cd crates/strig-python && maturin develop && pytest`.
+
 ## Policy language
 
 With the `dsl` feature, a policy can be written as text instead of JSON. The same policy has three syntaxes, Blocks, Rules and Actors, and `convert` moves between them. Every error carries a position and a hint. The validated JSON stays the source of truth.
@@ -1074,8 +1116,8 @@ Files reload when they change on disk. The window follows the system light or da
 
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --exclude strig-inspect --all-targets -- -D warnings
-cargo test --workspace --exclude strig-inspect
+cargo clippy --workspace --exclude strig-inspect --exclude strig-python --all-targets -- -D warnings
+cargo test --workspace --exclude strig-inspect --exclude strig-python
 cargo test -p strig-inspect --no-default-features
 
 # transports against real servers (skipped without the variables)

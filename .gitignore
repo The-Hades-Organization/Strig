@@ -9,3 +9,9 @@ crates/strig-node/js/README.md
 /crates/strig-node/js/dist-test/
 /playground/dist-node/
 /playground/node_modules/
+/crates/strig-python/.venv/
+/crates/strig-python/.pytest_cache/
+/crates/strig-python/.mypy_cache/
+/crates/strig-python/python/strig/*.so
+/crates/strig-python/python/strig/*.pyd
+__pycache__/

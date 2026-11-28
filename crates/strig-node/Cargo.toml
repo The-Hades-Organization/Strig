@@ -19,6 +19,8 @@ crate-type = ["cdylib", "rlib"]
 [features]
 ## Módulo nativo para Node e Bun (N-API).
 napi = ["dep:napi", "dep:napi-derive", "dsl-fs"]
+## Expose the policy-language functions to another binding crate (Python) that reuses this core.
+dsl = []
 ## Ler um diretório de políticas (`loadProjectDir`); o wasm não tem IO.
 dsl-fs = ["strig/dsl-fs"]
 ## WebAssembly para navegador, Deno e fallback do Node/Bun.

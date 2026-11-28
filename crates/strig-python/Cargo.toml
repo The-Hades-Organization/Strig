@@ -1,0 +1,28 @@
+[package]
+name = "strig-python"
+description = "Python bindings for Strig: a native extension (PyO3, abi3) over the same engine and the same JSON spec as the Rust and JavaScript APIs."
+keywords = ["authorization", "python", "pyo3"]
+categories = ["authentication"]
+readme = "../../README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "_native"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+## Build the importable extension module. Off for `cargo test`/`clippy` of the workspace, which
+## link against libpython instead.
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+strig-node = { path = "../strig-node", features = ["dsl", "dsl-fs"] }
+serde_json.workspace = true
+pyo3 = { version = "0.30", features = ["abi3-py39"] }
