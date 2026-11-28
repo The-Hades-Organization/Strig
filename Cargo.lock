@@ -6886,6 +6886,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "strig-wasi"
+version = "0.8.0"
+dependencies = [
+ "serde_json",
+ "strig-node",
+]
+
+[[package]]
 name = "string_cache"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -4,19 +4,22 @@ Strig follows [Semantic Versioning](https://semver.org/). This page says what th
 breaking change in each part of it, how versions behave before and after 1.0, which toolchains are supported, and how
 a feature is deprecated before it is removed.
 
-All crates, the npm package and the Python package share one version number. A release bumps them together.
+All crates, the npm package, the Python package, the Go module tag and the Java artifact share one version number. A release bumps them together.
 
 ## What is public API
 
 | Surface | What is covered |
 |---|---|
-| **Rust crates** | Everything reachable from the public items of `strig`, `strig-sync`, `strig-redis`, `strig-postgres`, `strig-axum`, `strig-macros` and `strig-server` with the documented feature flags. The `strig-node`, `strig-python` and `strig-inspect` crates are not libraries: their API is the npm package, the Python package and the command line below. |
+| **Rust crates** | Everything reachable from the public items of `strig`, `strig-sync`, `strig-redis`, `strig-postgres`, `strig-axum`, `strig-macros` and `strig-server` with the documented feature flags. The `strig-node`, `strig-python`, `strig-wasi` and `strig-inspect` crates are not libraries: their API is the npm package, the Python package, the Go and Java bindings and the command line below. |
 | **npm package** | The exports of `@the-hades-organization/strig` and its subpaths (`/client`, `/server`, `/protocol`, `/remote`, `/express`, `/fastify`, `/nestjs`, `/store`, `/testing`, `/types`), their TypeScript types, and the `strig-types` command. |
 | **Python package** | The exports of `strig` (`pip install strig-auth`): `Engine`, `Context`, `Exclusive`, `StrigError`, `DslError`, `scope_from_string`, `audit_estimate`, `verify_audit_chain` and `strig.dsl`, their method names and keyword arguments, and the type stubs. Values are the same JSON as the JavaScript API, with the same camelCase field names. |
+| **Go module** | The exports of `github.com/The-Hades-Organization/Strig/bindings/go`: `Engine`, `Context`, `Decision`, `Error`, `CodeOf`, `WithNow`, `Compile`, `Format` and their methods. Values are the same JSON as the JavaScript API, with the same camelCase field names. |
+| **Java and Kotlin package** | The public classes of `io.github.the-hades-organization:strig` (`Engine`, `Context`, `Decision`, `StrigException`, `Strig`) and their methods. Values are the same JSON as the JavaScript API. |
+| **Wasm ABI** | The exports of `strig-<version>.wasm` (`memory`, `strig_alloc`, `strig_free`, `strig_call`), the operation names and JSON inputs of `strig_call`, and the envelope it answers with. |
 | **Policy language** | The grammar and meaning of the three syntaxes (Blocks, Rules, Actors) described in [dsl.md](dsl.md), and the canonical JSON the parser produces. |
 | **JSON spec** | The shape of `EngineSpec`, `Grant`, `Condition`, `Catalog`, the exported catalog and the files read by the JSON store, including their `schema` numbers (`DSL_SCHEMA` for the policy JSON). |
 | **Audit format** | The canonical form of a record and the hash of the chain, fixed in [audit-format.md](audit-format.md), with its test vector. |
-| **`errorCode`s** | The `code` of every error the JS and Python bindings raise (`ErrorCode`) and the stable machine-readable names the Rust errors map to. |
+| **`errorCode`s** | The `code` of every error the JS, Python, Go and Java bindings raise (`ErrorCode`) and the stable machine-readable names the Rust errors map to. |
 | **Wire protocol** | The messages of `strig-sync`, `strig-server` and the JS `/protocol` module. |
 | **`strig-inspect` command line** | Subcommands, flags and exit codes. The window and the text of messages are not covered. |
 
@@ -32,6 +35,10 @@ trait that users implement (`AuditSink`, `Invariant`, `ExclusiveStore`, `TupleSt
 to a public enum or a field to a public struct that is not `#[non_exhaustive]`, since an exhaustive `match` or a struct
 literal stops compiling; changing a default feature; raising the MSRV (see below); changing what a method returns for
 the same input in a way a caller can observe.
+
+**Go and Java packages.** Removing or renaming an exported function, type, method or exception; changing the `Code` of an error; dropping a supported Go or Java version; changing a result field. Adding a method or an optional argument is not breaking.
+
+**Wasm ABI.** Changing the signature of an export, removing or renaming an operation, or changing the envelope. New operations and new optional input fields are not breaking.
 
 **Python package.** Removing or renaming a function, class, method, keyword argument or exception; changing the `code` of an error; dropping a supported Python version; changing a result field. Adding a keyword argument with a default is not breaking.
 
@@ -75,6 +82,7 @@ the larger ones are written out in [migration.md](migration.md).
   change before 1.0 as well; from 1.0 it needs a major version, except when the runtime has been end-of-life for more
   than six months.
 - **Python**: 3.9 or newer (CPython, one `abi3` wheel per platform covers every later version). Dropping a version is a breaking change before 1.0 as well; from 1.0 it needs a major version, except when the version has been end-of-life for more than six months. Wheels: `linux-x64` and `linux-arm64` (manylinux), `darwin-x64`, `darwin-arm64`, `win32-x64`; the source distribution builds on anything else with a Rust toolchain.
+- **Go**: 1.22 or newer (`go` in `bindings/go/go.mod`). **Java**: 17 or newer, and Kotlin on any version that targets it. Dropping a version is a breaking change before 1.0 as well; from 1.0 it needs a major version, except when the runtime has been end-of-life for more than six months. Both run the engine on a WebAssembly runtime written in the host language, so any OS and architecture that runs Go or the JVM is supported.
 - **Browsers and others**: the WebAssembly backend needs WebAssembly with the features the shipped `.wasm` uses; the
   `browser` export of the package is built for current evergreen browsers.
 - **Platforms with a native module**: `linux-x64` and `linux-arm64` (glibc), `darwin-x64`, `darwin-arm64`,

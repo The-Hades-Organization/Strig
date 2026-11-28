@@ -24,6 +24,9 @@ jobs:
           echo "tag=$tag workspace=$crate npm=$npm"
           test "$tag" = "$crate"
           test "$tag" = "$npm"
+          pom="$(sed -n 's#^  <version>\(.*\)</version>#\1#p' bindings/jvm/pom.xml | head -1)"
+          echo "pom=$pom"
+          test "$tag" = "$pom"
 
   crates:
     name: crates.io
@@ -117,6 +120,25 @@ jobs:
           path: crates/strig-node/js/wasm/
           if-no-files-found: error
 
+  wasi:
+    name: wasi module
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: The Go module at this tag embeds this engine
+        run: sh bindings/scripts/build-wasi.sh check
+      - name: Build the C-ABI WebAssembly module
+        run: sh bindings/scripts/build-wasi.sh jvm
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wasi
+          path: bindings/jvm/wasm/strig.wasm
+          if-no-files-found: error
+
   sbom:
     name: SBOM
     needs: verify
@@ -146,7 +168,7 @@ jobs:
 
   github-release:
     name: GitHub release
-    needs: [native, wasm, sbom]
+    needs: [native, wasm, wasi, sbom]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -166,6 +188,10 @@ jobs:
           path: wasm
       - uses: actions/download-artifact@v8
         with:
+          name: wasi
+          path: wasi
+      - uses: actions/download-artifact@v8
+        with:
           name: sbom
           path: sbom
       - name: Name the assets after the package and version
@@ -178,6 +204,7 @@ jobs:
             cp "$f" "dist/strig-$version-${platform#strig.}.node"
           done
           tar czf "dist/strig-$version-wasm.tar.gz" wasm
+          cp wasi/strig.wasm "dist/strig-$version.wasm"
           test "$(ls dist/*.node | wc -l)" -eq 5
           (cd dist && sha256sum * > SHA256SUMS)
           ls -l dist

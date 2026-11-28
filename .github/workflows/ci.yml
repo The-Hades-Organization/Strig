@@ -142,3 +142,47 @@ jobs:
           .venv/bin/maturin develop
           .venv/bin/mypy --strict python/strig
           .venv/bin/python -m pytest -q tests
+
+  go:
+    name: go binding
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: bindings/go/go.mod
+          cache-dependency-path: bindings/go/go.sum
+      - name: Build the module and test against it (not against the committed one)
+        run: |
+          sh bindings/scripts/build-wasi.sh jvm
+          gzip -9 -n -c bindings/jvm/wasm/strig.wasm > bindings/go/strig.wasm.gz
+      - working-directory: bindings/go
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -count=1 -race ./...
+
+  jvm:
+    name: jvm binding
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: bindings/jvm/pom.xml
+      - run: sh bindings/scripts/build-wasi.sh jvm
+      - working-directory: bindings/jvm
+        run: mvn -B -ntp verify

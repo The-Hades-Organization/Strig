@@ -1,0 +1,21 @@
+[package]
+name = "strig-wasi"
+description = "Plain C-ABI WebAssembly build of the Strig engine for non-JavaScript hosts (Go, JVM): no wasm-bindgen, JSON in and out."
+keywords = ["authorization", "wasm", "go", "jvm"]
+categories = ["authentication", "wasm"]
+readme = "../../README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+strig-node = { path = "../strig-node", features = ["dsl"] }
+serde_json.workspace = true
