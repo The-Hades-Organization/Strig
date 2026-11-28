@@ -59,6 +59,7 @@ enum Step {
 }
 
 /// What a record says, before it becomes an audit record.
+#[cfg_attr(not(feature = "audit"), allow(dead_code))]
 struct Trace {
     campaign: String,
     item: Option<String>,
@@ -111,6 +112,7 @@ pub enum RecertError {
 }
 
 impl RecertError {
+    #[cfg_attr(not(feature = "audit"), allow(dead_code))]
     fn refused(invariant: &str, message: impl Into<String>) -> Self {
         Self::Refused(vec![Violation::new(invariant, message)])
     }
