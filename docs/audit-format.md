@@ -198,7 +198,8 @@ An elevation (`Elevations` in Rust, `elevate` in the bindings) uses the same act
 record's metadata carrying `elevation`, `request_id`, `justification`, and, on a break-glass, `break_glass`
 and `approved_by` (the actor). The break-glass records (the approval and `elevation_review`) are written under
 `FailMode::Closed` and need an auditor at `forensic`; a revocation is a `grant_remove` or `role_revoke`
-with `revoked_by` and `reason`.
+with `revoked_by` and `reason`. A request for a role or permission the policy does not list is a
+`mutation_propose` with outcome `rejected`, the violation `not_in_policy` and `refusal: not_in_policy` in the metadata.
 
 An approval writes `mutation_approve` first and then the `grant_add`/`grant_remove`/`role_*` record of the
 change itself, with the author as `actor` and the approver in `meta.approved_by` and the request id in

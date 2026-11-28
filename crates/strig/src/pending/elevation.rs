@@ -53,6 +53,7 @@ use crate::resource::{Anchor, Resource};
 use crate::subject::{RoleAssignment, Subject};
 
 const ELEVATION: &str = "elevation_policy";
+const NOT_IN_POLICY: &str = "not_in_policy";
 const ELEVATION_ACTOR: &str = "elevation_actor";
 const ELEVATION_DURATION: &str = "elevation_duration";
 const ELEVATION_JUSTIFICATION: &str = "elevation_justification";
@@ -456,9 +457,9 @@ impl<'a> Elevations<'a> {
         req: &ElevationRequest,
         expires_at: Option<u64>,
     ) -> Result<Elevated, ApprovalError> {
-        let rule = self.policy.rule_for(&req.target).ok_or_else(|| {
-            ApprovalError::refused(ELEVATION, "a política não prevê a elevação deste papel ou permissão")
-        })?;
+        let Some(rule) = self.policy.rule_for(&req.target) else {
+            return Err(self.not_in_policy(review, req, expires_at));
+        };
         let approval_rule = |mutation: &Mutation| ApprovalRule {
             kind: mutation.kind(),
             permission: rule.approver_permission.clone(),
@@ -502,6 +503,43 @@ impl<'a> Elevations<'a> {
         }
         self.break_glass(review, req, &approvals, &approval_rule, draft, info)
             .map(Elevated::Active)
+    }
+
+    /// A request for a role or permission the policy does not list is an attempt to escalate: it is
+    /// refused and audited at the auditor's level, with no rule to take the approver permission from.
+    fn not_in_policy(&self, review: &Review<'_>, req: &ElevationRequest, expires_at: Option<u64>) -> ApprovalError {
+        let draft = mutation_for(
+            &req.actor,
+            &req.target,
+            &req.id,
+            review.now,
+            review.now.saturating_add(req.duration_ms),
+        );
+        let info = ElevationInfo {
+            target: req.target.clone(),
+            duration_ms: req.duration_ms,
+            justification: req.justification.clone(),
+            break_glass: req.break_glass,
+            valid_until: None,
+            review: req.break_glass.then_some(ReviewState::Pending),
+            revoked: None,
+        };
+        let request = placeholder(req, &draft, review.now, expires_at, &info);
+        let rule = ApprovalRule {
+            kind: draft.kind(),
+            permission: String::new(),
+            resource: Resource::new("", ""),
+        };
+        let policy = ApprovalPolicy::new();
+        let violations = vec![Violation::new(
+            NOT_IN_POLICY,
+            "a política não prevê a elevação deste papel ou permissão",
+        )];
+        let mut meta = elevation_meta(review.meta, &req.id, &info);
+        meta.insert("refusal".into(), Value::Str(NOT_IN_POLICY.into()));
+        let at = Review { meta: &meta, ..*review };
+        self.approvals(&policy, false)
+            .refusal(&at, &req.actor, Step::Propose, &request, violations, None, &rule)
     }
 
     fn request_violations(&self, review: &Review<'_>, req: &ElevationRequest, rule: &ElevationRule) -> Vec<Violation> {

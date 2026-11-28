@@ -4,7 +4,7 @@ mod support;
 
 use std::sync::Arc;
 
-use strig::audit::{AuditAction, AuditLevel, Auditor, FailMode, MemoryAuditLog, verify_chain};
+use strig::audit::{AuditAction, AuditLevel, AuditOutcome, Auditor, FailMode, MemoryAuditLog, verify_chain};
 use strig::{
     ApprovalError, Attributes, CatalogConformance, Elevated, ElevationPolicy, ElevationRequest, ElevationRule,
     ElevationTarget, Elevations, Governance, Grant, MemoryPendingStore, PendingStatus, PendingStore, Review,
@@ -177,14 +177,34 @@ fn a_request_without_justification_is_refused() {
 }
 
 #[test]
-fn a_target_the_policy_does_not_list_is_refused() {
+fn a_target_the_policy_does_not_list_is_refused_and_audited() {
     let scene = Scene::new();
-    let gov = governance();
+    let (gov, log) = audited(AuditLevel::Standard);
     let (policy, store) = (ElevationPolicy::new(), MemoryPendingStore::new());
     let flow = Elevations::new(&gov, &policy, &store);
 
     let error = flow.request(&scene.review(T0), &ask("e1", HOUR), None).unwrap_err();
-    assert_eq!(violations_of(error), ["elevation_policy"]);
+    assert_eq!(violations_of(error), ["not_in_policy"]);
+    assert!(store.list().unwrap().is_empty());
+    let records = log.records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].actor, "ana");
+    assert_eq!(records[0].outcome, AuditOutcome::Rejected);
+    assert_eq!(records[0].violations, ["not_in_policy"]);
+    assert_eq!(records[0].level, AuditLevel::Standard);
+}
+
+#[test]
+fn a_failing_sink_on_a_not_in_policy_refusal_still_refuses() {
+    let scene = Scene::new();
+    let sink = |_: &strig::AuditRecord| Err(strig::AuditError::Sink("fora do ar".into()));
+    let auditor = Auditor::new(AuditLevel::Standard, Arc::new(sink)).with_fail_mode(FailMode::Closed);
+    let gov = governance().audited(Arc::new(auditor));
+    let (policy, store) = (ElevationPolicy::new(), MemoryPendingStore::new());
+    let flow = Elevations::new(&gov, &policy, &store);
+
+    let error = flow.request(&scene.review(T0), &ask("e1", HOUR), None).unwrap_err();
+    assert_eq!(violations_of(error), ["audit"]);
 }
 
 #[test]
