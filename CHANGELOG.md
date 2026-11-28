@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- JS binding: `engine.checkMany(ctx, requests)` and `engine.explainMany(ctx, requests)` decide a batch in one crossing of the boundary against one `Context` and one instant.
+
+### Changed
+
+- JS binding: `check`, `decide` and `explain` send a plain-JSON request as one string and read the decision back as one string, instead of walking objects through N-API/wasm-bindgen; `decide/simple` on Node native goes from 16.1 µs to 6.5 µs and `check` takes 3.5 µs. Requests that are not plain JSON keep the original path, with the same errors.
+
 ### Fixed
 
 - The release workflow now generates the npm SBOM from a full `npm ci` with `--omit dev --omit peer`; the `--omit=dev` install left the peer and dev dependencies missing and failed the SBOM job, which skipped the GitHub release. The READMEs no longer say custom `call` conditions and overrides exist only in Rust.

@@ -79,6 +79,30 @@ Reading them:
   filter from JS.
 - An `auditSink` adds one JavaScript call per record, about 5 µs on Node native.
 
+## JavaScript: the boundary, before and after
+
+Where a `check` spent its time on Node native (before the change, `decide/simple` 16.1 µs against 0.48 µs in Rust): the
+floor of an empty N-API call is 0.25 µs; reading the request object property by property through N-API cost about
+0.7 µs per leaf value, around 12 µs for the request of `decide/simple`; the engine, 0.5 µs. `JSON.stringify` of the
+same request takes 0.77 µs and parsing it in Rust 0.73 µs. The `Context` already held the grants on the Rust side, so
+the grants were never the cost; the request and the response were. The wasm glue (`serde-wasm-bindgen`) showed the same
+shape (`check` 15.6 µs).
+
+The binding now crosses with one string (`JSON.stringify` in, `JSON.parse` out for `decide`/`explain`), and `checkMany`
+amortises the call over a batch. After, with 100 requests per batch (median):
+
+| Case | Node, native | Node, wasm | Bun, native | Bun, wasm |
+|---|---|---|---|---|
+| `decide/simple` | 6.5 µs | 9.3 µs | 5.1 µs | 8.6 µs |
+| `check/simple` | 3.5 µs | 4.5 µs | 2.6 µs | 3.3 µs |
+| `checkMany/simple`, per decision | 2.5 µs | 3.7 µs | 2.5 µs | 3.2 µs |
+
+The goal of `decide/simple` below 2 µs on Node native is **not reached**. A `check` costs at least `JSON.stringify`
+0.77 µs + the Rust parse 0.73 µs + the engine 0.49 µs + the call 0.25 µs, about 2.3 µs, and a `decide` adds building,
+serialising (about 1.6 µs) and `JSON.parse`-ing the `Decision`. Below that needs the request to stop being text, for
+example handles to a subject and a resource prepared once, which is a different API. `checkMany` per decision
+(2.5 µs) is the closest, and `check` is the cheapest answer for a single request.
+
 ## Reproduce
 
 Rust, from the repository root:
