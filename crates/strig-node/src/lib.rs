@@ -798,6 +798,58 @@ impl EngineHandle {
         ))
     }
 
+    /// For a denial, the verified changes that would allow it (`strig::Remedies`); `null` when the
+    /// request is already allowed. The limits of the context (`maxDecisions`) bound the
+    /// verifications; `options.maxRemedies` and `options.maxDecisions` narrow them for the call.
+    pub fn why_not(
+        &self,
+        ctx: &ContextData,
+        request: Value,
+        now: Option<u64>,
+        options: Option<Value>,
+    ) -> BindingResult<Value> {
+        let input: RequestInput = parse("request", request)?;
+        let options = self.why_not_options(ctx, options)?;
+        host::forbid_reentry()?;
+        Ok(to_value(&self.engine.why_not(
+            &ctx.context_at(now),
+            &input.request(),
+            &options,
+        )))
+    }
+
+    fn why_not_options(&self, ctx: &ContextData, options: Option<Value>) -> BindingResult<strig::WhyNotOptions> {
+        let mut out = strig::WhyNotOptions::default();
+        if let Some(limits) = ctx.limits {
+            out = out.with_limits(limits);
+        }
+        let Some(options) = options else {
+            return Ok(out);
+        };
+        let Value::Object(map) = options else {
+            return Err(BindingError::invalid_input("options", "esperado um objeto"));
+        };
+        if let Some(unknown) = map
+            .keys()
+            .find(|k| !matches!(k.as_str(), "maxDecisions" | "maxRemedies"))
+        {
+            return Err(BindingError::invalid_input(
+                "options",
+                format!("campo desconhecido: {unknown}"),
+            ));
+        }
+        if let Some(decisions) = map.get("maxDecisions") {
+            let limits = out
+                .limits
+                .with_max_decisions(count_value("options.maxDecisions", decisions)?);
+            out = out.with_limits(limits);
+        }
+        if let Some(remedies) = map.get("maxRemedies") {
+            out = out.with_max_remedies(count_value("options.maxRemedies", remedies)?);
+        }
+        Ok(out)
+    }
+
     /// The fields the request's subject may use for its permission on its resource
     /// (`strig::FieldSet`). The `field` of the request, if any, is ignored.
     pub fn allowed_fields(&self, ctx: &ContextData, request: Value, now: Option<u64>) -> BindingResult<Value> {

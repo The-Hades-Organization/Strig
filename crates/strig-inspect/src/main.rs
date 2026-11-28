@@ -91,6 +91,19 @@ fn run_inspect(args: Args) -> Result<(), String> {
                 )
                 .map_err(|e| e.to_string())?;
             print!("{}", render::explanation(&explanation));
+            if !explanation.decision.is_allowed() {
+                let asked = (
+                    need(&args.subject, "--subject")?,
+                    need(&args.permission, "--permission")?,
+                    need(&args.resource, "--resource")?,
+                );
+                let why = inspector
+                    .why_not_named(asked.0, asked.1, asked.2)
+                    .map_err(|e| e.to_string())?;
+                if let Some(why) = why {
+                    print!("\n{}", render::remedies(&why));
+                }
+            }
             Ok(())
         }
         Some("matrix") => {

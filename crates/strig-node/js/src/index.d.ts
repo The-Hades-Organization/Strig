@@ -239,6 +239,51 @@ export interface FieldExplanation {
   fields: FieldVerdict[];
 }
 
+/** What denied a request, as `Engine.whyNot` names it. */
+export type WhyNotCause =
+  /** An override ruled before the grants: no change of grants or roles undoes it. */
+  | { kind: 'override'; name: string }
+  | { kind: 'deny'; grantId: string; permission: string; target: { kind: string; id?: string } }
+  | { kind: 'no_applicable_grant' }
+  | { kind: 'unknown_permission' }
+  /** The permission is `override_only`: only an override can allow it. */
+  | { kind: 'override_only_permission' }
+  | { kind: 'missing_prerequisite'; prerequisite: string; cause: WhyNotCause };
+
+/** One change that, applied alone, makes the decision `allow`. */
+export type WhyNotChange =
+  | { kind: 'assign_role'; role: string; scope?: { kind: string; id?: string } }
+  /** The `id` of the grant is a placeholder. */
+  | { kind: 'add_grant'; grant: Grant }
+  | { kind: 'remove_deny'; grantId: string; permission: string; target: { kind: string; id?: string } }
+  | { kind: 'narrow_deny'; grantId: string; field: string }
+  /** The leaves that were false (`failed`) or could not be evaluated (`unresolved`); no value is suggested. */
+  | { kind: 'satisfy_condition'; grantId: string; failed?: string[]; unresolved?: string[] };
+
+/** A governance rule the remedy runs into, known to the catalog or to the shape of the change. */
+export type WhyNotCaveat = 'override_only' | 'management_only' | 'non_delegable' | 'affects_others';
+
+export type Remedy = WhyNotChange & {
+  /** Position of the path step the change acts on (0 = most specific). */
+  rank?: number;
+  caveats?: WhyNotCaveat[];
+};
+
+export interface Remedies {
+  cause: WhyNotCause;
+  /** Verified, smallest and most specific first. Empty when nothing alone would allow. */
+  remedies: Remedy[];
+  /** The verification budget or `maxRemedies` cut the list: there may be more. */
+  partial?: boolean;
+}
+
+export interface WhyNotOptions {
+  /** Cap on verifications (one decision each); defaults to the `maxDecisions` of the context's limits. */
+  maxDecisions?: number;
+  /** Most remedies returned (16 by default). */
+  maxRemedies?: number;
+}
+
 /** Strict when `P` is given (a union of ids), any string at the default. */
 export type PermissionArg<P extends string = string> = string extends P ? string : P;
 
@@ -885,6 +930,12 @@ export declare class Engine<P extends string = string> {
    * request, if any, is ignored. A condition that cannot be evaluated never opens a field.
    */
   allowedFields(context: Context, request: DecisionRequest<P>, now?: number | bigint): FieldSet;
+  /**
+   * For a denied request, the changes that would allow it, smallest and most specific first, each one
+   * verified by deciding again on a copy. `null` when the request is already allowed. `options` narrow
+   * the limits of the context for the call.
+   */
+  whyNot(context: Context, request: DecisionRequest<P>, now?: number | bigint, options?: WhyNotOptions): Remedies | null;
   /** `allowedFields` with the grants that gave and the ones that took away each field. */
   explainFields(context: Context, request: DecisionRequest<P>, now?: number | bigint): FieldExplanation;
   /**

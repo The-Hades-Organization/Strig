@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
-use strig::{Context, Effect, Engine, Explanation, Grant, InMemoryTuples, Request, Resource, Subject};
+use strig::{
+    Context, Effect, Engine, Explanation, Grant, InMemoryTuples, Remedies, Request, Resource, Subject, WhyNotOptions,
+};
 
 use crate::scenario::{LoadError, Scenario};
 
@@ -173,6 +175,26 @@ impl Inspector {
 
     pub fn explain_named(&self, subject: &str, permission: &str, resource: &str) -> Result<Explanation, InspectError> {
         Ok(self.explain(self.subject(subject)?, permission, self.resource(resource)?))
+    }
+
+    /// What would allow a denied request: the verified changes of [`Engine::why_not`], on the
+    /// simulation's grants. `None` when the request is already allowed.
+    pub fn why_not_named(
+        &self,
+        subject: &str,
+        permission: &str,
+        resource: &str,
+    ) -> Result<Option<Remedies>, InspectError> {
+        let (subject, resource) = (self.subject(subject)?, self.resource(resource)?);
+        let grants = self.active_grants();
+        let ctx = Context::new(&grants)
+            .with_tuples(&self.tuples)
+            .with_env(&self.scenario.env);
+        Ok(self.engine.why_not(
+            &ctx,
+            &Request::new(subject, permission, resource),
+            &WhyNotOptions::default(),
+        ))
     }
 
     fn decide_all(&self, grants: &[Grant], resource: &Resource, permissions: &[String]) -> Vec<Vec<Effect>> {
