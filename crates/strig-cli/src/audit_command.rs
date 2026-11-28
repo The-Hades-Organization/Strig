@@ -47,7 +47,10 @@ fn report(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         return usage(err, "`audit report` needs the trail file (JSON Lines)");
     };
     if !stamps.is_empty() && roots.is_empty() {
-        return usage(err, "`--timestamp` needs at least one `--root` (the CA certificates you trust)");
+        return usage(
+            err,
+            "`--timestamp` needs at least one `--root` (the CA certificates you trust)",
+        );
     }
     let text = match std::fs::read_to_string(trail) {
         Ok(text) => text,
@@ -62,7 +65,10 @@ fn report(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     }
 
     let report = ConformanceReport::from_json_lines(&text, &anchors);
-    let checks = stamps.iter().map(|path| check_stamp(path, report.chain.head.as_deref(), &trusted)).collect();
+    let checks = stamps
+        .iter()
+        .map(|path| check_stamp(path, report.chain.head.as_deref(), &trusted))
+        .collect();
     let report = report.with_timestamps(checks);
 
     if json {
@@ -77,7 +83,9 @@ fn report(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
 }
 
 fn check_stamp(path: &str, head: Option<&str>, trusted: &[Vec<u8>]) -> TimestampCheck {
-    let label = Path::new(path).file_name().map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned());
+    let label = Path::new(path)
+        .file_name()
+        .map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned());
     let Some(head) = head else {
         return TimestampCheck::failed(label, "HEAD_UNAVAILABLE");
     };
@@ -143,12 +151,25 @@ pub fn human(report: &ConformanceReport) -> String {
     for stamp in &report.timestamps {
         match (&stamp.time, &stamp.error) {
             (Some(time), _) => writeln!(text, "timestamp {}: ok ({time})", stamp.label).ok(),
-            (None, error) => {
-                writeln!(text, "timestamp {}: FAILED ({})", stamp.label, error.as_deref().unwrap_or("unknown")).ok()
-            }
+            (None, error) => writeln!(
+                text,
+                "timestamp {}: FAILED ({})",
+                stamp.label,
+                error.as_deref().unwrap_or("unknown")
+            )
+            .ok(),
         };
     }
-    writeln!(text, "\n{}", if report.is_conforming() { "conforming" } else { "NOT conforming" }).ok();
+    writeln!(
+        text,
+        "\n{}",
+        if report.is_conforming() {
+            "conforming"
+        } else {
+            "NOT conforming"
+        }
+    )
+    .ok();
     text
 }
 

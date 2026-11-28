@@ -58,9 +58,9 @@ pub mod resource;
 pub mod spec;
 pub mod strategy;
 pub mod subject;
+pub mod template;
 #[cfg(feature = "timestamp")]
 pub mod timestamp;
-pub mod template;
 pub mod validity;
 
 pub use attr::{Attributes, Value};

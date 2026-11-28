@@ -32,10 +32,10 @@ use strig::{
     RoleTemplate, Subject, Tuple,
 };
 
+pub use audit_proof::{verify_merkle_consistency, verify_merkle_inclusion, verify_timestamp};
 pub use error::{BindingError, BindingResult};
 pub use exclusive::ExclusiveHandle;
 pub use host::{AuditPolicy, HostCallbacks, HostFn, Redaction};
-pub use audit_proof::{verify_merkle_consistency, verify_merkle_inclusion, verify_timestamp};
 use query_json::{expr_json, parse_subject_ref, residual_json, shape_json, subject_ref_json, via_json};
 
 #[cfg(feature = "napi")]

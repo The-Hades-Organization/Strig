@@ -54,14 +54,21 @@ pub fn verify_merkle_inclusion(input: Value) -> BindingResult<Value> {
             merkle::record_leaf(&record).map_err(|e| BindingError::invalid_input("record", e))?
         }
         (None, Some(leaf)) => hash_of("leaf", &leaf)?,
-        _ => return Err(BindingError::invalid_input("input", "give exactly one of `record` and `leaf`")),
+        _ => {
+            return Err(BindingError::invalid_input(
+                "input",
+                "give exactly one of `record` and `leaf`",
+            ));
+        }
     };
     let proof = hashes_of("proof", &input.proof)?;
     let root = hash_of("root", &input.root)?;
-    Ok(match merkle::verify_inclusion(&leaf, input.index, input.size, &proof, &root) {
-        Ok(()) => out!({"ok": true}),
-        Err(error) => refusal(&error),
-    })
+    Ok(
+        match merkle::verify_inclusion(&leaf, input.index, input.size, &proof, &root) {
+            Ok(()) => out!({"ok": true}),
+            Err(error) => refusal(&error),
+        },
+    )
 }
 
 #[derive(Deserialize)]
@@ -81,10 +88,12 @@ pub fn verify_merkle_consistency(input: Value) -> BindingResult<Value> {
     let proof = hashes_of("proof", &input.proof)?;
     let first_root = hash_of("firstRoot", &input.first_root)?;
     let second_root = hash_of("secondRoot", &input.second_root)?;
-    Ok(match merkle::verify_consistency(input.first, input.second, &first_root, &second_root, &proof) {
-        Ok(()) => out!({"ok": true}),
-        Err(error) => refusal(&error),
-    })
+    Ok(
+        match merkle::verify_consistency(input.first, input.second, &first_root, &second_root, &proof) {
+            Ok(()) => out!({"ok": true}),
+            Err(error) => refusal(&error),
+        },
+    )
 }
 
 #[derive(Deserialize)]
@@ -146,8 +155,8 @@ pub fn verify_timestamp(input: Value) -> BindingResult<Value> {
     let response = base64_decode(&input.response)
         .ok_or_else(|| BindingError::invalid_input("response", "expected the DER response in base64"))?;
     let roots = pem_certificates(&input.roots);
-    let mut options = VerifyOptions::for_chain_head(&input.head, roots)
-        .map_err(|e| BindingError::invalid_input("head", e))?;
+    let mut options =
+        VerifyOptions::for_chain_head(&input.head, roots).map_err(|e| BindingError::invalid_input("head", e))?;
     if let Some(pem) = &input.certificates {
         options.certificates = pem_certificates(pem);
     }

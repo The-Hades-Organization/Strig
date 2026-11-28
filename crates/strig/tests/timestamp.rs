@@ -61,7 +61,10 @@ fn a_chain_head_request_stamps_the_head_bytes() {
 fn another_digest_is_refused() {
     let mut options = options();
     options.imprint = Sha256::digest(b"something else").to_vec();
-    assert_eq!(verify_response(RESPONSE, &options), Err(TimestampError::ImprintMismatch));
+    assert_eq!(
+        verify_response(RESPONSE, &options),
+        Err(TimestampError::ImprintMismatch)
+    );
 }
 
 #[test]
@@ -75,7 +78,10 @@ fn a_wrong_or_missing_nonce_is_refused() {
 fn a_wrong_policy_is_refused() {
     let mut options = options();
     options.policy = Some("1.2.3.5".into());
-    assert!(matches!(verify_response(RESPONSE, &options), Err(TimestampError::PolicyMismatch { .. })));
+    assert!(matches!(
+        verify_response(RESPONSE, &options),
+        Err(TimestampError::PolicyMismatch { .. })
+    ));
     options.policy = Some("1.2.3.4.1".into());
     assert!(verify_response(RESPONSE, &options).is_ok());
 }
@@ -91,7 +97,10 @@ fn without_a_trusted_root_everything_is_refused() {
 fn another_root_is_not_trusted() {
     let mut options = options();
     let mut other = root().remove(0);
-    let modulus = other.windows(5).position(|w| w == [0x02, 0x82, 0x02, 0x01, 0x00]).expect("a 4096-bit RSA modulus");
+    let modulus = other
+        .windows(5)
+        .position(|w| w == [0x02, 0x82, 0x02, 0x01, 0x00])
+        .expect("a 4096-bit RSA modulus");
     other[modulus + 100] ^= 0x01;
     options.trusted_roots = vec![other];
     assert!(verify_response(RESPONSE, &options).is_err());
@@ -141,6 +150,8 @@ fn truncated_and_empty_input_is_refused() {
 #[test]
 fn a_refusal_status_is_reported() {
     let refused = [0x30, 0x05, 0x30, 0x03, 0x02, 0x01, 0x02];
-    assert_eq!(verify_response(&refused, &options()), Err(TimestampError::NotGranted(2)));
+    assert_eq!(
+        verify_response(&refused, &options()),
+        Err(TimestampError::NotGranted(2))
+    );
 }
-

@@ -37,7 +37,10 @@ pub fn parse_json_lines(text: &str) -> (Vec<AuditRecord>, Vec<LineError>) {
         }
         match serde_json::from_str::<AuditRecord>(line) {
             Ok(record) => records.push(record),
-            Err(error) => errors.push(LineError { line: index + 1, message: error.to_string() }),
+            Err(error) => errors.push(LineError {
+                line: index + 1,
+                message: error.to_string(),
+            }),
         }
     }
     (records, errors)
@@ -167,7 +170,15 @@ impl TimestampCheck {
 
     /// A stamp that did not.
     pub fn failed(label: impl Into<String>, error: impl Into<String>) -> Self {
-        Self { label: label.into(), ok: false, gen_time: None, time: None, policy: None, serial: None, error: Some(error.into()) }
+        Self {
+            label: label.into(),
+            ok: false,
+            gen_time: None,
+            time: None,
+            policy: None,
+            serial: None,
+            error: Some(error.into()),
+        }
     }
 }
 
@@ -250,17 +261,28 @@ impl ConformanceReport {
                     refusals_without_invariant += 1;
                 }
                 for violation in &record.violations {
-                    *refusals_by_invariant.entry(invariant_of(violation).to_owned()).or_default() += 1;
+                    *refusals_by_invariant
+                        .entry(invariant_of(violation).to_owned())
+                        .or_default() += 1;
                 }
             }
             match record.hash.as_deref() {
-                None => breaks.push(ChainBreak { index, kind: BreakKind::Unchained }),
+                None => breaks.push(ChainBreak {
+                    index,
+                    kind: BreakKind::Unchained,
+                }),
                 Some(hash) => {
                     if index > 0 && record.prev_hash.as_deref() != previous {
-                        breaks.push(ChainBreak { index, kind: BreakKind::Broken });
+                        breaks.push(ChainBreak {
+                            index,
+                            kind: BreakKind::Broken,
+                        });
                     }
                     if record_hash(record).ok().as_deref() != Some(hash) {
-                        breaks.push(ChainBreak { index, kind: BreakKind::Tampered });
+                        breaks.push(ChainBreak {
+                            index,
+                            kind: BreakKind::Tampered,
+                        });
                     }
                 }
             }
@@ -287,12 +309,17 @@ impl ConformanceReport {
             });
         }
 
-        let period = records.iter().map(|r| r.at).min().zip(records.iter().map(|r| r.at).max()).map(|(from, to)| Period {
-            from_ms: from,
-            to_ms: to,
-            from: format_unix_millis(from),
-            to: format_unix_millis(to),
-        });
+        let period = records
+            .iter()
+            .map(|r| r.at)
+            .min()
+            .zip(records.iter().map(|r| r.at).max())
+            .map(|(from, to)| Period {
+                from_ms: from,
+                to_ms: to,
+                from: format_unix_millis(from),
+                to: format_unix_millis(to),
+            });
 
         Self {
             records: records.len(),
@@ -302,7 +329,11 @@ impl ConformanceReport {
             changes_by_actor,
             refusals_by_invariant,
             refusals_without_invariant,
-            chain: ChainStatus { ok: breaks.is_empty() && !records.is_empty(), head, breaks },
+            chain: ChainStatus {
+                ok: breaks.is_empty() && !records.is_empty(),
+                head,
+                breaks,
+            },
             anchors: checks,
             timestamps: Vec::new(),
         }
@@ -349,7 +380,12 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
 pub fn format_unix_seconds(seconds: i64) -> String {
     let (year, month, day) = civil_from_days(seconds.div_euclid(86_400));
     let rest = seconds.rem_euclid(86_400);
-    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z", rest / 3600, rest % 3600 / 60, rest % 60)
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        rest / 3600,
+        rest % 3600 / 60,
+        rest % 60
+    )
 }
 
 /// `YYYY-MM-DDTHH:MM:SS.mmmZ` for milliseconds since the Unix epoch.

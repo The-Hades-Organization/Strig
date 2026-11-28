@@ -8,7 +8,8 @@ use strig::audit::{Auditor, MemoryAuditLog};
 use strig::audit_report::{Anchors, BreakKind, ConformanceReport, TimestampCheck};
 use strig::merkle::{self, MerkleTree};
 use strig::{
-    AuditLevel, AuditRecord, Attributes, CatalogConformance, Governance, Mutation, NoSelfManagement, RoleAssignment, Subject,
+    Attributes, AuditLevel, AuditRecord, CatalogConformance, Governance, Mutation, NoSelfManagement, RoleAssignment,
+    Subject,
 };
 use support::*;
 
@@ -30,7 +31,9 @@ fn trail() -> Vec<AuditRecord> {
     let gov = Governance::new()
         .with(CatalogConformance)
         .with(NoSelfManagement)
-        .audited(Arc::new(Auditor::new(AuditLevel::Forensic, log.clone()).with_clock(|| 1_700_000_000_000)));
+        .audited(Arc::new(
+            Auditor::new(AuditLevel::Forensic, log.clone()).with_clock(|| 1_700_000_000_000),
+        ));
     let grants = vec![
         role_grant("admin-manage", "admin", "org.manage", true, at_org()),
         role_grant("member-view", "member", "project.view", true, at_org()),
@@ -39,13 +42,32 @@ fn trail() -> Vec<AuditRecord> {
     let add = Mutation::Add(role_grant("m-edit", "member", "project.edit", true, at_org()));
     gov.apply_with(&engine, &admin(), &grants, &add, None, &meta).unwrap();
     let holder = Subject::user("u1").with_role_in("viewer", org());
-    gov.apply_with(&engine, &admin(), &grants, &assign(holder, in_org("member")), None, &meta).unwrap();
-    gov.apply_with(&engine, &admin(), &grants, &assign(admin(), in_org("member")), None, &meta).unwrap_err();
+    gov.apply_with(
+        &engine,
+        &admin(),
+        &grants,
+        &assign(holder, in_org("member")),
+        None,
+        &meta,
+    )
+    .unwrap();
+    gov.apply_with(
+        &engine,
+        &admin(),
+        &grants,
+        &assign(admin(), in_org("member")),
+        None,
+        &meta,
+    )
+    .unwrap_err();
     log.records()
 }
 
 fn lines(records: &[AuditRecord]) -> String {
-    records.iter().map(|r| serde_json::to_string(r).unwrap() + "\n").collect()
+    records
+        .iter()
+        .map(|r| serde_json::to_string(r).unwrap() + "\n")
+        .collect()
 }
 
 #[test]
@@ -75,7 +97,10 @@ fn an_edited_record_is_one_tampered_break() {
     let report = ConformanceReport::build(&records, &Anchors::default());
     assert!(!report.is_conforming());
     assert_eq!(report.chain.breaks.len(), 1);
-    assert_eq!((report.chain.breaks[0].index, report.chain.breaks[0].kind), (1, BreakKind::Tampered));
+    assert_eq!(
+        (report.chain.breaks[0].index, report.chain.breaks[0].kind),
+        (1, BreakKind::Tampered)
+    );
 }
 
 #[test]
@@ -84,7 +109,10 @@ fn a_removed_record_is_a_broken_link() {
     records.remove(1);
     let report = ConformanceReport::build(&records, &Anchors::default());
     assert_eq!(report.chain.breaks.len(), 1);
-    assert_eq!((report.chain.breaks[0].index, report.chain.breaks[0].kind), (1, BreakKind::Broken));
+    assert_eq!(
+        (report.chain.breaks[0].index, report.chain.breaks[0].kind),
+        (1, BreakKind::Broken)
+    );
 }
 
 #[test]

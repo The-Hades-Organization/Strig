@@ -179,7 +179,7 @@ fn hex(bytes: &[u8]) -> String {
 
 /// Decodes a hex string, for the callers that keep responses and digests as text.
 pub fn decode_hex(text: &str) -> Option<Vec<u8>> {
-    if text.len() % 2 != 0 || !text.is_ascii() {
+    if text.len() & 1 == 1 || !text.is_ascii() {
         return None;
     }
     (0..text.len())
@@ -288,20 +288,31 @@ pub struct TimestampRequest {
 impl TimestampRequest {
     /// A request for a digest of `algorithm`.
     pub fn new(algorithm: HashAlgorithm, digest: Vec<u8>) -> Self {
-        Self { algorithm, digest, nonce: None, policy: None, cert_req: true }
+        Self {
+            algorithm,
+            digest,
+            nonce: None,
+            policy: None,
+            cert_req: true,
+        }
     }
 
     /// A request to stamp the head of an audit chain: the imprint is the 32 bytes of the head hash
     /// (hex in the record) under SHA-256, with no further hashing, so
     /// `openssl ts -query -digest <head> -sha256` produces the same request.
     pub fn for_chain_head(head: &str, nonce: Option<u64>) -> Result<Self> {
-        Ok(Self { nonce, ..Self::new(HashAlgorithm::Sha256, head_digest(head)?) })
+        Ok(Self {
+            nonce,
+            ..Self::new(HashAlgorithm::Sha256, head_digest(head)?)
+        })
     }
 
     /// The DER encoding.
     pub fn to_der(&self) -> Result<Vec<u8>> {
         if self.digest.len() != self.algorithm.len() {
-            return Err(TimestampError::Malformed("the digest length does not fit the algorithm"));
+            return Err(TimestampError::Malformed(
+                "the digest length does not fit the algorithm",
+            ));
         }
         let algorithm = der(0x30, &[der(0x06, self.algorithm.oid()), der(0x05, &[])].concat());
         let imprint = der(0x30, &[algorithm, der(0x04, &self.digest)].concat());
@@ -366,17 +377,28 @@ impl<'a> Reader<'a> {
                 return Err(TimestampError::Malformed("length too large"));
             }
             let bytes = self.data.get(2..2 + count).ok_or(short.clone())?;
-            (bytes.iter().fold(0usize, |acc, b| (acc << 8) | usize::from(*b)), 2 + count)
+            (
+                bytes.iter().fold(0usize, |acc, b| (acc << 8) | usize::from(*b)),
+                2 + count,
+            )
         };
         let end = header.checked_add(len).ok_or(short.clone())?;
         let raw = self.data.get(..end).ok_or(short)?;
         self.data = &self.data[end..];
-        Ok(Tlv { tag, content: &raw[header..], raw })
+        Ok(Tlv {
+            tag,
+            content: &raw[header..],
+            raw,
+        })
     }
 
     fn expect(&mut self, tag: u8, what: &'static str) -> Result<Tlv<'a>> {
         let tlv = self.next()?;
-        if tlv.tag == tag { Ok(tlv) } else { Err(TimestampError::Malformed(what)) }
+        if tlv.tag == tag {
+            Ok(tlv)
+        } else {
+            Err(TimestampError::Malformed(what))
+        }
     }
 
     fn sequence(&mut self, what: &'static str) -> Result<Reader<'a>> {
@@ -434,7 +456,14 @@ fn parse_time(tlv: Tlv<'_>) -> Result<(i64, u32)> {
             }
             let yy = digits(0..2)?;
             let year = if yy >= 50 { 1900 + yy } else { 2000 + yy };
-            let seconds = civil_to_unix(year, digits(2..4)?, digits(4..6)?, digits(6..8)?, digits(8..10)?, digits(10..12)?)?;
+            let seconds = civil_to_unix(
+                year,
+                digits(2..4)?,
+                digits(4..6)?,
+                digits(6..8)?,
+                digits(8..10)?,
+                digits(10..12)?,
+            )?;
             Ok((seconds, 0))
         }
         0x18 => {
@@ -506,7 +535,11 @@ impl<'a> Certificate<'a> {
         let mut spki = fields.sequence("subjectPublicKeyInfo")?;
         let mut key_algorithm = spki.sequence("key algorithm")?;
         let key_oid = key_algorithm.expect(0x06, "key algorithm oid")?.content;
-        let key_params = if key_algorithm.is_empty() { None } else { Some(key_algorithm.next()?) };
+        let key_params = if key_algorithm.is_empty() {
+            None
+        } else {
+            Some(key_algorithm.next()?)
+        };
         let key_bits = spki.expect(0x03, "subjectPublicKey")?.content;
         if key_bits.first() != Some(&0) {
             return Err(TimestampError::Malformed("subjectPublicKey has unused bits"));
@@ -543,7 +576,9 @@ impl<'a> Certificate<'a> {
         if signature_bits.content.first() != Some(&0) {
             return Err(TimestampError::Malformed("signature has unused bits"));
         }
-        let signature_algorithm = Reader::new(outer_algorithm.content).expect(0x06, "signature algorithm oid")?.content;
+        let signature_algorithm = Reader::new(outer_algorithm.content)
+            .expect(0x06, "signature algorithm oid")?
+            .content;
         Ok(Self {
             raw,
             tbs_raw: tbs.raw,
@@ -556,7 +591,10 @@ impl<'a> Certificate<'a> {
             key_params,
             key_bits,
             signature_algorithm,
-            signature: signature_bits.content.get(1..).ok_or(TimestampError::Malformed("signature"))?,
+            signature: signature_bits
+                .content
+                .get(1..)
+                .ok_or(TimestampError::Malformed("signature"))?,
             key_id,
             is_ca,
             time_stamping,
@@ -609,7 +647,9 @@ fn verify_rsa(key: &Certificate<'_>, hash: HashAlgorithm, digest: &[u8], signatu
         HashAlgorithm::Sha384 => rsa::Pkcs1v15Sign::new::<Sha384>(),
         HashAlgorithm::Sha512 => rsa::Pkcs1v15Sign::new::<Sha512>(),
     };
-    public.verify(scheme, digest, signature).map_err(|_| TimestampError::BadSignature)
+    public
+        .verify(scheme, digest, signature)
+        .map_err(|_| TimestampError::BadSignature)
 }
 
 fn fixed(bytes: &[u8], size: usize) -> Result<Vec<u8>> {
@@ -740,10 +780,23 @@ fn parse_signer_info<'a>(reader: &mut Reader<'a>) -> Result<SignerInfo<'a>> {
     let mut signature_algorithm = info.sequence("signatureAlgorithm")?;
     let signature_algorithm = signature_algorithm.expect(0x06, "signature oid")?.content;
     let signature = info.expect(0x04, "signature")?.content;
-    Ok(SignerInfo { issuer, serial, key_id, digest, signed_attrs, signature_algorithm, signature })
+    Ok(SignerInfo {
+        issuer,
+        serial,
+        key_id,
+        digest,
+        signed_attrs,
+        signature_algorithm,
+        signature,
+    })
 }
 
-fn chain_is_trusted(signer: &Certificate<'_>, pool: &[Certificate<'_>], roots: &[Certificate<'_>], at: i64) -> Result<()> {
+fn chain_is_trusted(
+    signer: &Certificate<'_>,
+    pool: &[Certificate<'_>],
+    roots: &[Certificate<'_>],
+    at: i64,
+) -> Result<()> {
     let mut current = signer;
     let mut visited: Vec<&[u8]> = vec![current.raw];
     for _ in 0..MAX_CHAIN {
@@ -760,7 +813,8 @@ fn chain_is_trusted(signer: &Certificate<'_>, pool: &[Certificate<'_>], roots: &
             .filter(|(c, _)| c.subject == current.issuer && !visited.contains(&c.raw))
             .find(|(c, is_root)| {
                 (*is_root || c.is_ca)
-                    && verify_signature(c, current.signature_algorithm, None, current.tbs_raw, current.signature).is_ok()
+                    && verify_signature(c, current.signature_algorithm, None, current.tbs_raw, current.signature)
+                        .is_ok()
             });
         let Some((issuer, is_root)) = issuer else {
             return Err(TimestampError::UntrustedChain);
@@ -781,7 +835,9 @@ fn chain_is_trusted(signer: &Certificate<'_>, pool: &[Certificate<'_>], roots: &
 /// the TSA states. See the module documentation for the list of checks.
 pub fn verify_response(response: &[u8], options: &VerifyOptions) -> Result<TimestampInfo> {
     if options.imprint.len() != options.algorithm.len() {
-        return Err(TimestampError::Malformed("the expected digest does not fit its algorithm"));
+        return Err(TimestampError::Malformed(
+            "the expected digest does not fit its algorithm",
+        ));
     }
     let mut top = Reader::new(response);
     let mut resp = top.sequence("TimeStampResp")?;
@@ -858,7 +914,10 @@ pub fn verify_response(response: &[u8], options: &VerifyOptions) -> Result<Times
     if let Some(expected) = &options.policy
         && expected != &policy
     {
-        return Err(TimestampError::PolicyMismatch { expected: expected.clone(), found: policy });
+        return Err(TimestampError::PolicyMismatch {
+            expected: expected.clone(),
+            found: policy,
+        });
     }
 
     let roots = options
@@ -867,7 +926,11 @@ pub fn verify_response(response: &[u8], options: &VerifyOptions) -> Result<Times
         .map(|raw| Certificate::parse(raw))
         .collect::<Result<Vec<_>>>()?;
     let mut pool = Vec::new();
-    for raw in embedded.iter().copied().chain(options.certificates.iter().map(Vec::as_slice)) {
+    for raw in embedded
+        .iter()
+        .copied()
+        .chain(options.certificates.iter().map(Vec::as_slice))
+    {
         if pool.len() >= MAX_CERTIFICATES {
             return Err(TimestampError::Malformed("too many certificates"));
         }
@@ -876,11 +939,13 @@ pub fn verify_response(response: &[u8], options: &VerifyOptions) -> Result<Times
     let signer = pool
         .iter()
         .chain(roots.iter())
-        .find(|cert| match (signer_info.issuer, signer_info.serial, signer_info.key_id) {
-            (Some(issuer), Some(serial), _) => cert.issuer == issuer && cert.serial == serial,
-            (_, _, Some(id)) => cert.key_id == Some(id),
-            _ => false,
-        })
+        .find(
+            |cert| match (signer_info.issuer, signer_info.serial, signer_info.key_id) {
+                (Some(issuer), Some(serial), _) => cert.issuer == issuer && cert.serial == serial,
+                (_, _, Some(id)) => cert.key_id == Some(id),
+                _ => false,
+            },
+        )
         .ok_or(TimestampError::MissingSigner)?;
 
     verify_signed_attributes(&signer_info, signer, tst_info_bytes)?;
@@ -920,7 +985,13 @@ fn verify_signed_attributes(info: &SignerInfo<'_>, signer: &Certificate<'_>, tst
     }
     let mut signed = info.signed_attrs.raw.to_vec();
     signed[0] = 0x31;
-    verify_signature(signer, info.signature_algorithm, Some(info.digest), &signed, info.signature)
+    verify_signature(
+        signer,
+        info.signature_algorithm,
+        Some(info.digest),
+        &signed,
+        info.signature,
+    )
 }
 
 fn base64_value(byte: u8) -> Option<u8> {
@@ -975,7 +1046,12 @@ mod tests {
 
     #[test]
     fn dotted_round_trips() {
-        for oid in ["1.2.840.113549.1.9.16.1.4", "2.16.840.1.101.3.4.2.1", "1.3.132.0.34", "2.5.29.37"] {
+        for oid in [
+            "1.2.840.113549.1.9.16.1.4",
+            "2.16.840.1.101.3.4.2.1",
+            "1.3.132.0.34",
+            "2.5.29.37",
+        ] {
             assert_eq!(dotted(&parse_dotted(oid).unwrap()), oid);
         }
         assert!(parse_dotted("3.1").is_err());
@@ -985,11 +1061,23 @@ mod tests {
 
     #[test]
     fn time_parsing() {
-        let utc = Tlv { tag: 0x17, content: b"700101000000Z", raw: &[] };
+        let utc = Tlv {
+            tag: 0x17,
+            content: b"700101000000Z",
+            raw: &[],
+        };
         assert_eq!(parse_time(utc).unwrap(), (0, 0));
-        let general = Tlv { tag: 0x18, content: b"20261128121800.5Z", raw: &[] };
+        let general = Tlv {
+            tag: 0x18,
+            content: b"20261128121800.5Z",
+            raw: &[],
+        };
         assert_eq!(parse_time(general).unwrap(), (1_795_868_280, 500));
-        let bad = Tlv { tag: 0x18, content: b"20261328121800Z", raw: &[] };
+        let bad = Tlv {
+            tag: 0x18,
+            content: b"20261328121800Z",
+            raw: &[],
+        };
         assert!(parse_time(bad).is_err());
     }
 

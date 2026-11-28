@@ -6,8 +6,14 @@ use std::path::{Path, PathBuf};
 use strig::audit::{AuditLevel, reference_record};
 use strig_cli::{EXIT_FAILED, EXIT_OK, EXIT_USAGE, execute};
 
-const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../strig/tests/fixtures/timestamp/cacert.pem");
-const STAMP: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../strig/tests/fixtures/timestamp/resp.tsr");
+const ROOT: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../strig/tests/fixtures/timestamp/cacert.pem"
+);
+const STAMP: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../strig/tests/fixtures/timestamp/resp.tsr"
+);
 
 fn strig(args: &[&str]) -> (u8, String, String) {
     let args: Vec<String> = args.iter().map(|a| (*a).to_string()).collect();
@@ -32,7 +38,10 @@ fn an_intact_trail_with_its_anchor_conforms() {
     let (path, head) = trail("audit-ok", |t| t);
     let (code, out, err) = strig(&["audit", "report", path.to_str().unwrap(), "--anchor-head", &head]);
     assert_eq!((code, err.as_str()), (EXIT_OK, ""), "{out}");
-    assert!(out.contains("chain: intact") && out.contains("anchor head: ok") && out.ends_with("conforming\n"), "{out}");
+    assert!(
+        out.contains("chain: intact") && out.contains("anchor head: ok") && out.ends_with("conforming\n"),
+        "{out}"
+    );
 }
 
 #[test]
@@ -53,7 +62,13 @@ fn an_edited_record_or_a_wrong_anchor_exits_one() {
     assert!(out.contains("NOT conforming"), "{out}");
 
     let (path, _) = trail("audit-anchor", |t| t);
-    let (code, out, _) = strig(&["audit", "report", path.to_str().unwrap(), "--anchor-head", &"0".repeat(head.len())]);
+    let (code, out, _) = strig(&[
+        "audit",
+        "report",
+        path.to_str().unwrap(),
+        "--anchor-head",
+        &"0".repeat(head.len()),
+    ]);
     assert_eq!(code, EXIT_FAILED);
     assert!(out.contains("anchor head: MISMATCH"), "{out}");
 }
@@ -61,8 +76,16 @@ fn an_edited_record_or_a_wrong_anchor_exits_one() {
 #[test]
 fn a_stamp_of_another_digest_fails_the_report() {
     let (path, _) = trail("audit-stamp", |t| t);
-    let (code, out, _) =
-        strig(&["audit", "report", path.to_str().unwrap(), "--timestamp", STAMP, "--root", ROOT, "--json"]);
+    let (code, out, _) = strig(&[
+        "audit",
+        "report",
+        path.to_str().unwrap(),
+        "--timestamp",
+        STAMP,
+        "--root",
+        ROOT,
+        "--json",
+    ]);
     assert_eq!(code, EXIT_FAILED);
     let value: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(value["timestamps"][0]["ok"], false);

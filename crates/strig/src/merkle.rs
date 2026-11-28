@@ -175,7 +175,11 @@ pub fn verify_inclusion(
     if snode != 0 {
         return Err(MerkleError::ProofLength);
     }
-    if &hash == expected { Ok(()) } else { Err(MerkleError::RootMismatch) }
+    if &hash == expected {
+        Ok(())
+    } else {
+        Err(MerkleError::RootMismatch)
+    }
 }
 
 fn subproof(first: usize, leaves: &[Hash], complete: bool, out: &mut Vec<Hash>) {
@@ -338,7 +342,10 @@ mod tests {
     ];
 
     fn decode(text: &str) -> Vec<u8> {
-        (0..text.len()).step_by(2).map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap()).collect()
+        (0..text.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
+            .collect()
     }
 
     fn leaves(n: usize) -> Vec<Hash> {
@@ -378,7 +385,10 @@ mod tests {
             let top = tree.root();
             for index in 0..size {
                 let proof = tree.inclusion_proof(index).unwrap();
-                assert_eq!(verify_inclusion(&all[index], index as u64, size as u64, &proof, &top), Ok(()));
+                assert_eq!(
+                    verify_inclusion(&all[index], index as u64, size as u64, &proof, &top),
+                    Ok(())
+                );
                 let other = (index + 1) % size;
                 if other != index {
                     assert!(verify_inclusion(&all[other], index as u64, size as u64, &proof, &top).is_err());
@@ -394,7 +404,10 @@ mod tests {
             assert!(tree.inclusion_proof(size).is_none());
             assert_eq!(
                 verify_inclusion(&all[0], size as u64, size as u64, &[], &top),
-                Err(MerkleError::IndexOutOfRange { index: size as u64, size: size as u64 })
+                Err(MerkleError::IndexOutOfRange {
+                    index: size as u64,
+                    size: size as u64
+                })
             );
         }
     }
@@ -444,12 +457,21 @@ mod tests {
     #[test]
     fn the_documented_proof_vectors() {
         let tree = MerkleTree::new(leaves(8));
-        assert_eq!(to_hex(&leaves(8)[5]), "4271a26be0d8a84f0bd54c8c302e7cb3a3b5d1fa6780a40bcce2873477dab658");
+        assert_eq!(
+            to_hex(&leaves(8)[5]),
+            "4271a26be0d8a84f0bd54c8c302e7cb3a3b5d1fa6780a40bcce2873477dab658"
+        );
         assert_eq!(tree.inclusion_proof(5).unwrap(), hashes(&INCLUSION_5_OF_8));
         assert_eq!(tree.consistency_proof(3).unwrap(), hashes(&CONSISTENCY_3_TO_8));
         let (first, second) = (tree.root_at(3).unwrap(), tree.root());
-        assert_eq!(to_hex(&first), "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77");
-        assert_eq!(verify_consistency(3, 8, &first, &second, &hashes(&CONSISTENCY_3_TO_8)), Ok(()));
+        assert_eq!(
+            to_hex(&first),
+            "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77"
+        );
+        assert_eq!(
+            verify_consistency(3, 8, &first, &second, &hashes(&CONSISTENCY_3_TO_8)),
+            Ok(())
+        );
     }
 
     #[test]

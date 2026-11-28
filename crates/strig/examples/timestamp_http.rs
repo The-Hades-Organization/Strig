@@ -23,7 +23,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let out = rest.first().map_or("head.tsr", String::as_str);
 
-    let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos() as u64;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos() as u64;
     let request = TimestampRequest::for_chain_head(head, Some(nonce))?.to_der()?;
 
     let mut curl = Command::new("curl")
@@ -42,6 +44,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     options.nonce = Some(nonce);
     let info = verify_response(&answer.stdout, &options)?;
     std::fs::write(out, &answer.stdout)?;
-    println!("stamped at {} (serial {}, policy {}); response saved to {out}", info.gen_time, info.serial, info.policy);
+    println!(
+        "stamped at {} (serial {}, policy {}); response saved to {out}",
+        info.gen_time, info.serial, info.policy
+    );
     Ok(())
 }
