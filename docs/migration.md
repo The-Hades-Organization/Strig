@@ -4,6 +4,48 @@ What to change in your code when you upgrade, release by release. The newest rel
 [changelog](../CHANGELOG.md) lists every change; this page shows the before, the after and the step for the ones that
 need action. The rules for what counts as breaking are in [versioning.md](versioning.md).
 
+## 0.9.0
+
+One change breaks, and only for Rust code. The JavaScript package, the JSON spec and stored data need no edit.
+
+### Rust: `Grant`, `PermissionDef`, `Request`, `CatalogError`, `GrantError` and `Verdict` are `#[non_exhaustive]`
+
+Field permissions add `Grant::fields`, `PermissionDef::fields`, `Request::field` and new variants of `CatalogError`,
+`GrantError` and `Verdict`. The types are now `#[non_exhaustive]` so that a field or variant added later is no longer
+a breaking change.
+
+**Before.**
+
+```rust
+let g = Grant { id, effect, subject, permission, target, condition, .. };
+match verdict { Verdict::Candidate => .., Verdict::OutOfScope => .. /* every variant */ }
+```
+
+**After.** A struct literal and an exhaustive `match` on these types no longer compile outside `strig`:
+
+```rust
+let g = Grant::allow(id, subject, permission, target).when(condition);
+let r = Request::new(subject, permission, resource).field("email");
+match verdict { Verdict::Candidate => .., Verdict::OutOfScope => .., _ => .. }
+```
+
+**Step.** Build values with the constructors and builders (`Grant::allow`, `Grant::deny`, `Grant::new` and its chained
+methods, `PermissionDef::new` and its builders, `Request::new` with `.field(..)`), and add a `_` arm to every `match`
+on `CatalogError`, `GrantError` and `Verdict`. Nothing changes for a policy that does not use fields.
+
+### Policies with fields export `"schema": 4`
+
+`DSL_SCHEMA` is now 4. A policy that uses `fields` exports its canonical JSON with `"schema": 4`; a reader of an older
+schema refuses it instead of reading a field-restricted grant as covering the whole resource. A policy without fields
+still exports the schema it did before. Upgrade every reader of the exported JSON (the JS package, `strig-cli`, other
+services) before you ship a policy with fields.
+
+### New, no action
+
+Everything else in 0.9.0 is additive: ORM adapters (`/prisma`, `/drizzle`, `/kysely`), Envoy External Authorization in
+`strig-server` (`envoy` feature, off by default), policy tests and `strig-cli`, the Python package `strig-auth`, the
+Go and JVM bindings over `strig-wasi`, and `allowedFields`/`explainFields`/`pickAllowed` in the JS binding.
+
 ## 0.8.0
 
 Nothing breaks. Every change in 0.8.0 is additive and the defaults behave as in 0.7.0, so upgrading the crates and the

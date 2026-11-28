@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-28
+
 ### Added
 
 - Editor support: the `strig-lsp` crate (a language server over stdio, `lsp-server`, not on crates.io yet) and the VS Code extension in `editors/vscode`. Diagnostics while typing for a whole project directory (several files, any syntax, and `*.strig-test.json`), format document, completion of permission ids, kinds, roles, subjects and condition operators, hover with the definition of a permission, go to definition across files, and a code action that converts the file to another syntax. The extension adds a TextMate grammar for the three syntaxes, a language configuration, the command "Strig: Run policy tests" (`strig test`) and settings for the binary paths. `strig::dsl::ids` is now public so a tool can look an element up in `Origins`. CI builds the crate and lints and packages the extension (`vsce package`, not published). See Editor in the README.
@@ -196,7 +198,8 @@ Before, after and the step to take for each of these, including the `DSL_SCHEMA`
 - `themis-node`: JavaScript bindings (N-API for Node and Bun, WebAssembly for the browser), real-time client and server in JS.
 - `themis-inspect`: inspector with evaluation trace, grant simulation, access matrix and audit trail reading, as terminal commands and an optional gpui window.
 
-[Unreleased]: https://github.com/The-Hades-Organization/Strig/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/The-Hades-Organization/Strig/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/The-Hades-Organization/Strig/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/The-Hades-Organization/Strig/compare/v0.6.0...v0.6.1

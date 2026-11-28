@@ -5,7 +5,7 @@
 
   <groupId>io.github.the-hades-organization</groupId>
   <artifactId>strig</artifactId>
-  <version>0.8.0</version>
+  <version>0.9.0</version>
   <packaging>jar</packaging>
   <name>Strig</name>
   <description>JVM binding of the Strig authorization engine: the same engine compiled to WebAssembly, run on Chicory (pure JVM, no native code).</description>
