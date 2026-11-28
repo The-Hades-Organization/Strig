@@ -362,11 +362,11 @@ Códigos de saída: `0` tudo passou, `1` caso falhou ou deu erro, `2` política,
 diretório não tem arquivo de teste. No GitHub Actions:
 
 ```yaml
-- uses: The-Hades-Organization/Strig/.github/actions/strig-test@v0.9.0
+- uses: The-Hades-Organization/Strig/.github/actions/strig-test@v0.10.0
   with:
     path: policies
     junit: test-results/strig.xml
-    version: 0.9.0   # fixe a versão do strig-cli
+    version: 0.10.0   # fixe a versão do strig-cli
 ```
 
 Em JavaScript, `strig.runTests(policy, tests)` roda o mesmo runner sobre um documento de política e arquivos de teste
