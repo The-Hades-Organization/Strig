@@ -253,13 +253,66 @@ fn roles(policy: &Policy, report: &mut Report<'_>) {
         .map(|r| (r.role.as_str(), r.inherits.iter().map(String::as_str).collect()))
         .collect();
     let order: Vec<&str> = policy.roles.iter().map(|r| r.role.as_str()).collect();
-    for path in find_cycles(&order, &parents) {
+    let cycles = find_cycles(&order, &parents);
+    let acyclic = cycles.is_empty();
+    for path in cycles {
         let head = path.first().copied().unwrap_or_default();
         report.error(
             &ids::role(head),
             format!("roles inherit in a cycle: {}", path.join(" -> ")),
             None,
         );
+    }
+    if acyclic {
+        exclusive_inheritance(policy, &order, &parents, report);
+    }
+}
+
+/// A role that is, or inherits, two members of a set of roles holds both wherever it is given.
+/// One walk up the inheritance per member, so the cost is the size of the set times the roles.
+fn exclusive_inheritance(policy: &Policy, order: &[&str], parents: &HashMap<&str, Vec<&str>>, report: &mut Report<'_>) {
+    let mut children: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (role, inherits) in parents {
+        for parent in inherits {
+            children.entry(parent).or_default().push(role);
+        }
+    }
+    for set in policy
+        .catalog
+        .mutually_exclusive
+        .iter()
+        .filter(|s| s.of == crate::ExclusiveKind::Roles)
+    {
+        let mut reaching: HashMap<&str, Vec<&str>> = HashMap::new();
+        for member in set.members.iter().map(String::as_str) {
+            let mut stack = vec![member];
+            let mut seen: HashSet<&str> = HashSet::new();
+            while let Some(role) = stack.pop() {
+                if !seen.insert(role) {
+                    continue;
+                }
+                if parents.contains_key(role) {
+                    reaching.entry(role).or_default().push(member);
+                }
+                stack.extend(children.get(role).into_iter().flatten().copied());
+            }
+        }
+        for &role in order {
+            let Some(held) = reaching.get(role).filter(|held| held.len() > 1) else {
+                continue;
+            };
+            report.error(
+                &ids::role(role),
+                format!(
+                    "role `{role}` holds `{}` and `{}` of the set `{}`, which nobody may accumulate",
+                    held[0], held[1], set.name
+                ),
+                Some(format!(
+                    "stop `{role}` from inheriting one of them, or take the set `{}` out",
+                    set.name
+                )),
+            );
+        }
     }
 }
 

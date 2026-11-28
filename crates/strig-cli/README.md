@@ -32,7 +32,7 @@ it the questions come from the catalogs and the grants of both versions, bounded
 
 `strig lint <dir>` reports shadowed grants (`L001`), unreachable denies (`L002`), permissions nobody holds (`L003`),
 unused roles (`L004`), redundant `implied_by` (`L005`), conditions always false or true (`L006`, `L007`) and fields never
-granted (`L008`), each with severity, position and a hint. `--ignore <code|name>` and `strig-lint.json`
+granted (`L008`), a subject that holds two members of a `mutually_exclusive` set (`L009`), each with severity, position and a hint. `--ignore <code|name>` and `strig-lint.json`
 (`{"ignore": ["L004"]}`) silence codes; `--fail-on error|warning|info|never` sets the exit threshold (default
 `warning`). Exit `1` when a finding reaches it.
 

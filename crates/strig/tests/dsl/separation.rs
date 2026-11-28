@@ -244,3 +244,29 @@ fn a_project_keeps_the_separation_declared_in_each_file_and_refuses_a_name_decla
     let errors = twice.build().err().expect("a name declared twice").to_string();
     assert!(errors.contains("payment_duties"), "{errors}");
 }
+
+#[test]
+fn a_role_that_inherits_two_members_of_a_role_set_is_refused_at_the_role() {
+    let text = errors_of(Language::Blocks, |s| {
+        s.replace(
+            "role maker {}\n",
+            "role maker {}\n\nrole both {\n  inherits = [maker, checker]\n}\n",
+        )
+    });
+    assert!(text.contains("role `both`"), "{text}");
+    assert!(text.contains("payment_duties"), "{text}");
+}
+
+#[test]
+fn a_role_that_inherits_one_member_is_accepted() {
+    let policy = parse(
+        "p.strig",
+        &BLOCKS.replace(
+            "role maker {}\n",
+            "role maker {}\n\nrole lead {\n  inherits = [checker]\n}\n",
+        ),
+    )
+    .unwrap()
+    .policy;
+    assert!(policy.validate().is_ok());
+}

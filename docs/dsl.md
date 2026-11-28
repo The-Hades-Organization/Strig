@@ -450,6 +450,7 @@ Exit codes: `0` no change matches `--fail-on`, `1` a change matches, `2` usage o
 | `L006` | `condition-always-false` | a condition false whatever the subject, resource and environment |
 | `L007` | `condition-always-true` | a condition true whatever the subject, resource and environment |
 | `L008` | `field-never-granted` | a field no `allow` grant ever reaches |
+| `L009` | `separation-violated` | a subject (or whoever a grant selects) already holds two members of a `mutually_exclusive` set in the same scope |
 
 Each finding has the code, the name, a severity (`info`, `warning`, `error`), a message, a hint, the element it is about
 and, from the CLI, `file:line:column`. Codes are stable: one is added, never changed. Conditions are judged only when
@@ -664,6 +665,43 @@ invariant forbid {
   permissions = [doc.edit]
 }
 ```
+
+## Separation of duties
+
+Two declarations of the catalog and one invariant, in the three syntaxes.
+
+```
+# Blocks
+mutually_exclusive payment_duties {
+  of = roles                    # roles or permissions
+  members = [maker, checker]
+  anchor = org                  # optional: clash only inside the same org; absent is global
+}
+
+conflicting_actions four_eyes {
+  first = [payment.create]
+  then = [payment.approve]
+  history = trail               # optional, default history
+  distinct_roles = true         # optional
+}
+
+invariant separation_of_duties {
+  subjects = [user:ana]         # optional: also judged when a grant is added
+}
+```
+
+```
+# Rules and Actors (Actors writes the first two under `catalog`, the third under `governance`)
+mutually-exclusive payment_duties of roles members [maker, checker] anchor org
+conflicting-actions four_eyes first [payment.create] then [payment.approve] history trail distinct_roles true
+always separation-of-duties subjects [user:ana]
+```
+
+A name is unique among sets and rules, in a project too. The validator names the set when a member is not a permission
+of the catalog (`of = permissions`), the set holds fewer than two members, the `anchor` is not a target kind or a `then`
+permission is unknown, with position and hint. A role that inherits two members of a role set is refused at the role. The
+semantics (what counts as held, the history of the dynamic rule) are in the [README](../README.md#separation-of-duties).
+A policy that uses these declarations exports `"schema": 5`.
 
 ## Fields
 

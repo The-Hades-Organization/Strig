@@ -333,6 +333,45 @@ await flow.revoke('e1', ana, grants, { reason: 'done', persist: (r) => saveGrant
 await flow.closeReview('e2', caio, 'legitimate use', grants); // after a break-glass
 ```
 
+### Separation of duties
+
+The catalog declares what nobody may accumulate and what nobody may do twice on the same resource.
+
+```rust
+let catalog = Catalog::builder()
+    .target_kinds(["org", "payment"])
+    .permission(PermissionDef::new("payment.create").targets(["payment"]))
+    .permission(PermissionDef::new("payment.approve").targets(["payment"]))
+    // static: nobody holds both roles inside the same org
+    .mutually_exclusive(MutualExclusion::new("payment_duties", ExclusiveKind::Roles, ["maker", "checker"]).per_anchor("org"))
+    // dynamic: whoever created a payment does not approve it
+    .conflicting_actions(ActionConflict::new("four_eyes", ["payment.create"], ["payment.approve"]))
+    .build()?;
+let governance = Governance::new().with(SeparationOfDuties::new());
+```
+
+**Static.** A `mutually_exclusive` set lists roles or permissions, with a name and a scope: global, or `per_anchor("org")`
+to clash only inside the same anchor. The `SeparationOfDuties` invariant refuses the change that would create an
+accumulation that did not exist, whichever way the member is reached: a direct role, an inherited one (`RoleGraph`), a
+grant or a temporary elevation. The `Violation` names the set and both sides. Removing and revoking never create a clash,
+so a set that is already violated can always be repaired; a `deny` is never read as taking a member away. `with_subjects`
+adds subjects whose holdings an added grant is also judged against. `Impact` lists the clashes a change would create in
+`separation` whether or not the invariant is on, and `strig lint` reports the sets already violated (`L009`).
+
+**Dynamic.** A `conflicting_actions` rule says that whoever did a `first` action on a resource does not do a `then`
+action on it. The engine evaluates it in every decision, before the overrides, with no IO: the history is an attribute
+of the resource (`history` by default, or the one the rule names) or of `env`, a list of `"<permission>:<actor>"`
+entries (`"payment.create:ana"`). The denial reads `Reason::Override` named `separation:<rule>`. With `distinct_roles`,
+an entry also carries the roles the author acted with (`"payment.create:ana|maker"`) and a subject who holds one of
+them is refused too; an entry with no roles refuses, and so does a history that cannot be read: the rule fails closed.
+A listing or a reverse query never lets the rule open anything: for a permission in `then` the answer stays a residue.
+
+In an approval flow, `Approvals::with_distinct_roles()` also refuses an approver who shares a role with the author, on
+top of the author never approving their own request.
+
+In the policy language it is `mutually_exclusive` and `conflicting_actions` in the catalog and the `separation_of_duties`
+invariant; see [docs/dsl.md](docs/dsl.md). A policy that uses them exports `"schema": 5`.
+
 ### Rules declared in the catalog
 
 Some rules belong to a permission, so they are declared on its `PermissionDef`:
@@ -1278,7 +1317,7 @@ holds, an unused role, a redundant `implied_by`, a condition that is always fals
 
 ```sh
 strig diff main/policies policies --fail-on allow     # exit 1 if any access widened
-strig lint policies/ --json                           # codes L001..L008, severity, position, hint
+strig lint policies/ --json                           # codes L001..L009, severity, position, hint
 ```
 
 ```js
