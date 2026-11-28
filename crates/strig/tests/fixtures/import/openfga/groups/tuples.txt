@@ -1,0 +1,7 @@
+# object#relation@user
+group:engineering#member@user:anne
+group:company#member@group:engineering#member
+group:company#member@user:cara
+document:spec#viewer@group:engineering#member
+document:spec#viewer@user:bob
+document:handbook#viewer@group:company#member

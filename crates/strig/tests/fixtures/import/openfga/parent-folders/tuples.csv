@@ -1,0 +1,6 @@
+user_type,user_id,user_relation,relation,object_type,object_id
+user,anne,,viewer,folder,product
+folder,product,,parent,folder,engineering
+folder,engineering,,parent,document,roadmap
+folder,product,,parent,document,roadmap
+user,bob,,viewer,document,memo

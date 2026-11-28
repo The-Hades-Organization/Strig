@@ -30,6 +30,8 @@ timestamp = ["audit", "dep:rsa", "dep:p256", "dep:p384", "dep:sha2-rustcrypto-01
 dsl = []
 ## File access for the policy language (read a file, read a directory into a `Project`, write a file). Not for wasm.
 dsl-fs = ["dsl"]
+## Importers: turn a Casbin model and policy, or an OpenFGA model and tuples, into a `Policy` (`strig::import`). Pure (no IO, no clock) and wasm-friendly.
+import = ["dsl"]
 
 [dependencies]
 serde.workspace = true
@@ -78,6 +80,10 @@ required-features = ["dsl"]
 [[test]]
 name = "dsl_fs"
 required-features = ["dsl-fs"]
+
+[[test]]
+name = "import"
+required-features = ["import"]
 
 [[test]]
 name = "dsl_hardening"

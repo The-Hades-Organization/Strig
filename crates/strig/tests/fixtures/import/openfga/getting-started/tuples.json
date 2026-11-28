@@ -1,0 +1,5 @@
+[
+  {"user": "user:anne", "relation": "owner", "object": "document:roadmap"},
+  {"user": "user:beth", "relation": "editor", "object": "document:roadmap"},
+  {"user": "user:carl", "relation": "viewer", "object": "document:roadmap"}
+]

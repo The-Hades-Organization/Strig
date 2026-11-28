@@ -1,0 +1,21 @@
+model
+  schema 1.1
+
+type user
+
+type organization
+  relations
+    define owner: [user]
+    define member: [user] or owner
+    define repo_admin: [user, organization#member]
+    define repo_reader: [user, organization#member]
+    define repo_writer: [user, organization#member]
+
+type repo
+  relations
+    define admin: [user, organization#repo_admin] or repo_admin from owner
+    define maintainer: [user] or admin
+    define owner: [organization]
+    define reader: [user, organization#repo_reader] or triager or repo_reader from owner
+    define triager: [user] or writer
+    define writer: [user, organization#repo_writer] or maintainer or repo_writer from owner

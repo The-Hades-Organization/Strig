@@ -1,0 +1,8 @@
+user,relation,object,allowed
+user:anne,can_access,document:vault,true
+user:bob,can_access,document:vault,false
+user:cara,can_access,document:vault,false
+user:dina,can_access,document:vault,false
+user:dina,can_audit,document:vault,true
+user:anne,can_audit,document:vault,true
+user:bob,can_audit,document:vault,false

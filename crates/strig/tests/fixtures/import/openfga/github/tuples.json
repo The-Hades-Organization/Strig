@@ -1,0 +1,9 @@
+[
+  {"user": "user:olga", "relation": "owner", "object": "organization:acme"},
+  {"user": "user:mia", "relation": "member", "object": "organization:acme"},
+  {"user": "organization:acme#member", "relation": "repo_reader", "object": "organization:acme"},
+  {"user": "user:olga", "relation": "repo_admin", "object": "organization:acme"},
+  {"user": "organization:acme", "relation": "owner", "object": "repo:api"},
+  {"user": "user:max", "relation": "maintainer", "object": "repo:api"},
+  {"user": "user:wes", "relation": "writer", "object": "repo:api"}
+]

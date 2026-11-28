@@ -1,0 +1,10 @@
+user,relation,object,allowed
+user:anne,editor,document:a,true
+user:anne,viewer,document:a,true
+user:bob,viewer,document:a,false
+user:bob,viewer,document:b,true
+user:bob,editor,document:b,false
+user:zed,viewer,document:c,true
+user:zed,can_view,document:c,true
+user:bob,can_view,document:c,false
+user:bob,viewer,document:c,true
