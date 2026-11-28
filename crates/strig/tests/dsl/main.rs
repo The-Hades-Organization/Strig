@@ -4,6 +4,7 @@
 mod corpus;
 mod errors;
 mod format;
+mod frozen;
 mod handwritten;
 mod hints;
 mod hostile;
@@ -17,8 +18,9 @@ use strig::dsl::Language;
 pub const LANGUAGES: [Language; 3] = [Language::Blocks, Language::Rules, Language::Actors];
 
 /// The scenarios. The Rules and Actors files of the first six were written by `convert` from their
-/// Blocks file and then checked; the last four were written by hand in all three syntaxes.
-pub const SCENARIOS: [&str; 10] = [
+/// Blocks file and then checked; the last four were written by hand in all three syntaxes, and
+/// `separation` was converted again from its Blocks file.
+pub const SCENARIOS: [&str; 11] = [
     "roles",
     "conditions",
     "validity",
@@ -29,6 +31,7 @@ pub const SCENARIOS: [&str; 10] = [
     "late",
     "matching",
     "fields",
+    "separation",
 ];
 
 pub fn source(scenario: &str, language: Language) -> String {

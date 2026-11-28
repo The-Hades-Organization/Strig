@@ -1,0 +1,179 @@
+{
+  "catalog": {
+    "targetKinds": [
+      "document",
+      "folder",
+      "project"
+    ],
+    "broadTargets": [
+      "org"
+    ],
+    "permissions": [
+      {
+        "key": "project.view",
+        "targets": [
+          "project"
+        ],
+        "label": "View project"
+      },
+      {
+        "key": "document.view",
+        "targets": [
+          "project",
+          "folder",
+          "document"
+        ],
+        "impliedBy": [
+          "project.view"
+        ]
+      },
+      {
+        "key": "document.edit",
+        "targets": [
+          "project",
+          "folder",
+          "document"
+        ],
+        "dependsOn": [
+          "document.view"
+        ]
+      }
+    ]
+  },
+  "roles": [
+    {
+      "role": "editor",
+      "inherits": [
+        "viewer"
+      ]
+    },
+    {
+      "role": "manager",
+      "inherits": [
+        "editor"
+      ]
+    },
+    {
+      "role": "viewer",
+      "inherits": []
+    }
+  ],
+  "strategy": "most_specific",
+  "subjects": [
+    {
+      "kind": "user",
+      "id": "ana",
+      "roles": [
+        {
+          "role": "manager",
+          "scope": {
+            "kind": "project",
+            "id": "apollo"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "user",
+      "id": "bruno",
+      "roles": [
+        {
+          "role": "editor",
+          "scope": {
+            "kind": "project",
+            "id": "apollo"
+          }
+        }
+      ]
+    }
+  ],
+  "grants": [
+    {
+      "id": "g-view",
+      "subject": {
+        "kind": "role",
+        "id": "viewer"
+      },
+      "permission": "project.view",
+      "target": {
+        "kind": "project"
+      },
+      "effect": "allow",
+      "scope": {
+        "kind": "org",
+        "id": "acme"
+      }
+    },
+    {
+      "id": "g-edit",
+      "subject": {
+        "kind": "role",
+        "id": "editor"
+      },
+      "permission": "document.edit",
+      "target": {
+        "kind": "project"
+      },
+      "effect": "allow",
+      "scope": {
+        "kind": "org",
+        "id": "acme"
+      }
+    }
+  ],
+  "notes": [
+    {
+      "text": "Documents of an organization: who may read, edit and manage them.",
+      "anchor": {
+        "element": "language",
+        "placement": "before"
+      },
+      "origin": {
+        "file": "roles",
+        "language": "blocks",
+        "line": 1,
+        "column": 1
+      }
+    },
+    {
+      "text": "never alone",
+      "anchor": {
+        "element": "permission:document.edit",
+        "placement": "inside"
+      },
+      "origin": {
+        "file": "roles",
+        "language": "blocks",
+        "line": 20,
+        "column": 33,
+        "field": "depends_on"
+      }
+    },
+    {
+      "text": "Reading a document follows from viewing its project.",
+      "anchor": {
+        "element": "permission:document.view",
+        "placement": "before"
+      },
+      "origin": {
+        "file": "roles",
+        "language": "blocks",
+        "line": 12,
+        "column": 1
+      }
+    },
+    {
+      "text": "Ana runs the project.",
+      "anchor": {
+        "element": "subject:user:ana",
+        "placement": "before"
+      },
+      "origin": {
+        "file": "roles",
+        "language": "blocks",
+        "line": 34,
+        "column": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "schema": 4,
+  "catalog": {
+    "targetKinds": [
+      "document"
+    ],
+    "broadTargets": [],
+    "permissions": [
+      {
+        "key": "document.edit",
+        "targets": [
+          "document"
+        ],
+        "fields": [
+          "title",
+          "body",
+          "status"
+        ]
+      }
+    ]
+  },
+  "roles": [
+    {
+      "role": "editor",
+      "inherits": []
+    }
+  ],
+  "strategy": "most_specific",
+  "grants": [
+    {
+      "id": "g-edit",
+      "subject": {
+        "kind": "role",
+        "id": "editor"
+      },
+      "permission": "document.edit",
+      "target": {
+        "kind": "document"
+      },
+      "effect": "allow",
+      "fields": [
+        "title",
+        "body"
+      ]
+    },
+    {
+      "id": "g-freeze",
+      "subject": {
+        "kind": "any"
+      },
+      "permission": "document.edit",
+      "target": {
+        "kind": "document",
+        "id": "contract"
+      },
+      "effect": "deny",
+      "fields": [
+        "body"
+      ]
+    }
+  ],
+  "notes": [
+    {
+      "text": "An editor changes the text, never the status.",
+      "anchor": {
+        "element": "permission:document.edit",
+        "placement": "before"
+      },
+      "origin": {
+        "file": "fields",
+        "language": "blocks",
+        "line": 5,
+        "column": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,154 @@
+{
+  "catalog": {
+    "targetKinds": [
+      "doc",
+      "org"
+    ],
+    "broadTargets": [],
+    "permissions": [
+      {
+        "key": "doc.read",
+        "targets": [
+          "doc"
+        ]
+      },
+      {
+        "key": "doc.edit",
+        "targets": [
+          "doc"
+        ],
+        "impliedBy": [
+          "doc.read"
+        ],
+        "nonDelegable": true
+      },
+      {
+        "key": "org.settings",
+        "targets": [
+          "org"
+        ],
+        "managementOnly": true
+      },
+      {
+        "key": "doc.purge",
+        "targets": [
+          "doc"
+        ],
+        "label": "Purge for good",
+        "overrideOnly": true,
+        "meta": {
+          "risk": "high"
+        }
+      }
+    ]
+  },
+  "roles": [
+    {
+      "role": "viewer",
+      "inherits": []
+    }
+  ],
+  "strategy": "most_specific",
+  "overrides": [
+    {
+      "kind": "resource_owner",
+      "attr": "owner",
+      "except": [
+        "doc.purge"
+      ]
+    },
+    {
+      "kind": "permission_holder",
+      "permission": "doc.read"
+    }
+  ],
+  "subjects": [
+    {
+      "kind": "user",
+      "id": "bob",
+      "roles": [
+        {
+          "role": "viewer"
+        }
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "kind": "no_self_management"
+    },
+    {
+      "kind": "catalog_conformance"
+    },
+    {
+      "kind": "require_permission",
+      "permission": "doc.read",
+      "resource": {
+        "path": [
+          {
+            "kind": "org",
+            "id": "acme"
+          },
+          {
+            "kind": "doc"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "no_lockout",
+      "permissions": [
+        "doc.read"
+      ],
+      "members": [
+        {
+          "kind": "user",
+          "id": "bob"
+        }
+      ],
+      "resource": {
+        "path": [
+          {
+            "kind": "doc",
+            "id": "d1"
+          }
+        ]
+      },
+      "reserve": {
+        "adminRole": {
+          "role": "viewer"
+        },
+        "subjects": [
+          {
+            "kind": "user",
+            "id": "bob"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "forbid",
+      "subject": {
+        "kind": "any"
+      },
+      "permissions": [
+        "doc.edit"
+      ]
+    }
+  ],
+  "notes": [
+    {
+      "text": "The owner of a document may do anything to it.",
+      "anchor": {
+        "element": "override:resource_owner:owner",
+        "placement": "before"
+      },
+      "origin": {
+        "file": "governance",
+        "language": "blocks",
+        "line": 37,
+        "column": 1
+      }
+    }
+  ]
+}

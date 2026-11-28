@@ -115,6 +115,10 @@ name = "audit_report"
 required-features = ["audit"]
 
 [[test]]
+name = "frozen_audit"
+required-features = ["audit"]
+
+[[test]]
 name = "timestamp"
 required-features = ["timestamp"]
 

@@ -1,0 +1,1 @@
+{"type":"capabilities","scope":{"path":[{"kind":"document","id":"d1"},{"kind":"project","id":"p1"}]},"set":{"subject":{"kind":"user","id":"u1","roles":[{"role":"member"}],"principals":["authenticated"]},"grants":[{"id":"g1","subject":{"kind":"any"},"permission":"project.view","target":{"kind":"project"},"effect":"allow"}]}}

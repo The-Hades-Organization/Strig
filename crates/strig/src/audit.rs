@@ -28,6 +28,10 @@ use crate::rebac::Tuple;
 use crate::resource::{Anchor, ObjectRef, Resource};
 use crate::subject::{RoleAssignment, Subject};
 
+/// Version of the audit record format: the canonical form and the hash of the chain fixed in
+/// `docs/audit-format.md`. It is frozen at 1; a change to either is a new major version of the crates.
+pub const AUDIT_FORMAT: u32 = 1;
+
 /// How much of each change is recorded. Each level includes everything from the previous one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

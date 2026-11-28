@@ -1,0 +1,1 @@
+{"results":[{"decision":{"effect":"allow","reason":{"kind":"grant","grant_id":"g1","permission":"document.view","rank":0,"strategy":"most_specific"},"matched":["g1"]},"evaluated_at":1700000000000},{"decision":{"effect":"deny","reason":{"kind":"no_applicable_grant"}},"evaluated_at":1700000000000}],"revision":"tenant@7"}

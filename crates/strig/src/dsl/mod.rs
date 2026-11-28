@@ -50,33 +50,36 @@ pub use project::{Built, MAX_PROJECT_BYTES, MAX_SOURCES, Project};
 /// The largest source accepted: input is external and unbounded.
 pub const MAX_SOURCE_BYTES: usize = 4 * 1024 * 1024;
 
+/// The version of the canonical JSON that `Policy::from_json` reads, frozen as stable from 1.0: it only grows,
+/// and a reader refuses a document newer than it. `strig-macros` embeds
+/// the JSON it wrote and asserts, in the caller's build, that this is the number it was
+/// built against. Bump it with any change to that JSON that an older reader cannot take, and
+/// bump the same number in `strig-macros`.
+///
+/// 5: separation of duties (`mutually_exclusive`, `conflicting_actions` in the catalog and the
+/// `separation_of_duties` invariant). A document that uses them is written with a top-level
+/// `"schema": 5`, which a reader of schema 4 refuses instead of dropping the rule and letting
+/// the duties be held together; any other document keeps the `schema` it had.
+///
+/// 4: fields on grants and on permissions (`fields`). A document that uses them is written with
+/// a top-level `"schema": 4`, which a reader of schema 3 refuses instead of reading a
+/// field-restricted grant as one that covers the whole resource; a document without fields
+/// keeps the `schema` it had. This reader takes all of them.
+///
+/// 3: the `tz` of `time_between` and `weekday_in`. A document that uses one is written with a
+/// top-level `"schema": 3`, which a reader of schema 2 refuses as an unknown field instead of
+/// reading the window in UTC; a document without `tz` carries no `schema` and stays readable by
+/// schema 2. This reader takes both.
+///
+/// 2: the conditions `starts_with`, `ends_with`, `contains`, `any_in`, `all_in`, `ip_in`,
+/// `time_between` and `weekday_in`. A reader of schema 1 does not know those `op` values
+/// and fails on a policy that uses one.
+pub const DSL_SCHEMA: u32 = 5;
+
 /// Support for `strig-macros`; not part of the public API.
 #[doc(hidden)]
 pub mod __macro_support {
-    /// The version of the canonical JSON that `Policy::from_json` reads. `strig-macros` embeds
-    /// the JSON it wrote and asserts, in the caller's build, that this is the number it was
-    /// built against. Bump it with any change to that JSON that an older reader cannot take, and
-    /// bump the same number in `strig-macros`.
-    ///
-    /// 5: separation of duties (`mutually_exclusive`, `conflicting_actions` in the catalog and the
-    /// `separation_of_duties` invariant). A document that uses them is written with a top-level
-    /// `"schema": 5`, which a reader of schema 4 refuses instead of dropping the rule and letting
-    /// the duties be held together; any other document keeps the `schema` it had.
-    ///
-    /// 4: fields on grants and on permissions (`fields`). A document that uses them is written with
-    /// a top-level `"schema": 4`, which a reader of schema 3 refuses instead of reading a
-    /// field-restricted grant as one that covers the whole resource; a document without fields
-    /// keeps the `schema` it had. This reader takes all of them.
-    ///
-    /// 3: the `tz` of `time_between` and `weekday_in`. A document that uses one is written with a
-    /// top-level `"schema": 3`, which a reader of schema 2 refuses as an unknown field instead of
-    /// reading the window in UTC; a document without `tz` carries no `schema` and stays readable by
-    /// schema 2. This reader takes both.
-    ///
-    /// 2: the conditions `starts_with`, `ends_with`, `contains`, `any_in`, `all_in`, `ip_in`,
-    /// `time_between` and `weekday_in`. A reader of schema 1 does not know those `op` values
-    /// and fails on a policy that uses one.
-    pub const DSL_SCHEMA: u32 = 5;
+    pub use super::DSL_SCHEMA;
 }
 
 /// One source read and validated.

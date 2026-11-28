@@ -1,0 +1,160 @@
+{
+  "catalog": {
+    "targetKinds": [
+      "document",
+      "project"
+    ],
+    "broadTargets": [],
+    "permissions": [
+      {
+        "key": "document.view",
+        "targets": [
+          "project",
+          "document"
+        ]
+      },
+      {
+        "key": "document.edit",
+        "targets": [
+          "project",
+          "document"
+        ],
+        "impliedBy": [
+          "document.view"
+        ]
+      }
+    ]
+  },
+  "roles": [
+    {
+      "role": "editor",
+      "inherits": []
+    }
+  ],
+  "strategy": "deny_overrides",
+  "subjects": [
+    {
+      "kind": "user",
+      "id": "ana",
+      "roles": [
+        {
+          "role": "editor"
+        }
+      ],
+      "principals": [
+        "ana"
+      ],
+      "attrs": {
+        "active": true,
+        "dept": "legal",
+        "level": 3
+      }
+    }
+  ],
+  "grants": [
+    {
+      "id": "g-dept",
+      "subject": {
+        "kind": "role",
+        "id": "editor"
+      },
+      "permission": "document.edit",
+      "target": {
+        "kind": "document"
+      },
+      "effect": "allow",
+      "condition": {
+        "op": "all",
+        "of": [
+          {
+            "op": "eq",
+            "left": {
+              "attr": "subject.dept"
+            },
+            "right": "legal"
+          },
+          {
+            "op": "ge",
+            "left": {
+              "attr": "subject.level"
+            },
+            "right": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "g-freeze",
+      "subject": {
+        "kind": "any"
+      },
+      "permission": "document.edit",
+      "target": {
+        "kind": "project",
+        "id": "apollo"
+      },
+      "effect": "deny",
+      "condition": {
+        "op": "eq",
+        "left": {
+          "attr": "subject.active"
+        },
+        "right": false
+      }
+    },
+    {
+      "id": "g-user",
+      "subject": {
+        "kind": "user",
+        "id": "ana"
+      },
+      "permission": "document.view",
+      "target": {
+        "kind": "document",
+        "id": "spec"
+      },
+      "effect": "allow"
+    },
+    {
+      "id": "g-principal",
+      "subject": {
+        "kind": "principal",
+        "name": "ana"
+      },
+      "permission": "document.view",
+      "target": {
+        "kind": "project"
+      },
+      "effect": "allow"
+    }
+  ],
+  "notes": [
+    {
+      "text": "Legal may edit what is theirs.",
+      "anchor": {
+        "element": "grant:g-dept",
+        "placement": "before"
+      },
+      "origin": {
+        "file": "conditions",
+        "language": "blocks",
+        "line": 29,
+        "column": 1
+      }
+    },
+    {
+      "text": "one document",
+      "anchor": {
+        "element": "grant:g-user",
+        "placement": "inside"
+      },
+      "origin": {
+        "file": "conditions",
+        "language": "blocks",
+        "line": 50,
+        "column": 27,
+        "field": "target"
+      }
+    }
+  ]
+}

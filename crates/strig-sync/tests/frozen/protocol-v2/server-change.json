@@ -1,0 +1,1 @@
+{"type":"change","change":{"kind":"roles","scope":{"kind":"project","id":"p1"},"subject":"u1","origin":"node-1","seq":12,"at":1700000000000,"revision":"tenant@7"}}

@@ -1,0 +1,1 @@
+{"subject":{"kind":"user","id":"u1","roles":[{"role":"member"}]},"permission":"document.view","resource":{"path":[{"kind":"document","id":"d1"},{"kind":"project","id":"p1"}]},"env":{"ip":"203.0.113.42"},"at":1700000000000,"min_revision":"tenant@7"}
