@@ -48,10 +48,7 @@ impl ExclusiveHandle {
         };
         let mut registry = ExclusiveRegistry::default();
         if let Some(names) = options.permissions {
-            registry = registry.with_permissions(ExclusivePermissions {
-                hold: names.hold,
-                preempt: names.preempt,
-            });
+            registry = registry.with_permissions(ExclusivePermissions::new(names.hold, names.preempt));
         }
         if let Some(max_ttl) = options.max_ttl_ms {
             registry = registry.with_max_ttl(max_ttl);

@@ -41,13 +41,7 @@ async fn an_approval_is_a_change_and_its_end_an_expiry_notice() {
     )
     .scoped(org.clone());
     let grants = vec![admin_grant];
-    let review = |now| Review {
-        engine: &engine,
-        current: &grants,
-        tuples: None,
-        now,
-        meta: &meta,
-    };
+    let review = |now| Review::new(&engine, &grants, now, &meta);
 
     let ana = Subject::user("ana");
     flow.request(

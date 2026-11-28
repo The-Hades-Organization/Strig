@@ -39,6 +39,7 @@ impl fmt::Display for ObjectRef {
 /// `id` identifies the instance (`project:42`) or a facet (`doc_type:invoice`). Without `id`, the
 /// step represents the whole kind, like `global`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Anchor {
     pub kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -89,6 +90,7 @@ impl fmt::Display for Anchor {
 /// position in the path is the specificity used by the combination strategy: lower index, more
 /// specific target.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Resource {
     pub path: Vec<Anchor>,
     #[serde(default, skip_serializing_if = "Attributes::is_empty")]
@@ -99,6 +101,14 @@ impl Resource {
     pub fn new(kind: impl Into<String>, id: impl Into<String>) -> Self {
         Self {
             path: vec![Anchor::new(kind, id)],
+            attrs: Attributes::new(),
+        }
+    }
+
+    /// Resource whose path is `path`, from the most specific step to the broadest, with no attributes.
+    pub fn from_path(path: Vec<Anchor>) -> Self {
+        Self {
+            path,
             attrs: Attributes::new(),
         }
     }

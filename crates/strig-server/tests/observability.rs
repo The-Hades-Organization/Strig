@@ -26,10 +26,10 @@ struct Down;
 #[async_trait]
 impl Transport for Down {
     async fn post(&self, _path: &str, _timeout: Duration, _body: Vec<u8>) -> Result<RawResponse, TransportError> {
-        Ok(RawResponse {
-            status: 503,
-            body: br#"{"error":{"code":"source_unavailable","message":"down"}}"#.to_vec(),
-        })
+        Ok(RawResponse::new(
+            503,
+            br#"{"error":{"code":"source_unavailable","message":"down"}}"#.to_vec(),
+        ))
     }
 }
 

@@ -328,12 +328,46 @@ impl ApprovalError {
 
 /// What a change is judged against: the grants as they are now, the tuples, the instant and the
 /// metadata of the call (ip, request id, reason) that the audit keeps from the `detailed` level.
+#[derive(Clone, Copy)]
+#[non_exhaustive]
 pub struct Review<'a> {
     pub engine: &'a Engine,
     pub current: &'a [Grant],
     pub tuples: Option<&'a dyn TupleStore>,
     pub now: u64,
     pub meta: &'a Attributes,
+}
+
+impl<'a> Review<'a> {
+    pub fn new(engine: &'a Engine, current: &'a [Grant], now: u64, meta: &'a Attributes) -> Self {
+        Self {
+            engine,
+            current,
+            tuples: None,
+            now,
+            meta,
+        }
+    }
+
+    #[must_use]
+    pub fn with_tuples(mut self, tuples: &'a dyn TupleStore) -> Self {
+        self.tuples = Some(tuples);
+        self
+    }
+
+    /// The same review judged at another instant.
+    #[must_use]
+    pub fn with_now(mut self, now: u64) -> Self {
+        self.now = now;
+        self
+    }
+
+    /// The same review against another set of grants.
+    #[must_use]
+    pub fn with_current(mut self, current: &'a [Grant]) -> Self {
+        self.current = current;
+        self
+    }
 }
 
 /// The outcome of [`Approvals::propose`].

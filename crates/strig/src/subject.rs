@@ -12,6 +12,7 @@ pub const ANONYMOUS: &str = "anonymous";
 /// Role assigned to a subject, optionally restricted to a scope (a role in an organization
 /// holds only for resources whose path goes through it).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RoleAssignment {
     pub role: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

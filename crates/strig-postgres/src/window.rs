@@ -17,6 +17,7 @@ use crate::quote_ident;
 /// Names of the columns the predicate reads. Timestamps are milliseconds since the Unix epoch in
 /// `bigint` columns, as in the model.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct WindowColumns {
     pub valid_from: String,
     pub valid_until: String,
@@ -24,6 +25,32 @@ pub struct WindowColumns {
     /// Value of the effect column that marks an allow grant (`Effect::Allow` serializes as
     /// `allow`). Any other value, `NULL` included, is treated as possibly a deny.
     pub allow_effect: String,
+}
+
+impl WindowColumns {
+    #[must_use]
+    pub fn with_valid_from(mut self, valid_from: impl Into<String>) -> Self {
+        self.valid_from = valid_from.into();
+        self
+    }
+
+    #[must_use]
+    pub fn with_valid_until(mut self, valid_until: impl Into<String>) -> Self {
+        self.valid_until = valid_until.into();
+        self
+    }
+
+    #[must_use]
+    pub fn with_effect(mut self, effect: impl Into<String>) -> Self {
+        self.effect = effect.into();
+        self
+    }
+
+    #[must_use]
+    pub fn with_allow_effect(mut self, allow_effect: impl Into<String>) -> Self {
+        self.allow_effect = allow_effect.into();
+        self
+    }
 }
 
 impl Default for WindowColumns {

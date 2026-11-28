@@ -161,14 +161,8 @@ fn admin_assigns_role_to_another_user() {
     let subject = mutation.subject_after().expect("mudança de papel");
     assert_eq!(subject.roles, [in_org("member")]);
 
-    let proposal = Proposal {
-        actor: &admin(),
-        mutation: &mutation,
-        before: &after,
-        after: &after,
-        tuples: None,
-        now: None,
-    };
+    let actor = admin();
+    let proposal = Proposal::new(&actor, &mutation, &after, &after);
     assert!(proposal.grant().is_none());
     assert_eq!(proposal.subject_after(&Subject::user("u1")).roles, [in_org("member")]);
     assert_eq!(proposal.subject_after(&admin()).roles, admin().roles);

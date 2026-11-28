@@ -24,11 +24,26 @@ use crate::{
 
 /// Names used in positions.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Options {
     /// Name of the model, in positions.
     pub model_file: String,
     /// Name of the tuples, in positions.
     pub tuples_file: String,
+}
+
+impl Options {
+    #[must_use]
+    pub fn with_model_file(mut self, model_file: impl Into<String>) -> Self {
+        self.model_file = model_file.into();
+        self
+    }
+
+    #[must_use]
+    pub fn with_tuples_file(mut self, tuples_file: impl Into<String>) -> Self {
+        self.tuples_file = tuples_file.into();
+        self
+    }
 }
 
 impl Default for Options {

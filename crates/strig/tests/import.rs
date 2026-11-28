@@ -74,10 +74,7 @@ fn casbin_fixtures_decide_like_casbin() {
     for dir in dirs {
         let name = dir.file_name().unwrap().to_string_lossy().to_string();
         let actions: Vec<String> = read(&dir, "actions.txt").lines().map(str::to_string).collect();
-        let options = casbin::Options {
-            actions,
-            ..casbin::Options::default()
-        };
+        let options = casbin::Options::default().with_actions(actions);
         let imported = casbin::import(&read(&dir, "model.conf"), &read(&dir, "policy.csv"), &options)
             .unwrap_or_else(|e| panic!("{name}: {e}"));
         let policy = imported.policy();

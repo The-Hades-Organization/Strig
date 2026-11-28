@@ -181,20 +181,11 @@ fn a_policy_written_in_another_syntax_is_read_back_as_the_same_policy() {
 fn a_policy_the_syntax_cannot_say_fails_before_touching_the_file() {
     let dir = Scratch::new("unrepresentable");
     let mut policy = read_file(dir.write("in.strig", KINDS)).unwrap().policy;
-    policy.notes.push(strig::dsl::Note {
-        text: "orphan".into(),
-        anchor: strig::dsl::NoteAnchor {
-            element: "permission:gone".into(),
-            placement: strig::dsl::Placement::Before,
-        },
-        origin: strig::dsl::NoteOrigin {
-            file: "x".into(),
-            language: Language::Blocks,
-            line: 1,
-            column: 1,
-            field: None,
-        },
-    });
+    policy.notes.push(strig::dsl::Note::new(
+        "orphan",
+        strig::dsl::NoteAnchor::new("permission:gone", strig::dsl::Placement::Before),
+        strig::dsl::NoteOrigin::new("x", Language::Blocks, 1, 1),
+    ));
     let out = dir.path().join("out.strig");
     let error = write_file(&out, &policy, Language::Rules).unwrap_err();
     assert!(matches!(error, FsError::Print(_)));

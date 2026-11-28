@@ -26,13 +26,13 @@ fn from_instant(value: i64) -> Result<u64, StoreError> {
 const COLUMNS: &str = "resource_kind, resource_id, holder_kind, holder_id, priority, acquired_at, expires_at";
 
 fn lease_of(row: &Row) -> Result<Lease, StoreError> {
-    Ok(Lease {
-        resource: ObjectRef::new(row.get::<_, String>(0), row.get::<_, String>(1)),
-        holder: ObjectRef::new(row.get::<_, String>(2), row.get::<_, String>(3)),
-        priority: row.get(4),
-        acquired_at: from_instant(row.get(5))?,
-        expires_at: from_instant(row.get(6))?,
-    })
+    Ok(Lease::new(
+        ObjectRef::new(row.get::<_, String>(0), row.get::<_, String>(1)),
+        ObjectRef::new(row.get::<_, String>(2), row.get::<_, String>(3)),
+        row.get(4),
+        from_instant(row.get(5))?,
+        from_instant(row.get(6))?,
+    ))
 }
 
 impl PgTables {

@@ -1378,13 +1378,10 @@ impl EngineHandle {
             input.flow.audit.as_ref(),
             impact_options.as_ref(),
         );
-        let review = Review {
-            engine: &self.engine,
-            current: &input.flow.current,
-            tuples: tuples.as_ref().map(|s| s as &dyn strig::TupleStore),
-            now,
-            meta: &input.flow.meta,
-        };
+        let mut review = Review::new(&self.engine, &input.flow.current, now, &input.flow.meta);
+        if let Some(store) = tuples.as_ref() {
+            review = review.with_tuples(store as &dyn strig::TupleStore);
+        }
         Ok(
             match approvals.propose(&review, &input.actor, &input.mutation, input.id, expires_at) {
                 Ok(Proposed::Applied(grants)) => {
@@ -1427,13 +1424,10 @@ impl EngineHandle {
             input.flow.audit.as_ref(),
             impact_options.as_ref(),
         );
-        let review = Review {
-            engine: &self.engine,
-            current: &input.flow.current,
-            tuples: tuples.as_ref().map(|s| s as &dyn strig::TupleStore),
-            now,
-            meta: &input.flow.meta,
-        };
+        let mut review = Review::new(&self.engine, &input.flow.current, now, &input.flow.meta);
+        if let Some(store) = tuples.as_ref() {
+            review = review.with_tuples(store as &dyn strig::TupleStore);
+        }
         let stored = |store: &MemoryPendingStore| store.get(&id).ok().flatten();
         Ok(match input.decision.as_str() {
             "approve" => match approvals.approve(&review, &input.approver, &id) {
@@ -1493,13 +1487,10 @@ impl EngineHandle {
             Some(mode) => flow.fail_mode(mode),
             None => flow,
         };
-        let review = Review {
-            engine: &self.engine,
-            current: &input.flow.current,
-            tuples: tuples.as_ref().map(|s| s as &dyn strig::TupleStore),
-            now,
-            meta: &input.flow.meta,
-        };
+        let mut review = Review::new(&self.engine, &input.flow.current, now, &input.flow.meta);
+        if let Some(store) = tuples.as_ref() {
+            review = review.with_tuples(store as &dyn strig::TupleStore);
+        }
         let stored = |store: &MemoryPendingStore| id.as_deref().and_then(|id| store.get(id).ok().flatten());
         let who = |by: Option<&Subject>| {
             by.cloned()
@@ -1612,13 +1603,10 @@ impl EngineHandle {
             Some(mode) => flow.fail_mode(mode),
             None => flow,
         };
-        let review = Review {
-            engine: &self.engine,
-            current: &input.flow.current,
-            tuples: tuples.as_ref().map(|s| s as &dyn strig::TupleStore),
-            now,
-            meta: &input.flow.meta,
-        };
+        let mut review = Review::new(&self.engine, &input.flow.current, now, &input.flow.meta);
+        if let Some(store) = tuples.as_ref() {
+            review = review.with_tuples(store as &dyn strig::TupleStore);
+        }
         let who = |by: Option<&Subject>| {
             by.cloned()
                 .ok_or_else(|| BindingError::invalid_argument("by", "falta quem age"))
@@ -1712,13 +1700,10 @@ impl EngineHandle {
         });
         let options = spec.options(tuples.as_ref(), now);
         let approvals = self.approvals(&governance, &policy, &store, None, Some(&options));
-        let review = Review {
-            engine: &self.engine,
-            current: &input.flow.current,
-            tuples: tuples.as_ref().map(|s| s as &dyn strig::TupleStore),
-            now,
-            meta: &input.flow.meta,
-        };
+        let mut review = Review::new(&self.engine, &input.flow.current, now, &input.flow.meta);
+        if let Some(store) = tuples.as_ref() {
+            review = review.with_tuples(store as &dyn strig::TupleStore);
+        }
         Ok(match approvals.review_impact(&review, &id) {
             Ok(reviewed) => {
                 let mut out = to_value(&reviewed);

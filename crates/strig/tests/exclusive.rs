@@ -182,10 +182,8 @@ fn anonymous_subject_and_resource_without_identity_are_refused() {
 #[test]
 fn permission_names_are_configurable_and_validated_against_the_catalog() {
     let engine = engine();
-    let registry = ExclusiveRegistry::default().with_permissions(ExclusivePermissions {
-        hold: "exclusive.hold".into(),
-        preempt: "exclusive.take_over".into(),
-    });
+    let registry = ExclusiveRegistry::default()
+        .with_permissions(ExclusivePermissions::new("exclusive.hold", "exclusive.take_over"));
 
     assert!(matches!(
         registry.validate(&engine),

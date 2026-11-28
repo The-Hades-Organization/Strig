@@ -22,11 +22,7 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
     let subject = input.subject.unwrap_or_else(|| Subject::user("u"));
-    let ctx = EvalContext {
-        subject: &subject,
-        resource: &input.resource,
-        env: &input.env,
-    };
+    let ctx = EvalContext::new(&subject, &input.resource, &input.env);
     let registry = ConditionRegistry::new();
     let first = input.condition.evaluate_at(&ctx, &registry, input.now);
     let second = input.condition.evaluate_at(&ctx, &registry, input.now);

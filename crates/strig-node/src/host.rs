@@ -274,12 +274,14 @@ impl HostCallbacks {
                     }
                 }) as strig::audit::DropHook
             });
-            Arc::new(PendingQueue::new(RetryPolicy {
-                capacity: self.audit_policy.capacity.unwrap_or(defaults.capacity),
-                base_delay_ms: self.audit_policy.base_delay_ms.unwrap_or(defaults.base_delay_ms),
-                max_delay_ms: self.audit_policy.max_delay_ms.unwrap_or(defaults.max_delay_ms),
-                on_drop,
-            }))
+            let mut policy = RetryPolicy::default()
+                .with_capacity(self.audit_policy.capacity.unwrap_or(defaults.capacity))
+                .with_base_delay_ms(self.audit_policy.base_delay_ms.unwrap_or(defaults.base_delay_ms))
+                .with_max_delay_ms(self.audit_policy.max_delay_ms.unwrap_or(defaults.max_delay_ms));
+            if let Some(hook) = on_drop {
+                policy = policy.with_on_drop(hook);
+            }
+            Arc::new(PendingQueue::new(policy))
         })
     }
 

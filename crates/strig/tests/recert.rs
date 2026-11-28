@@ -83,13 +83,7 @@ impl Scene {
     }
 
     fn review(&self, now: u64) -> Review<'_> {
-        Review {
-            engine: &self.engine,
-            current: &self.grants,
-            tuples: None,
-            now,
-            meta: &self.meta,
-        }
+        Review::new(&self.engine, &self.grants, now, &self.meta)
     }
 }
 
@@ -389,10 +383,7 @@ fn only_the_reviewer_the_rule_names_decides_and_a_route_overrides_the_default() 
     let mut grants = scene.grants.clone();
     grants.push(role_grant("eve-manage", "reviewer", "org.manage", true, at_org()));
     let eve = Subject::user("eve").with_role_in("reviewer", org());
-    let review = Review {
-        current: &grants,
-        ..scene.review(T0 + 1)
-    };
+    let review = scene.review(T0 + 1).with_current(&grants);
     flow.decide(&review, &eve, "c1", "grant:ana-edit", RecertDecision::Keep, None)
         .unwrap();
 }
@@ -480,13 +471,7 @@ fn a_reviewer_who_accumulates_conflicting_duties_does_not_review() {
     let engine = Engine::builder(catalog).build().unwrap();
     let grants = vec![role_grant("admin-manage", "admin", "org.manage", true, at_org())];
     let meta = Attributes::new();
-    let review = Review {
-        engine: &engine,
-        current: &grants,
-        tuples: None,
-        now: T0,
-        meta: &meta,
-    };
+    let review = Review::new(&engine, &grants, T0, &meta);
     let (gov, store) = (Governance::new(), MemoryRecertStore::new());
     let flow = Recertifications::new(&gov, &store);
     let subjects = vec![member("ana")];
@@ -494,7 +479,7 @@ fn a_reviewer_who_accumulates_conflicting_duties_does_not_review() {
 
     let mixed = admin("gil").with_role_in("maker", org()).with_role_in("checker", org());
     let refused = flow.decide(
-        &Review { now: T0 + 1, ..review },
+        &review.with_now(T0 + 1),
         &mixed,
         "c1",
         "role:member#org:o1@ana",
@@ -505,7 +490,7 @@ fn a_reviewer_who_accumulates_conflicting_duties_does_not_review() {
 
     let clean = admin("hal").with_role_in("maker", org());
     flow.decide(
-        &Review { now: T0 + 1, ..review },
+        &review.with_now(T0 + 1),
         &clean,
         "c1",
         "role:member#org:o1@ana",

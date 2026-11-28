@@ -119,6 +119,7 @@ pub struct BatchResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct ListRequest {
     pub subject: Subject,
     pub permission: String,
@@ -135,6 +136,44 @@ pub struct ListRequest {
     pub env: Attributes,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<u64>,
+}
+
+impl ListRequest {
+    pub fn new(subject: Subject, permission: impl Into<String>, kind: impl Into<String>) -> Self {
+        Self {
+            subject,
+            permission: permission.into(),
+            kind: kind.into(),
+            layout: None,
+            resources: None,
+            env: Attributes::new(),
+            at: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_layout(mut self, layout: Vec<String>) -> Self {
+        self.layout = Some(layout);
+        self
+    }
+
+    #[must_use]
+    pub fn with_resources(mut self, resources: Vec<Resource>) -> Self {
+        self.resources = Some(resources);
+        self
+    }
+
+    #[must_use]
+    pub fn with_env(mut self, env: Attributes) -> Self {
+        self.env = env;
+        self
+    }
+
+    #[must_use]
+    pub fn with_at(mut self, at: u64) -> Self {
+        self.at = Some(at);
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

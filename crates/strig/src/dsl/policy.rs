@@ -77,13 +77,24 @@ pub enum Placement {
 /// The element a comment is attached to and its side. The element is named by its id (see [`ids`]),
 /// never by a field of it, so every syntax gives the same anchor to the same comment.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct NoteAnchor {
     pub element: String,
     pub placement: Placement,
 }
 
+impl NoteAnchor {
+    pub fn new(element: impl Into<String>, placement: Placement) -> Self {
+        Self {
+            element: element.into(),
+            placement,
+        }
+    }
+}
+
 /// Where a comment was read: kept for messages, never compared by [`Policy::equivalent`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct NoteOrigin {
     pub file: String,
     pub language: Language,
@@ -96,12 +107,41 @@ pub struct NoteOrigin {
     pub field: Option<String>,
 }
 
+impl NoteOrigin {
+    pub fn new(file: impl Into<String>, language: Language, line: u32, column: u32) -> Self {
+        Self {
+            file: file.into(),
+            language,
+            line,
+            column,
+            field: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_field(mut self, field: impl Into<String>) -> Self {
+        self.field = Some(field.into());
+        self
+    }
+}
+
 /// A comment of the source, kept so the text can be rebuilt from the JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Note {
     pub text: String,
     pub anchor: NoteAnchor,
     pub origin: NoteOrigin,
+}
+
+impl Note {
+    pub fn new(text: impl Into<String>, anchor: NoteAnchor, origin: NoteOrigin) -> Self {
+        Self {
+            text: text.into(),
+            anchor,
+            origin,
+        }
+    }
 }
 
 /// A whole policy: the engine spec, the facts and rules around it, and the notes. It serializes to

@@ -147,10 +147,7 @@ pub fn scope_from_str(text: &str) -> Resource {
             None => strig::Anchor::kind_only(segment),
         })
         .collect();
-    Resource {
-        path,
-        attrs: Default::default(),
-    }
+    Resource::from_path(path)
 }
 
 #[cfg(test)]

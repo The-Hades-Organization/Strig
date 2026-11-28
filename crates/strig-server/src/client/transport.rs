@@ -16,9 +16,16 @@ use crate::config::TIMEOUT_HEADER;
 
 /// The status and body of an answer, whatever the status is.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RawResponse {
     pub status: u16,
     pub body: Vec<u8>,
+}
+
+impl RawResponse {
+    pub fn new(status: u16, body: Vec<u8>) -> Self {
+        Self { status, body }
+    }
 }
 
 /// The call could not be made or its answer could not be read.

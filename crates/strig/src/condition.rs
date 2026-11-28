@@ -420,10 +420,17 @@ pub enum ConditionError {
 
 /// What a condition sees during the decision.
 #[derive(Clone, Copy)]
+#[non_exhaustive]
 pub struct EvalContext<'a> {
     pub subject: &'a Subject,
     pub resource: &'a Resource,
     pub env: &'a Attributes,
+}
+
+impl<'a> EvalContext<'a> {
+    pub fn new(subject: &'a Subject, resource: &'a Resource, env: &'a Attributes) -> Self {
+        Self { subject, resource, env }
+    }
 }
 
 impl EvalContext<'_> {

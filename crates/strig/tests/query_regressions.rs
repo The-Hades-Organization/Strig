@@ -140,11 +140,7 @@ fn a_nested_override_condition_is_listed_as_a_residue_of_the_outer_filter() {
         let by_row = |i: usize| match residuals.get(i)? {
             FilterResidual::Condition { condition, .. } => condition
                 .evaluate(
-                    &strig::EvalContext {
-                        subject: &subject,
-                        resource: &doc,
-                        env: &strig::Attributes::new(),
-                    },
+                    &strig::EvalContext::new(&subject, &doc, &strig::Attributes::new()),
                     &strig::ConditionRegistry::new(),
                 )
                 .ok(),

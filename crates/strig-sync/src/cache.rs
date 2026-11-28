@@ -324,13 +324,13 @@ mod tests {
     }
 
     fn windowed_set(subject: &Subject, valid_until: u64) -> CapabilitySet {
-        CapabilitySet {
-            subject: subject.clone(),
-            grants: vec![
+        CapabilitySet::new(
+            subject.clone(),
+            vec![
                 Grant::allow("g", SubjectMatcher::Any, "project.view", TargetSelector::global())
                     .valid_until(valid_until),
             ],
-        }
+        )
     }
 
     #[test]
@@ -370,10 +370,7 @@ mod tests {
         let cache = CapabilityCache::new(Duration::from_secs(60), 10);
         let alice = Subject::user("alice");
         let scope = Resource::new("project", "p1");
-        let empty = CapabilitySet {
-            subject: alice.clone(),
-            grants: Vec::new(),
-        };
+        let empty = CapabilitySet::new(alice.clone(), Vec::new());
         cache.insert_with_boundary(&alice, &scope, empty.clone(), Some(1_000), 1_000);
         assert!(cache.get(&alice, &scope).is_none(), "served a set at its boundary");
 
@@ -436,10 +433,7 @@ mod tests {
         let alice = Subject::user("alice");
         let p1 = Resource::new("project", "p1").within("org", "o1");
         let p2 = Resource::new("project", "p2").within("org", "o2");
-        let empty = |s: &Subject| CapabilitySet {
-            subject: s.clone(),
-            grants: Vec::new(),
-        };
+        let empty = |s: &Subject| CapabilitySet::new(s.clone(), Vec::new());
         cache.insert(&alice, &p1, empty(&alice));
         cache.insert(&alice, &p2, empty(&alice));
 
