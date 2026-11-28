@@ -25,6 +25,7 @@ impl SourceError {
 /// the ReBAC tuples. The server does not cache it: it asks the source for each request, so a
 /// source that wants a cache keeps its own.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Snapshot {
     pub engine: Arc<Engine>,
     pub grants: Vec<Grant>,

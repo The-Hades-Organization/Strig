@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use strig::{
-    Attributes, Catalog, Engine, Governance, Grant, MemoryRevisions, Mutation, PermissionDef, Resource, Revision,
-    RevisionSource, Subject, SubjectMatcher, TargetSelector,
+    Attributes, CapabilitySet, Catalog, Engine, Governance, Grant, MemoryRevisions, Mutation, PermissionDef, Resource,
+    Revision, RevisionSource, Subject, SubjectMatcher, TargetSelector,
 };
 use strig_sync::SessionStream;
 use strig_sync::{
@@ -326,4 +326,24 @@ fn memory_revisions_never_go_back() {
     let second = source.next();
     assert!(second.reaches(&first).is_reached());
     assert!(!first.reaches(&second).is_reached());
+}
+
+#[test]
+fn the_message_constructors_speak_the_current_version_and_carry_the_revision() {
+    let hello = ServerMessage::hello("node-a", Some("ana".into()));
+    assert!(matches!(&hello, ServerMessage::Hello { version: 2, .. }));
+    assert!(hello.to_json().contains(r#""version":2"#));
+
+    let set = CapabilitySet {
+        subject: Subject::anonymous(),
+        grants: Vec::new(),
+    };
+    let plain = ServerMessage::capabilities(Resource::new("project", "p1"), set);
+    assert!(!plain.to_json().contains("revision"));
+    let revised = plain.with_revision(Revision::new("tenant", 4));
+    assert!(revised.to_json().contains(r#""revision":"tenant@4""#));
+    assert_eq!(
+        ServerMessage::Ping.with_revision(Revision::new("tenant", 4)),
+        ServerMessage::Ping
+    );
 }

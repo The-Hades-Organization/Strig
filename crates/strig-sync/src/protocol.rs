@@ -20,7 +20,9 @@ fn protocol_one() -> u32 {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ServerMessage {
+    #[non_exhaustive]
     Hello {
         origin: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -30,6 +32,7 @@ pub enum ServerMessage {
         version: u32,
     },
     /// Current grants of the subject for a watched scope. Replaces the previous set.
+    #[non_exhaustive]
     Capabilities {
         scope: Resource,
         set: CapabilitySet,
@@ -51,6 +54,33 @@ pub enum ServerMessage {
 }
 
 impl ServerMessage {
+    /// The first message of a stream, speaking [`PROTOCOL_VERSION`].
+    pub fn hello(origin: impl Into<String>, subject: Option<String>) -> Self {
+        ServerMessage::Hello {
+            origin: origin.into(),
+            subject,
+            version: PROTOCOL_VERSION,
+        }
+    }
+
+    /// The capabilities of a watched scope, without a revision (see [`ServerMessage::with_revision`]).
+    pub fn capabilities(scope: Resource, set: CapabilitySet) -> Self {
+        ServerMessage::Capabilities {
+            scope,
+            set,
+            revision: None,
+        }
+    }
+
+    /// Records the revision the capabilities were computed from; any other message is returned as it was.
+    #[must_use]
+    pub fn with_revision(mut self, revision: Revision) -> Self {
+        if let ServerMessage::Capabilities { revision: slot, .. } = &mut self {
+            *slot = Some(revision);
+        }
+        self
+    }
+
     pub fn event_name(&self) -> &'static str {
         match self {
             ServerMessage::Hello { .. } => "hello",
@@ -75,6 +105,7 @@ impl ServerMessage {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ClientMessage {
     /// Starts watching these scopes and receives the capabilities of each.
     Watch {

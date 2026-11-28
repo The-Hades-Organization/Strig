@@ -20,6 +20,7 @@ pub enum ChangeKind {
 /// reloads from the source, so the notice is small and fits any transport (`pg_notify`
 /// accepts up to 8000 bytes).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Change {
     pub kind: ChangeKind,
     /// Affected step. `global` affects every resource.
