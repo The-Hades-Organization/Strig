@@ -8,6 +8,7 @@ import { load, scopeFromString } from '../dist/node.js';
 import './binding040.js';
 import './hooks.js';
 import './batch.js';
+import './fields.js';
 import './audit.js';
 import './dsl.js';
 import './types-gen.js';

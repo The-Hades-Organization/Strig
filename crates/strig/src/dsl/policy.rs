@@ -136,6 +136,9 @@ pub struct Policy {
 /// The `schema` a document gets when a condition names a time zone.
 const ZONES_SCHEMA: u32 = 3;
 
+/// The `schema` a document gets when a grant or a permission names fields.
+const FIELDS_SCHEMA: u32 = 4;
+
 impl Policy {
     /// The engine part of the policy, ready for [`EngineSpec::builder`].
     pub fn engine_spec(&self) -> EngineSpec {
@@ -151,15 +154,20 @@ impl Policy {
 
     /// The canonical JSON of the policy. A policy that names a time zone in some condition starts
     /// with `"schema": 3`, so that a reader of schema 2 refuses it instead of ignoring the zone;
-    /// any other policy carries no `schema`.
+    /// one that names fields in a grant or a permission starts with `"schema": 4`, so that an older
+    /// reader refuses it instead of reading a field-restricted grant as a whole-resource one; any
+    /// other policy carries no `schema`.
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         let json = serde_json::to_string_pretty(self)?;
         let needs_zones = self
             .grants
             .iter()
             .any(|grant| grant.condition.as_ref().is_some_and(Condition::uses_tz));
+        let needs_fields = self.grants.iter().any(|grant| !grant.fields.is_empty())
+            || self.catalog.permissions.iter().any(|def| !def.fields.is_empty());
+        let schema = if needs_fields { FIELDS_SCHEMA } else { ZONES_SCHEMA };
         Ok(match json.strip_prefix("{\n") {
-            Some(rest) if needs_zones => format!("{{\n  \"schema\": {ZONES_SCHEMA},\n{rest}"),
+            Some(rest) if needs_zones || needs_fields => format!("{{\n  \"schema\": {schema},\n{rest}"),
             _ => json,
         })
     }

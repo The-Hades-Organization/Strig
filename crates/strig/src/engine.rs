@@ -11,6 +11,7 @@ use crate::explain::{
     ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, PrerequisiteStep, Verdict,
     trace_condition_at,
 };
+use crate::field::{FieldExplanation, FieldSet, FieldVerdict};
 use crate::grant::{Effect, Grant, GrantIndex, GrantSource, SubjectMatcher};
 use crate::overrides::Override;
 use crate::rbac::RoleGraph;
@@ -37,6 +38,9 @@ struct Judged {
 }
 
 const DEFAULT_MAX_RELATION_DEPTH: usize = 32;
+
+/// Stands for "any field no grant names". Not a valid field name, so no grant can list it.
+const OTHER_FIELD: &str = "\0other";
 
 /// Data of a decision: grants, ReBAC tuples, environment attributes and the current instant. The
 /// [`Engine`] only holds configuration; the data arrives with each call.
@@ -90,6 +94,7 @@ pub enum EngineError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum GrantError {
     #[error("grant sem id")]
     EmptyId,
@@ -107,6 +112,10 @@ pub enum GrantError {
     UnknownFunction(String),
     #[error("janela de validade inválida: {0}")]
     InvalidWindow(#[from] ValidityError),
+    #[error("campo inválido '{0}': use segmentos [A-Za-z_][A-Za-z0-9_]* separados por ponto")]
+    InvalidField(String),
+    #[error("a permissão {permission} não declara o campo {field}")]
+    UnknownField { permission: String, field: String },
 }
 
 pub(crate) struct OverrideEntry {
@@ -264,6 +273,7 @@ impl Engine {
         Explanation {
             subject: request.subject.clone(),
             permission: request.permission.to_string(),
+            field: request.field.map(str::to_string),
             resource: request.resource.clone(),
             effective: self
                 .catalog
@@ -301,7 +311,7 @@ impl Engine {
         // so the cost is bounded by the closure size and never recurses.
         let mut missing = None;
         for prerequisite in self.catalog.prerequisites(request.permission) {
-            let sub = Request::new(request.subject, prerequisite, request.resource);
+            let sub = self.prerequisite_request(request, prerequisite);
             let allowed = self.decide_core(ctx, &sub, with_overrides, None).is_allowed();
             if let Some(r) = recorder.as_deref_mut() {
                 r.prerequisites.push(PrerequisiteStep {
@@ -336,6 +346,12 @@ impl Engine {
         let Some(effective) = self.catalog.effective(request.permission) else {
             return Decision::deny(Reason::UnknownPermission);
         };
+        if let Some(field) = request.field {
+            let declared = self.catalog.fields(request.permission);
+            if !declared.is_empty() && !declared.iter().any(|f| f == field) {
+                return Decision::deny(Reason::NoApplicableGrant);
+            }
+        }
 
         if with_overrides {
             for entry in &self.overrides {
@@ -370,7 +386,7 @@ impl Engine {
         let mut warnings = Vec::new();
         let candidates = self.collect(ctx, request, effective, &mut warnings, recorder);
         let matched = candidates.iter().map(|c| c.grant.id.clone()).collect();
-        match self.strategy.combine(&candidates) {
+        match self.pick(&candidates, request.field.is_some()) {
             Some(i) => {
                 let decisive = &candidates[i];
                 Decision {
@@ -392,6 +408,185 @@ impl Engine {
                 warnings,
             },
         }
+    }
+
+    /// The strategy's pick among candidates already filtered to the requested field (or, without a
+    /// field, among all of them). Policies without field-restricted grants go straight to the
+    /// strategy.
+    fn pick(&self, candidates: &[Candidate], field_filtered: bool) -> Option<usize> {
+        if field_filtered || !candidates.iter().any(|c| c.grant.is_field_restricted()) {
+            return self.strategy.combine(candidates);
+        }
+        let whole: Vec<usize> = (0..candidates.len())
+            .filter(|&i| !candidates[i].grant.is_field_restricted())
+            .collect();
+        let whole_candidates: Vec<Candidate> = whole.iter().map(|&i| candidates[i].clone()).collect();
+        let decided = whole[self.strategy.combine(&whole_candidates)?];
+        if candidates[decided].grant.effect == Effect::Deny {
+            return Some(decided);
+        }
+        let fields: BTreeSet<&str> = candidates
+            .iter()
+            .flat_map(|c| c.grant.fields.iter().map(String::as_str))
+            .collect();
+        for field in fields {
+            let covering: Vec<usize> = (0..candidates.len())
+                .filter(|&i| candidates[i].grant.covers_field(field))
+                .collect();
+            let covering_candidates: Vec<Candidate> = covering.iter().map(|&i| candidates[i].clone()).collect();
+            if let Some(i) = self.strategy.combine(&covering_candidates).map(|i| covering[i])
+                && candidates[i].grant.effect == Effect::Deny
+            {
+                return Some(i);
+            }
+        }
+        Some(decided)
+    }
+
+    /// The request for a prerequisite: on the same field when the prerequisite can be restricted to
+    /// it, and on the whole resource when the prerequisite declares fields that do not include it.
+    fn prerequisite_request<'a>(&self, request: &Request<'a>, prerequisite: &'a str) -> Request<'a> {
+        let mut sub = *request;
+        sub.permission = prerequisite;
+        if let Some(field) = request.field {
+            let declared = self.catalog.fields(prerequisite);
+            if !declared.is_empty() && !declared.iter().any(|f| f == field) {
+                sub.field = None;
+            }
+        }
+        sub
+    }
+
+    /// The first override that rules on the request, if any.
+    fn override_effect(
+        &self,
+        ctx: &Context<'_>,
+        request: &Request<'_>,
+        effective: &BTreeSet<String>,
+    ) -> Option<(String, Effect)> {
+        self.overrides
+            .iter()
+            .filter(|entry| !entry.except.iter().any(|key| effective.contains(key)))
+            .find_map(|entry| {
+                entry
+                    .inner
+                    .evaluate(self, ctx, request)
+                    .map(|effect| (entry.inner.name().to_string(), effect))
+            })
+    }
+
+    /// The fields to ask about: what the catalog declares for the permission or, when it declares
+    /// nothing, what the grants that could apply name (the permission's and its prerequisites').
+    fn field_plan(&self, ctx: &Context<'_>, request: &Request<'_>) -> (BTreeSet<String>, bool) {
+        let declared = self.catalog.fields(request.permission);
+        if !declared.is_empty() {
+            return (declared.iter().cloned().collect(), true);
+        }
+        let mut named = BTreeSet::new();
+        let permissions = std::iter::once(request.permission).chain(self.catalog.prerequisites(request.permission));
+        for permission in permissions {
+            let Some(effective) = self.catalog.effective(permission) else {
+                continue;
+            };
+            let mut probe = *request;
+            probe.permission = permission;
+            probe.field = None;
+            let candidates = self.collect(ctx, &probe, effective, &mut Vec::new(), None);
+            named.extend(candidates.into_iter().flat_map(|c| c.grant.fields));
+        }
+        (named, false)
+    }
+
+    fn assemble_fields(declared: bool, fields: &BTreeSet<String>, allowed: BTreeSet<String>, rest: bool) -> FieldSet {
+        if declared {
+            return if allowed.len() == fields.len() {
+                FieldSet::All
+            } else {
+                FieldSet::only(allowed)
+            };
+        }
+        if rest {
+            FieldSet::all_except(fields.difference(&allowed).cloned().collect())
+        } else {
+            FieldSet::only(allowed)
+        }
+    }
+
+    /// The fields of `resource` the subject may use for `permission`: every field, none, or a
+    /// list. It is the per-field version of [`Engine::decide`]; see [`crate::field`] for how the
+    /// grants combine. A condition that cannot be evaluated never opens a field.
+    pub fn allowed_fields(
+        &self,
+        ctx: &Context<'_>,
+        subject: &Subject,
+        permission: &str,
+        resource: &Resource,
+    ) -> FieldSet {
+        self.explain_fields(ctx, subject, permission, resource).allowed
+    }
+
+    /// The same answer as [`Engine::allowed_fields`], with, for each field, the grants that gave it
+    /// and the ones that took it away.
+    pub fn explain_fields(
+        &self,
+        ctx: &Context<'_>,
+        subject: &Subject,
+        permission: &str,
+        resource: &Resource,
+    ) -> FieldExplanation {
+        let request = Request::new(subject, permission, resource);
+        let mut out = FieldExplanation {
+            permission: permission.to_string(),
+            allowed: FieldSet::None,
+            overridden_by: None,
+            fields: Vec::new(),
+        };
+        let Some(effective) = self.catalog.effective(permission) else {
+            return out;
+        };
+        if let Some((name, effect)) = self.override_effect(ctx, &request, effective) {
+            out.allowed = if effect == Effect::Allow {
+                FieldSet::All
+            } else {
+                FieldSet::None
+            };
+            out.overridden_by = Some(name);
+            return out;
+        }
+        let (fields, declared) = self.field_plan(ctx, &request);
+        let mut allowed = BTreeSet::new();
+        let mut asked: Vec<Option<&str>> = fields.iter().map(|f| Some(f.as_str())).collect();
+        if !declared {
+            asked.push(Some(OTHER_FIELD));
+        }
+        let mut rest = false;
+        for field in asked {
+            let sub = request.field(field.unwrap_or_default());
+            let explanation = self.explain_with(ctx, &sub, true);
+            let is_rest = field == Some(OTHER_FIELD);
+            let is_allowed = explanation.decision.is_allowed();
+            if is_rest {
+                rest = is_allowed;
+            } else if is_allowed {
+                allowed.insert(field.unwrap_or_default().to_string());
+            }
+            let of_effect = |effect| {
+                explanation
+                    .candidates()
+                    .filter(|g| g.grant.effect == effect)
+                    .map(|g| g.grant.id.clone())
+                    .collect::<Vec<_>>()
+            };
+            out.fields.push(FieldVerdict {
+                field: (!is_rest).then(|| field.unwrap_or_default().to_string()),
+                allowed: is_allowed,
+                reason: explanation.decision.reason.clone(),
+                granted_by: of_effect(Effect::Allow),
+                denied_by: of_effect(Effect::Deny),
+            });
+        }
+        out.allowed = Self::assemble_fields(declared, &fields, allowed, rest);
+        out
     }
 
     /// Grants that apply to the request. When in doubt (a condition or relation that could not be
@@ -465,6 +660,9 @@ impl Engine {
         }
         if !grant.in_force(ctx.now) {
             return out(Verdict::OutsideWindow);
+        }
+        if request.field.is_some_and(|field| !grant.covers_field(field)) {
+            return out(Verdict::FieldNotCovered);
         }
         if self.catalog.is_override_only(request.permission) || self.catalog.is_override_only(&grant.permission) {
             return out(Verdict::OverrideOnly);
@@ -577,6 +775,18 @@ impl Engine {
                 target: grant.target.kind.clone(),
             });
         }
+        let declared = self.catalog.fields(&grant.permission);
+        for field in &grant.fields {
+            if !crate::catalog::valid_field(field) {
+                return Err(GrantError::InvalidField(field.clone()));
+            }
+            if !declared.is_empty() && !declared.contains(field) {
+                return Err(GrantError::UnknownField {
+                    permission: grant.permission.clone(),
+                    field: field.clone(),
+                });
+            }
+        }
         if matches!(grant.subject, SubjectMatcher::Relation { .. }) && self.relations.is_none() {
             return Err(GrantError::RelationsDisabled);
         }
@@ -618,10 +828,58 @@ impl Engine {
 }
 
 /// Preloaded grants of a subject.
+///
+/// On the wire (`serde`), a set whose grants include field-restricted ones is written twice: the
+/// `grants` key holds a form every reader decides safely (see [`crate::query`]: a field-restricted
+/// `allow` is left out and a field-restricted `deny` counts as a plain one), and `withFields` holds
+/// the real grants. A reader that knows fields takes `withFields`; an older one never sees it and so
+/// never reads a restricted grant as one over the whole resource. A set without field-restricted
+/// grants is written as it always was.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(from = "CapabilityWire", into = "CapabilityWire")]
 pub struct CapabilitySet {
     pub subject: Subject,
     pub grants: Vec<Grant>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CapabilityWire {
+    subject: Subject,
+    grants: Vec<Grant>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    with_fields: Option<Vec<Grant>>,
+}
+
+impl From<CapabilitySet> for CapabilityWire {
+    fn from(set: CapabilitySet) -> Self {
+        if !set.grants.iter().any(Grant::is_field_restricted) {
+            return Self {
+                subject: set.subject,
+                grants: set.grants,
+                with_fields: None,
+            };
+        }
+        let safe = set
+            .grants
+            .iter()
+            .filter_map(crate::query::whole_resource_form)
+            .collect();
+        Self {
+            subject: set.subject,
+            grants: safe,
+            with_fields: Some(set.grants),
+        }
+    }
+}
+
+impl From<CapabilityWire> for CapabilitySet {
+    fn from(wire: CapabilityWire) -> Self {
+        Self {
+            subject: wire.subject,
+            grants: wire.with_fields.unwrap_or(wire.grants),
+        }
+    }
 }
 
 impl CapabilitySet {

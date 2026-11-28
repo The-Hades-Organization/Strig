@@ -1,6 +1,6 @@
 // Cliente de tempo real: recebe as capacidades do servidor por SSE ou WebSocket e decide localmente
 // com o mesmo motor do servidor. Roda no navegador, no Node (>= 22 para WebSocket global) e no Bun.
-import type { CapabilitySet, Context, Decision, Engine, PermissionArg, Strig } from './index.js';
+import type { CapabilitySet, Context, Decision, Engine, FieldSet, PermissionArg, Strig } from './index.js';
 import { readSse, resourceWithin, scopeToString, sameAnchor } from './protocol.js';
 import type { Change, Resource, ServerMessage } from './protocol.js';
 
@@ -127,15 +127,26 @@ export class PermissionClient<P extends string = string> {
     return this.entries.get(scopeToString(scope))?.set;
   }
 
-  /** Decisão local. Sem capacidades de um escopo que contenha o recurso, nega. */
-  decide(permission: PermissionArg<P>, resource: Resource): Decision {
+  /** Decisão local. Sem capacidades de um escopo que contenha o recurso, nega. Com `field`, decide só esse campo. */
+  decide(permission: PermissionArg<P>, resource: Resource, field?: string): Decision {
     const entry = [...this.entries.values()].find((e) => resourceWithin(resource, e.scope));
     if (!entry) return { effect: 'deny', reason: { kind: 'no_applicable_grant' }, warnings: ['sem capacidades para o escopo'] };
-    return this.engine.decide(entry.context, { subject: entry.set.subject, permission, resource });
+    const request = { subject: entry.set.subject, permission, resource };
+    return this.engine.decide(entry.context, field === undefined ? request : { ...request, field });
   }
 
-  can(permission: PermissionArg<P>, resource: Resource): boolean {
-    return this.decide(permission, resource).effect === 'allow';
+  can(permission: PermissionArg<P>, resource: Resource, field?: string): boolean {
+    return this.decide(permission, resource, field).effect === 'allow';
+  }
+
+  /**
+   * Os campos que o sujeito pode usar, decididos localmente com as capacidades recebidas (que
+   * carregam os campos dos grants). Sem capacidades de um escopo que contenha o recurso, nenhum.
+   */
+  allowedFields(permission: PermissionArg<P>, resource: Resource): FieldSet {
+    const entry = [...this.entries.values()].find((e) => resourceWithin(resource, e.scope));
+    if (!entry) return { kind: 'none' };
+    return this.engine.allowedFields(entry.context, { subject: entry.set.subject, permission, resource });
   }
 
   private handle(message: ServerMessage): void {

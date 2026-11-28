@@ -57,6 +57,11 @@ pub mod __macro_support {
     /// built against. Bump it with any change to that JSON that an older reader cannot take, and
     /// bump the same number in `strig-macros`.
     ///
+    /// 4: fields on grants and on permissions (`fields`). A document that uses them is written with
+    /// a top-level `"schema": 4`, which a reader of schema 3 refuses instead of reading a
+    /// field-restricted grant as one that covers the whole resource; a document without fields
+    /// keeps the `schema` it had. This reader takes all of them.
+    ///
     /// 3: the `tz` of `time_between` and `weekday_in`. A document that uses one is written with a
     /// top-level `"schema": 3`, which a reader of schema 2 refuses as an unknown field instead of
     /// reading the window in UTC; a document without `tz` carries no `schema` and stays readable by
@@ -65,7 +70,7 @@ pub mod __macro_support {
     /// 2: the conditions `starts_with`, `ends_with`, `contains`, `any_in`, `all_in`, `ip_in`,
     /// `time_between` and `weekday_in`. A reader of schema 1 does not know those `op` values
     /// and fails on a policy that uses one.
-    pub const DSL_SCHEMA: u32 = 3;
+    pub const DSL_SCHEMA: u32 = 4;
 }
 
 /// One source read and validated.

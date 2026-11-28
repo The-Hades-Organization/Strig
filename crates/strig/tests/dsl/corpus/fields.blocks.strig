@@ -1,0 +1,28 @@
+language blocks
+
+target_kinds = [document]
+
+// An editor changes the text, never the status.
+permission document.edit {
+  targets = [document]
+  fields = [title, body, status]
+}
+
+role editor {
+}
+
+grant g-edit {
+  effect = allow
+  subject = role editor
+  permission = document.edit
+  target = document
+  fields = [title, body]
+}
+
+grant g-freeze {
+  effect = deny
+  subject = anyone
+  permission = document.edit
+  target = document:contract
+  fields = [body]
+}

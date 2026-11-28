@@ -396,6 +396,56 @@ assert!(!engine.check(&Context::new(&grants), &request));
 
 `CapabilityCache` expira as entradas no próximo limite de janela. Tirar do armazenamento os grants vencidos fica a cargo de um job seu.
 
+## Permissão por campo
+
+Um grant pode nomear os campos do recurso que cobre, como o CASL faz: "`document.edit` só em `title` e `body`". Um grant sem campos cobre o recurso inteiro, exatamente como antes.
+
+```rust
+let catalog = Catalog::builder()
+    .target_kinds(["document"])
+    .permission(PermissionDef::new("document.edit").targets(["document"]).fields(["title", "body", "status"]))
+    .build()?;
+let engine = Engine::builder(catalog).build()?;
+
+let grants = vec![
+    Grant::allow("edit", SubjectMatcher::role("editor"), "document.edit", TargetSelector::kind("document")),
+    Grant::deny("freeze", SubjectMatcher::role("editor"), "document.edit", TargetSelector::kind("document"))
+        .fields(["status"]),
+];
+let ana = Subject::user("ana").with_role("editor");
+let doc = Resource::new("document", "d1");
+let ctx = Context::new(&grants);
+
+engine.allowed_fields(&ctx, &ana, "document.edit", &doc); // FieldSet::Only { title, body }
+engine.check(&ctx, &Request::new(&ana, "document.edit", &doc).field("title")); // true
+engine.check(&ctx, &Request::new(&ana, "document.edit", &doc).field("status")); // false
+```
+
+Como as peças se combinam:
+
+- **Um campo é uma decisão.** A pergunta sobre um campo (`Request::field`) é decidida pela mesma estratégia (`MostSpecific`, `DenyOverrides`, `PermitOverrides`, `FirstApplicable`) sobre os grants que cobrem aquele campo. Um `deny` com campos tira só esses campos; um `allow` com campos dá só esses. Não há regra nova para aprender: cada campo é julgado como se os grants que não o nomeiam não existissem.
+- **O recurso inteiro exige todos os campos.** A pergunta sem campo só é permitida por um grant sem campos, e um `deny` com campos a bloqueia assim que a estratégia negaria algum dos seus campos. Assim `check` continua seguro como portão: um `allow` restrito a campos nunca abre o recurso, e quem responde "quais campos" é o `allowed_fields`.
+- **`implied_by` leva os campos.** Um grant de `document.manage` restrito a `title` dá `document.edit` só em `title`.
+- **`depends_on` é julgado no mesmo campo.** `document.edit` em `body` exige `document.view` em `body` (ou no recurso inteiro).
+- **O catálogo pode declarar os campos** de uma permissão. Aí um grant que nomeia outro campo é recusado por `validate_grant` (e pelo validador de política, com a linha e uma dica), e o pedido de um campo não declarado é negado. Sem declaração, o motor confia nos nomes que os grants usam, e `allowed_fields` pode responder `AllExcept` ("tudo menos `status`"), já que não consegue listar o resto.
+- **Falha fechada.** Condição que não pode ser avaliada derruba um `allow` e mantém um `deny`, campo a campo. Um override que permite dá todos os campos.
+- **Política sem campos decide como sempre decidiu.** Os testes fixam isso.
+
+`Engine::explain_fields` devolve, por campo, os grants que o deram e os que o tiraram; `Engine::explain` de um pedido com campo marca os grants que não o cobrem (`FieldNotCovered`). As listagens (`list`) e o `who_can` respondem pelo recurso inteiro: um `allow` restrito a campos fica de fora e um `deny` restrito a campos conta como um comum.
+
+A governança acompanha: `NoEscalation` recusa dar um campo que o ator não tem (e um grant do recurso inteiro a quem só tem alguns campos), e `CatalogConformance` valida os campos contra o catálogo.
+
+Na linguagem de políticas, `fields` é um campo de `permission` e de `grant` nas três sintaxes (`fields = [title, body]` em Blocks, `fields title, body` em Rules e Actors). A política que usa campos exporta `"schema": 4`, então um leitor de schema mais antigo a recusa em vez de ler um grant restrito a campos como um do recurso inteiro. Veja [docs/dsl.pt-BR.md](docs/dsl.pt-BR.md).
+
+Em JavaScript, `engine.allowedFields(ctx, request)` devolve `{ kind: 'all' | 'all_except' | 'only' | 'none', fields? }`, `request.field` pergunta por um campo e `pickAllowed(objeto, fields)` mascara uma resposta:
+
+```ts
+const fields = engine.allowedFields(ctx, { subject, permission: 'document.edit', resource });
+res.json(pickAllowed(document, fields)); // só title e body saem
+```
+
+`PermissionClient.allowedFields(permission, resource)` e `can(permission, resource, field)` decidem localmente. As capacidades que carregam grants restritos a campos vão em duas formas (`grants` para leitores antigos, que nunca veem um `allow` restrito e leem um `deny` restrito como inteiro, e `withFields` com os reais), então um cliente antigo falha fechado.
+
 ## Consultas reversas e listagem filtrada
 
 Pergunte quem pode fazer algo, ou o que um sujeito alcança, em vez de checar uma requisição. `QueryContext` leva os grants (e `.at(now)`), `QueryLimits` limita o trabalho e `PgTables` transforma as respostas em SQL.

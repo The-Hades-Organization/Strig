@@ -474,10 +474,10 @@ A source is a list of declarations. Top-level settings are `target_kinds`, `broa
 
 | Declaration | Fields |
 | --- | --- |
-| `permission <id> { }` | `label`, `description`, `targets` (required), `implied_by`, `depends_on`, `non_delegable`, `management_only`, `override_only`, `meta { k = "v" }` |
+| `permission <id> { }` | `label`, `description`, `targets` (required), `implied_by`, `depends_on`, `fields`, `non_delegable`, `management_only`, `override_only`, `meta { k = "v" }` |
 | `role <name> { }` | `inherits` |
 | `subject <kind:id> { }` | `principals`, `attrs { }`, `assign <role> { scope, valid_from, valid_until }` |
-| `grant <id> { }` | `effect` (`allow` or `deny`), `subject`, `permission`, `target`, `scope`, `when`, `valid_from`, `valid_until` |
+| `grant <id> { }` | `effect` (`allow` or `deny`), `subject`, `permission`, `target`, `scope`, `when`, `fields`, `valid_from`, `valid_until` |
 | `relation <kind#name> { }` | `rewrite` |
 | `relations = []` | declares that the policy uses no relations |
 | `tuples { }` | one `object#relation@subject` per line |
@@ -500,13 +500,13 @@ One statement per line. A line indented deeper than the one above continues it.
 | `broad` | `broad org` |
 | `strategy` | `strategy <name>` |
 | `depth` | `depth <n>` |
-| `permission` | `permission <id> on <kinds> [implied by <ids>] [depends_on <ids>] [label "..."] [about "..."] [non-delegable] [management-only] [override-only] [meta k = "v"]` |
+| `permission` | `permission <id> on <kinds> [implied by <ids>] [depends_on <ids>] [fields <names>] [label "..."] [about "..."] [non-delegable] [management-only] [override-only] [meta k = "v"]` |
 | `role` | `role <name> [inherits <names>]` |
 | `subject` | `subject team:ops` declares a subject; `user:ana has role <name> [in <scope>] [from <date>] [until <date>]`, `user:ana has principal <id>` and `user:ana has attr <key> = <value>` fill it in |
 | `relations` | `relations none` declares that the policy uses no relations |
 | `relation` | `relation doc#viewer = this \| owner` |
 | `tuple` | `tuple doc:d1#owner@user:bob` |
-| grant | `<id>: allow\|deny <matcher> to <permission> on <target> [in <scope>] [when <condition>] [from <date>] [until <date>]` |
+| grant | `<id>: allow\|deny <matcher> to <permission> on <target> [in <scope>] [fields <names>] [when <condition>] [from <date>] [until <date>]` |
 | `override` | `override resource-owner <attr> [except <ids>]`, `override permission-holder <id> [except <ids>]` |
 | `always` | `always <invariant> [fields]` |
 
@@ -520,7 +520,7 @@ Headings start in the first column and the lines under them are indented.
 
 | Heading | Lines under it |
 | --- | --- |
-| `role <name> [inherits <names>]` | `in <scope>` and, under it or directly, `allow\|deny <permission> on <target> [when <condition>] [from <date>] [until <date>] as <id>` |
+| `role <name> [inherits <names>]` | `in <scope>` and, under it or directly, `allow\|deny <permission> on <target> [fields <names>] [when <condition>] [from <date>] [until <date>] as <id>` |
 | `user <id>` or `subject <kind:id>` | `role <name> [in <scope>] [from <date>] [until <date>]`, `principal <id>`, `attr <key> = <value>` and the same `allow` and `deny` lines |
 | `principal <id>`, `relation <name>`, `anyone` | the `allow` and `deny` lines |
 | `catalog` | `kinds`, `broad`, then each permission as in rules, without the `permission` word |
@@ -608,6 +608,54 @@ invariant forbid {
   permissions = [doc.edit]
 }
 ```
+
+## Fields
+
+`fields` limits a permission or a grant to fields of the resource. On a `permission` it declares the fields a grant of
+that permission may be restricted to; on a `grant` it names the fields the grant covers. A grant without `fields` covers
+the whole resource.
+
+```strig
+language blocks
+
+target_kinds = [document]
+
+permission document.edit {
+  targets = [document]
+  fields = [title, body, status]
+}
+
+role editor {
+}
+
+grant g-edit {
+  effect = allow
+  subject = role editor
+  permission = document.edit
+  target = document
+  fields = [title, body]
+}
+```
+
+Rules and Actors spell it `fields title, body`, after the target:
+
+```strig
+g-edit: allow role editor to document.edit on document fields title, body
+```
+
+```strig
+role editor
+  allow document.edit on document fields title, body as g-edit
+```
+
+A field is a word of letters, digits and `_`, with dots for nesting (`address.street`); it must not repeat. When the
+permission declares its fields, a grant that names another one is an error at that field, with the declared ones as the
+hint. How fields combine with the strategies, `implied_by` and `depends_on` is in the README, section Field permissions.
+
+`DSL_SCHEMA` goes from 3 to 4 for `fields`. The canonical JSON of a policy that names fields in a grant or a permission
+starts with `"schema": 4`, so a reader of schema 3 refuses it (it would otherwise read a field-restricted grant as one
+over the whole resource); a policy without fields keeps the `schema` it had. This reader takes all of them and refuses a
+`schema` above 4.
 
 ## Validity windows
 

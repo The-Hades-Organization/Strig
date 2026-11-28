@@ -16,8 +16,8 @@ use strig::dsl::Language;
 pub const LANGUAGES: [Language; 3] = [Language::Blocks, Language::Rules, Language::Actors];
 
 /// The scenarios. The Rules and Actors files of the first six were written by `convert` from their
-/// Blocks file and then checked; the last three were written by hand in all three syntaxes.
-pub const SCENARIOS: [&str; 9] = [
+/// Blocks file and then checked; the last four were written by hand in all three syntaxes.
+pub const SCENARIOS: [&str; 10] = [
     "roles",
     "conditions",
     "validity",
@@ -27,6 +27,7 @@ pub const SCENARIOS: [&str; 9] = [
     "overrides",
     "late",
     "matching",
+    "fields",
 ];
 
 pub fn source(scenario: &str, language: Language) -> String {

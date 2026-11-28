@@ -6,10 +6,13 @@ use crate::subject::Subject;
 
 /// Question put to the engine: can `subject` `permission` on `resource`?
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct Request<'a> {
     pub subject: &'a Subject,
     pub permission: &'a str,
     pub resource: &'a Resource,
+    /// The field of the resource the question is about; `None` asks about the resource as a whole.
+    pub field: Option<&'a str>,
 }
 
 impl<'a> Request<'a> {
@@ -18,7 +21,15 @@ impl<'a> Request<'a> {
             subject,
             permission,
             resource,
+            field: None,
         }
+    }
+
+    /// Asks about one field of the resource (see [`crate::field`]).
+    #[must_use]
+    pub fn field(mut self, field: &'a str) -> Self {
+        self.field = Some(field);
+        self
     }
 }
 
