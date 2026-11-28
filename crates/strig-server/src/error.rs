@@ -121,7 +121,9 @@ impl ErrorCode {
             ErrorCode::Overloaded => "the server is at capacity; access is denied",
             ErrorCode::ClockUnavailable => "the server clock is unavailable; access is denied",
             ErrorCode::RevisionNotReached => "the server has not reached the required revision; access is denied",
-            ErrorCode::RevisionMismatch => "the required revision cannot be compared with the server data; access is denied",
+            ErrorCode::RevisionMismatch => {
+                "the required revision cannot be compared with the server data; access is denied"
+            }
             ErrorCode::Internal => "internal error; access is denied",
             ErrorCode::Unknown(_) => "unrecognized error; access is denied",
         }

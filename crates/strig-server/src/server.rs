@@ -444,9 +444,10 @@ async fn check(
     ApiJson(request): ApiJson<CheckRequest>,
 ) -> Result<Json<CheckResponse>, ApiError> {
     state
-        .answer(deadline.requiring(request.min_revision.clone()), move |snapshot, run| {
-            decide(snapshot, run.now, &request)
-        })
+        .answer(
+            deadline.requiring(request.min_revision.clone()),
+            move |snapshot, run| decide(snapshot, run.now, &request),
+        )
         .await
 }
 
@@ -459,23 +460,26 @@ async fn check_batch(
         return Err(ApiError::new(ErrorCode::BatchTooLarge));
     }
     state
-        .answer(deadline.requiring(request.min_revision.clone()), move |snapshot, run| {
-            run.ensure_budget(request.checks.len(), snapshot.grants.len())?;
-            // All or nothing: one failing item fails the batch, never a partial answer. The
-            // deadline is read between items, so a batch nobody waits for stops early.
-            let results = request
-                .checks
-                .iter()
-                .map(|check| {
-                    run.ensure_live()?;
-                    decide(snapshot, run.now, check)
+        .answer(
+            deadline.requiring(request.min_revision.clone()),
+            move |snapshot, run| {
+                run.ensure_budget(request.checks.len(), snapshot.grants.len())?;
+                // All or nothing: one failing item fails the batch, never a partial answer. The
+                // deadline is read between items, so a batch nobody waits for stops early.
+                let results = request
+                    .checks
+                    .iter()
+                    .map(|check| {
+                        run.ensure_live()?;
+                        decide(snapshot, run.now, check)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(BatchResponse {
+                    results,
+                    revision: snapshot.revision.clone(),
                 })
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(BatchResponse {
-                results,
-                revision: snapshot.revision.clone(),
-            })
-        })
+            },
+        )
         .await
 }
 

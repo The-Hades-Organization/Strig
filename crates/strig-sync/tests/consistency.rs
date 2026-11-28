@@ -8,11 +8,11 @@ use strig::{
     Attributes, Catalog, Engine, Governance, Grant, MemoryRevisions, Mutation, PermissionDef, Resource, Revision,
     RevisionSource, Subject, SubjectMatcher, TargetSelector,
 };
+use strig_sync::SessionStream;
 use strig_sync::{
     BoxError, CapabilityCache, CapabilityProvider, Change, ClientMessage, ConsistencyError, ConsistencyOptions,
     EngineProvider, GrantLoader, Hub, MemoryTransport, ServerMessage, Session, SessionOptions,
 };
-use strig_sync::SessionStream;
 use tokio_stream::StreamExt;
 
 async fn next(stream: &mut SessionStream) -> ServerMessage {
@@ -79,7 +79,9 @@ impl GrantLoader for Handle {
     }
 
     async fn revision(&self) -> Result<Option<Revision>, BoxError> {
-        Ok(self.tracked.then(|| Revision::new(self.scope.clone(), self.state.lock().unwrap().1)))
+        Ok(self
+            .tracked
+            .then(|| Revision::new(self.scope.clone(), self.state.lock().unwrap().1)))
     }
 }
 
@@ -144,7 +146,10 @@ async fn a_write_is_read_by_another_instance_that_holds_older_state() {
         .publish(Change::grants(strig::Anchor::global()).with_revision(revision.clone()))
         .await
         .unwrap();
-    let change = tokio::time::timeout(Duration::from_secs(1), seen.recv()).await.unwrap().unwrap();
+    let change = tokio::time::timeout(Duration::from_secs(1), seen.recv())
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(change.revision, Some(revision));
 }
 
@@ -213,7 +218,14 @@ async fn a_loader_that_does_not_number_its_writes_cannot_prove_a_revision() {
         .unwrap_err();
     assert_eq!(error.code(), "revision_untracked");
     // Without a requirement the answer is the one it always was.
-    assert_eq!(provider.evaluate_revised(&alice(), &project(), None).await.unwrap().revision, None);
+    assert_eq!(
+        provider
+            .evaluate_revised(&alice(), &project(), None)
+            .await
+            .unwrap()
+            .revision,
+        None
+    );
 }
 
 #[tokio::test]
@@ -238,9 +250,21 @@ async fn a_cached_entry_at_the_revision_is_served_without_reloading() {
     db.write(vec![view_grant()], &Revision::new("tenant", 3));
     let (cache, provider) = instance(&db);
     provider.evaluate_revised(&alice(), &project(), None).await.unwrap();
-    assert!(cache.get_at_least(&alice(), &project(), &Revision::new("tenant", 3)).is_some());
-    assert!(cache.get_at_least(&alice(), &project(), &Revision::new("tenant", 4)).is_none());
-    assert!(cache.get_at_least(&alice(), &project(), &Revision::new("other", 1)).is_none());
+    assert!(
+        cache
+            .get_at_least(&alice(), &project(), &Revision::new("tenant", 3))
+            .is_some()
+    );
+    assert!(
+        cache
+            .get_at_least(&alice(), &project(), &Revision::new("tenant", 4))
+            .is_none()
+    );
+    assert!(
+        cache
+            .get_at_least(&alice(), &project(), &Revision::new("other", 1))
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -264,7 +288,10 @@ async fn a_session_sends_the_revision_and_refuses_to_send_an_older_set() {
             ..SessionOptions::default()
         },
     );
-    assert!(matches!(next(&mut stream).await, ServerMessage::Hello { version: 2, .. }));
+    assert!(matches!(
+        next(&mut stream).await,
+        ServerMessage::Hello { version: 2, .. }
+    ));
     match next(&mut stream).await {
         ServerMessage::Capabilities { revision, .. } => assert_eq!(revision, Some(Revision::new("tenant", 3))),
         other => panic!("{other:?}"),

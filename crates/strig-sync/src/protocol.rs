@@ -152,8 +152,10 @@ mod tests {
                 version: 1
             }
         );
-        let caps: ServerMessage =
-            serde_json::from_str(r#"{"type":"capabilities","scope":{"path":[]},"set":{"subject":{"kind":"user","id":"u"},"grants":[]}}"#).unwrap();
+        let caps: ServerMessage = serde_json::from_str(
+            r#"{"type":"capabilities","scope":{"path":[]},"set":{"subject":{"kind":"user","id":"u"},"grants":[]}}"#,
+        )
+        .unwrap();
         assert!(matches!(caps, ServerMessage::Capabilities { revision: None, .. }));
     }
 

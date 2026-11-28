@@ -49,7 +49,11 @@ impl Revision {
     pub fn new(scope: impl Into<String>, value: u64) -> Self {
         let scope = scope.into();
         Self {
-            scope: if scope.is_empty() { DEFAULT_SCOPE.to_owned() } else { scope },
+            scope: if scope.is_empty() {
+                DEFAULT_SCOPE.to_owned()
+            } else {
+                scope
+            },
             value,
         }
     }

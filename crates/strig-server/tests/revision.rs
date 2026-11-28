@@ -84,7 +84,9 @@ async fn the_header_covers_the_other_routes_too() {
         .header(header::CONTENT_TYPE, "application/json")
         .header(MIN_REVISION_HEADER, "tenant@9")
         .header(TIMEOUT_HEADER, "60")
-        .body(Body::from(json!({"resource": serde_json::to_value(document("d1")).unwrap()}).to_string()))
+        .body(Body::from(
+            json!({"resource": serde_json::to_value(document("d1")).unwrap()}).to_string(),
+        ))
         .unwrap();
     let (status, answer) = send(&router, request).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
@@ -179,7 +181,10 @@ mod client {
         assert!(!behind.is_allowed());
         assert!(matches!(
             behind.failure(),
-            Some(Failure::Server { code: Some(ErrorCode::RevisionNotReached), .. })
+            Some(Failure::Server {
+                code: Some(ErrorCode::RevisionNotReached),
+                ..
+            })
         ));
 
         let batch = client.check_batch_at_least(&[ask(), ask()], &at(4)).await;

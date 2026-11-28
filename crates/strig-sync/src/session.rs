@@ -18,8 +18,8 @@ use crate::change::{Change, ChangeKind};
 use crate::consistency::ConsistencyError;
 use crate::hub::Hub;
 use crate::protocol::{ClientMessage, PROTOCOL_VERSION, ServerMessage};
-use strig::Revision;
 use crate::provider::CapabilityProvider;
+use strig::Revision;
 
 #[derive(Debug, Clone)]
 pub struct SessionOptions {

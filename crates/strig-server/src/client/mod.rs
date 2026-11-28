@@ -188,7 +188,11 @@ impl Client {
     }
 
     /// Like [`Client::check_batch`], with the same `min_revision` guarantee for every check.
-    pub async fn check_batch_at_least(&self, requests: &[CheckRequest], min_revision: &Revision) -> Vec<ClientDecision> {
+    pub async fn check_batch_at_least(
+        &self,
+        requests: &[CheckRequest],
+        min_revision: &Revision,
+    ) -> Vec<ClientDecision> {
         self.batch(requests, Some(min_revision)).await
     }
 

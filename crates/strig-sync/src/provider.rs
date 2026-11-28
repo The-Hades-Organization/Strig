@@ -130,12 +130,18 @@ impl<L: GrantLoader> EngineProvider<L> {
 
     /// The latest revision this instance has read from the loader, if the loader tracks one.
     pub fn known_revision(&self) -> Option<Revision> {
-        self.known.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+        self.known
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     fn remember(&self, revision: &Revision) {
         let mut known = self.known.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if known.as_ref().is_none_or(|have| have.reaches(revision) == Reached::Behind || have.scope() != revision.scope()) {
+        if known
+            .as_ref()
+            .is_none_or(|have| have.reaches(revision) == Reached::Behind || have.scope() != revision.scope())
+        {
             *known = Some(revision.clone());
         }
     }
@@ -209,7 +215,14 @@ impl<L: GrantLoader> EngineProvider<L> {
         if let Some(cache) = &self.cache {
             // Measured when the entry is stored, not when it was evaluated: the TTL counts from the
             // insert, so time spent loading must come off the lifetime.
-            cache.insert_revised(subject, scope, set.clone(), next_boundary, (self.clock)(), revision.clone());
+            cache.insert_revised(
+                subject,
+                scope,
+                set.clone(),
+                next_boundary,
+                (self.clock)(),
+                revision.clone(),
+            );
         }
         Ok(Revised::new(
             Evaluation {
@@ -245,10 +258,13 @@ impl<L: GrantLoader> CapabilityProvider for EngineProvider<L> {
     }
 
     async fn evaluate(&self, subject: &Subject, scope: &Resource) -> Result<Evaluation, BoxError> {
-        let revised = self.evaluate_inner(subject, scope, None).await.map_err(|error| match error {
-            ConsistencyError::Source(source) => source,
-            other => Box::new(other) as BoxError,
-        })?;
+        let revised = self
+            .evaluate_inner(subject, scope, None)
+            .await
+            .map_err(|error| match error {
+                ConsistencyError::Source(source) => source,
+                other => Box::new(other) as BoxError,
+            })?;
         Ok(revised.value)
     }
 
