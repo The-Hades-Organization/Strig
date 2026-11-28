@@ -1,0 +1,93 @@
+# Envoy in front of an app on 127.0.0.1:8080, asking Strig (examples/envoy.rs) on 127.0.0.1:9191.
+# Run: envoy -c envoy.yaml
+static_resources:
+  listeners:
+    - name: ingress
+      address: { socket_address: { address: 0.0.0.0, port_value: 10000 } }
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress
+                # Dot segments and encoded separators are decided by the route table, but normalizing
+                # first keeps what Envoy forwards and what Strig sees the same.
+                normalize_path: true
+                merge_slashes: true
+                path_with_escaped_slashes_action: REJECT_REQUEST
+                route_config:
+                  name: local
+                  virtual_hosts:
+                    - name: app
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/" }
+                          route: { cluster: app }
+                http_filters:
+                  # 1. Validate the JWT and copy `sub` and the roles claim into headers. The client's
+                  #    own x-user / x-roles are overwritten, which is what makes them trustworthy.
+                  - name: envoy.filters.http.jwt_authn
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
+                      providers:
+                        idp:
+                          issuer: https://idp.example.com
+                          remote_jwks:
+                            http_uri: { uri: https://idp.example.com/jwks.json, cluster: idp, timeout: 2s }
+                          claim_to_headers:
+                            - { header_name: x-user, claim_name: sub }
+                            - { header_name: x-roles, claim_name: roles }
+                          forward: false
+                      rules:
+                        # /healthz is a public Strig route: let it through without a token.
+                        - match: { path: /healthz }
+                        - match: { prefix: / }
+                          requires: { provider_name: idp }
+                  # 2. Ask Strig. failure_mode_allow stays false: if Strig is down or slow the
+                  #    request is denied, never let through.
+                  - name: envoy.filters.http.ext_authz
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+                      transport_api_version: V3
+                      failure_mode_allow: false
+                      grpc_service:
+                        envoy_grpc: { cluster_name: strig }
+                        timeout: 1s
+                      include_peer_certificate: false
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+  clusters:
+    - name: strig
+      type: STATIC
+      connect_timeout: 1s
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config: { http2_protocol_options: {} }
+      load_assignment:
+        cluster_name: strig
+        endpoints:
+          - lb_endpoints:
+              - endpoint: { address: { socket_address: { address: 127.0.0.1, port_value: 9191 } } }
+    - name: app
+      type: STATIC
+      connect_timeout: 1s
+      load_assignment:
+        cluster_name: app
+        endpoints:
+          - lb_endpoints:
+              - endpoint: { address: { socket_address: { address: 127.0.0.1, port_value: 8080 } } }
+    - name: idp
+      type: LOGICAL_DNS
+      connect_timeout: 2s
+      load_assignment:
+        cluster_name: idp
+        endpoints:
+          - lb_endpoints:
+              - endpoint: { address: { socket_address: { address: idp.example.com, port_value: 443 } } }
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+          sni: idp.example.com

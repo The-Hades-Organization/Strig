@@ -4,18 +4,19 @@ Strig follows [Semantic Versioning](https://semver.org/). This page says what th
 breaking change in each part of it, how versions behave before and after 1.0, which toolchains are supported, and how
 a feature is deprecated before it is removed.
 
-All crates and the npm package share one version number. A release bumps them together.
+All crates, the npm package and the Python package share one version number. A release bumps them together.
 
 ## What is public API
 
 | Surface | What is covered |
 |---|---|
-| **Rust crates** | Everything reachable from the public items of `strig`, `strig-sync`, `strig-redis`, `strig-postgres`, `strig-axum`, `strig-macros` and `strig-server` with the documented feature flags. The `strig-node` and `strig-inspect` crates are not libraries: their API is the npm package and the command line below. |
+| **Rust crates** | Everything reachable from the public items of `strig`, `strig-sync`, `strig-redis`, `strig-postgres`, `strig-axum`, `strig-macros` and `strig-server` with the documented feature flags. The `strig-node`, `strig-python` and `strig-inspect` crates are not libraries: their API is the npm package, the Python package and the command line below. |
 | **npm package** | The exports of `@the-hades-organization/strig` and its subpaths (`/client`, `/server`, `/protocol`, `/remote`, `/express`, `/fastify`, `/nestjs`, `/store`, `/testing`, `/types`), their TypeScript types, and the `strig-types` command. |
+| **Python package** | The exports of `strig` (`pip install strig-auth`): `Engine`, `Context`, `Exclusive`, `StrigError`, `DslError`, `scope_from_string`, `audit_estimate`, `verify_audit_chain` and `strig.dsl`, their method names and keyword arguments, and the type stubs. Values are the same JSON as the JavaScript API, with the same camelCase field names. |
 | **Policy language** | The grammar and meaning of the three syntaxes (Blocks, Rules, Actors) described in [dsl.md](dsl.md), and the canonical JSON the parser produces. |
 | **JSON spec** | The shape of `EngineSpec`, `Grant`, `Condition`, `Catalog`, the exported catalog and the files read by the JSON store, including their `schema` numbers (`DSL_SCHEMA` for the policy JSON). |
 | **Audit format** | The canonical form of a record and the hash of the chain, fixed in [audit-format.md](audit-format.md), with its test vector. |
-| **`errorCode`s** | The `code` of every error the JS binding throws (`ErrorCode`) and the stable machine-readable names the Rust errors map to. |
+| **`errorCode`s** | The `code` of every error the JS and Python bindings raise (`ErrorCode`) and the stable machine-readable names the Rust errors map to. |
 | **Wire protocol** | The messages of `strig-sync`, `strig-server` and the JS `/protocol` module. |
 | **`strig-inspect` command line** | Subcommands, flags and exit codes. The window and the text of messages are not covered. |
 
@@ -31,6 +32,8 @@ trait that users implement (`AuditSink`, `Invariant`, `ExclusiveStore`, `TupleSt
 to a public enum or a field to a public struct that is not `#[non_exhaustive]`, since an exhaustive `match` or a struct
 literal stops compiling; changing a default feature; raising the MSRV (see below); changing what a method returns for
 the same input in a way a caller can observe.
+
+**Python package.** Removing or renaming a function, class, method, keyword argument or exception; changing the `code` of an error; dropping a supported Python version; changing a result field. Adding a keyword argument with a default is not breaking.
 
 **npm package.** Removing or renaming an export, an option or a field; narrowing an accepted type or widening a
 returned one; changing the `code` of an error; dropping a supported Node or Bun version; moving a subpath.
@@ -71,6 +74,7 @@ the larger ones are written out in [migration.md](migration.md).
 - **Node**: 18.17 or newer (`engines.node`), and **Bun** 1.1 or newer (`engines.bun`). Dropping a version is a breaking
   change before 1.0 as well; from 1.0 it needs a major version, except when the runtime has been end-of-life for more
   than six months.
+- **Python**: 3.9 or newer (CPython, one `abi3` wheel per platform covers every later version). Dropping a version is a breaking change before 1.0 as well; from 1.0 it needs a major version, except when the version has been end-of-life for more than six months. Wheels: `linux-x64` and `linux-arm64` (manylinux), `darwin-x64`, `darwin-arm64`, `win32-x64`; the source distribution builds on anything else with a Rust toolchain.
 - **Browsers and others**: the WebAssembly backend needs WebAssembly with the features the shipped `.wasm` uses; the
   `browser` export of the package is built for current evergreen browsers.
 - **Platforms with a native module**: `linux-x64` and `linux-arm64` (glibc), `darwin-x64`, `darwin-arm64`,

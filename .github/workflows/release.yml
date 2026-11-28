@@ -282,3 +282,83 @@ jobs:
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  python-wheels:
+    name: python wheel ${{ matrix.platform }}
+    needs: verify
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux-x64
+            os: ubuntu-latest
+            target: x86_64
+            manylinux: auto
+          - platform: linux-arm64
+            os: ubuntu-24.04-arm
+            target: aarch64
+            manylinux: auto
+          - platform: darwin-x64
+            os: macos-15-intel
+            target: x86_64
+          - platform: darwin-arm64
+            os: macos-latest
+            target: aarch64
+          - platform: win32-x64
+            os: windows-latest
+            target: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the abi3 wheel (one wheel covers Python 3.9 and later)
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --locked --out dist -m crates/strig-python/pyproject.toml
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-wheel-${{ matrix.platform }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  python-sdist:
+    name: python sdist
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist -m crates/strig-python/pyproject.toml
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  pypi:
+    name: PyPI
+    needs: [python-wheels, python-sdist]
+    # Off until the repository variable PYPI_PUBLISH is set to "true", after the Trusted Publisher is
+    # registered on PyPI (see docs/versioning.md). The wheels above are built on every tag either way.
+    if: vars.PYPI_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: python-*
+          path: dist
+          merge-multiple: true
+      - run: ls -l dist && test "$(ls dist/*.whl | wc -l)" -eq 5 && test "$(ls dist/*.tar.gz | wc -l)" -eq 1
+      - name: Publish with Trusted Publishing (OIDC, no token)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          skip-existing: true

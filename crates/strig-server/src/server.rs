@@ -42,6 +42,8 @@ pub struct DecisionServer {
     clock: Arc<dyn Clock>,
     config: ServerConfig,
     authzen: Option<AuthzenConfig>,
+    /// The work slots, shared by every protocol the server speaks.
+    workers: Arc<Semaphore>,
 }
 
 impl DecisionServer {
@@ -52,6 +54,7 @@ impl DecisionServer {
             clock: Arc::new(SystemClock),
             config: ServerConfig::default(),
             authzen: None,
+            workers: Arc::new(Semaphore::new(ServerConfig::default().max_concurrent_work.max(1))),
         }
     }
 
@@ -64,8 +67,24 @@ impl DecisionServer {
 
     #[must_use]
     pub fn with_config(mut self, config: ServerConfig) -> Self {
+        self.workers = Arc::new(Semaphore::new(config.max_concurrent_work.max(1)));
         self.config = config;
         self
+    }
+
+    /// The Envoy External Authorization service over this server's source, clock and limits, with
+    /// the mapping of `config`. It shares the work slots with [`DecisionServer::router`], so the
+    /// two protocols together stay inside `max_concurrent_work`. Take it before `router`, which
+    /// consumes the server.
+    #[cfg(feature = "envoy")]
+    pub fn envoy_service(&self, config: crate::envoy::EnvoyConfig) -> crate::envoy::EnvoyService {
+        let state = AppState::sharing(
+            Arc::clone(&self.source),
+            Arc::clone(&self.clock),
+            self.config,
+            Arc::clone(&self.workers),
+        );
+        crate::envoy::EnvoyService::new(state, config)
     }
 
     /// Serves the OpenID AuthZEN Authorization API next to `/v1`, with the conventions of `config`.
@@ -82,7 +101,7 @@ impl DecisionServer {
     /// drops without a body.
     pub fn router(self) -> Router {
         let body_limit = self.config.max_body_bytes;
-        let mut state = AppState::new(self.source, self.clock, self.config);
+        let mut state = AppState::sharing(self.source, self.clock, self.config, self.workers);
         let mut decisions = Router::new()
             .route("/v1/check", post(check))
             .route("/v1/check/batch", post(check_batch))
@@ -120,11 +139,23 @@ pub(crate) struct AppState {
 }
 
 impl AppState {
+    #[cfg(test)]
     fn new(source: Arc<dyn DecisionSource>, clock: Arc<dyn Clock>, config: ServerConfig) -> Self {
+        let workers = Arc::new(Semaphore::new(config.max_concurrent_work.max(1)));
+        Self::sharing(source, clock, config, workers)
+    }
+
+    /// Like [`AppState::new`], over work slots another state already has.
+    fn sharing(
+        source: Arc<dyn DecisionSource>,
+        clock: Arc<dyn Clock>,
+        config: ServerConfig,
+        workers: Arc<Semaphore>,
+    ) -> Self {
         Self {
             source,
             clock,
-            workers: Arc::new(Semaphore::new(config.max_concurrent_work.max(1))),
+            workers,
             config,
             authzen: None,
         }
@@ -137,7 +168,7 @@ impl AppState {
 pub(crate) struct Deadline(Instant);
 
 impl Deadline {
-    fn after(wait: Duration) -> Self {
+    pub(crate) fn after(wait: Duration) -> Self {
         Self(Instant::now() + wait)
     }
 }
@@ -241,6 +272,18 @@ impl AppState {
     where
         T: Serialize + Send + 'static,
     {
+        self.answer_raw(deadline, work).await.map(Json)
+    }
+
+    /// [`AppState::answer`] without the JSON wrapper, for the protocols that are not JSON.
+    pub(crate) async fn answer_raw<T>(
+        &self,
+        deadline: Deadline,
+        work: impl FnOnce(&Snapshot, &Run) -> Result<T, ApiError> + Send + 'static,
+    ) -> Result<T, ApiError>
+    where
+        T: Send + 'static,
+    {
         let cancel = Cancel::default();
         let _stop = cancel.on_drop();
         let snapshot = timeout_at(deadline.0, self.source.snapshot())
@@ -281,7 +324,7 @@ impl AppState {
             work(&snapshot, &run)
         });
         match timeout_at(deadline.0, job).await {
-            Ok(Ok(result)) => result.map(Json),
+            Ok(Ok(result)) => result,
             Ok(Err(error)) => {
                 tracing::error!(error = %error, "the decision task did not finish");
                 Err(ApiError::new(ErrorCode::Internal))

@@ -179,7 +179,7 @@ pub fn convert(text: &Value, to: &Value) -> DslResult<String> {
 }
 
 /// O nome do arquivo em `options.file`, ou o padrão.
-#[cfg(any(feature = "napi", feature = "wasm"))]
+#[cfg(any(feature = "napi", feature = "wasm", feature = "dsl"))]
 fn file_option(options: Option<&Value>) -> DslResult<&str> {
     match options.and_then(|o| o.get("file")) {
         None | Some(Value::Null) => Ok(DEFAULT_FILE),
@@ -188,14 +188,14 @@ fn file_option(options: Option<&Value>) -> DslResult<&str> {
 }
 
 /// `format(text, { file? })`: reescreve o texto no layout canônico da sintaxe que ele declara.
-#[cfg(any(feature = "napi", feature = "wasm"))]
+#[cfg(any(feature = "napi", feature = "wasm", feature = "dsl"))]
 pub fn format(text: &Value, options: Option<&Value>) -> DslResult<String> {
     let parsed = read(file_option(options)?, string("text", text)?)?;
     dsl::print(&parsed.policy, parsed.language).map_err(unrepresentable)
 }
 
 /// `isFormatted(text, { file? })`: se o texto já está no layout canônico.
-#[cfg(any(feature = "napi", feature = "wasm"))]
+#[cfg(any(feature = "napi", feature = "wasm", feature = "dsl"))]
 pub fn is_formatted(text: &Value, options: Option<&Value>) -> DslResult<bool> {
     let formatted = format(text, options)?;
     Ok(string("text", text)? == formatted)

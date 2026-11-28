@@ -28,6 +28,7 @@ The core does no IO, needs no async runtime and compiles to WebAssembly. Real ti
 cargo add strig                             # Rust
 cargo add strig --features dsl              # Rust, with the policy language
 npm install @the-hades-organization/strig   # Node, Bun and the browser
+pip install strig-auth                     # Python (import strig)
 ```
 
 Features of the `strig` crate:
@@ -100,7 +101,7 @@ cargo run -p strig-axum --example server      # real-time server over SSE and We
 
 ## Crates
 
-All crates except `strig-inspect` and `strig-node` are on crates.io at the same version.
+All crates except `strig-inspect`, `strig-node` and `strig-python` are on crates.io at the same version.
 
 | Crate | Use it for | Main dependencies |
 |---|---|---|
@@ -112,6 +113,7 @@ All crates except `strig-inspect` and `strig-node` are on crates.io at the same 
 | `strig-server` | HTTP decision server, and a Rust client that denies when it gets no answer | `axum`, `hyper-util` (client) |
 | `strig-macros` | `policy!` and `include_policy!`: the policy is validated at compile time | `strig` |
 | `strig-node` | The npm package: native module (N-API) for Node and Bun, WebAssembly for the browser | `napi` or `wasm-bindgen` |
+| `strig-python` | The PyPI package `strig-auth` (`import strig`): native extension (PyO3, abi3) over the same core as `strig-node` | `pyo3` |
 | `strig-cli` | The `strig` command: `strig test` runs the tests of a policy, for people and for CI (JUnit) | `strig` |
 | `strig-inspect` | Inspector: decision traces, grant simulation, access matrix, audit trail. Desktop window and terminal commands | `gpui-pre`, `gpui-component` |
 
@@ -588,6 +590,23 @@ let config = AuthzenConfig::default()
 let router = DecisionServer::new(source).with_authzen(config).router();
 ```
 
+### Envoy
+
+With the `envoy` feature (off by default, no `tonic` or `prost` without it), `DecisionServer::envoy_service(EnvoyConfig)` serves Envoy's External Authorization (`envoy.service.auth.v3.Authorization/Check`, gRPC) over the same source as the HTTP routes, so a service mesh or a gateway built on Envoy asks Strig before it forwards a request. A declarative `EnvoyConfig` maps the request: the subject comes from a header or from the filter metadata (for example the claims `jwt_authn` validated), each method and path pattern asks one permission, and the resource is a template over the path parameters. `OK` on an allow; `PERMISSION_DENIED` with HTTP 403 on a deny, a path no rule covers, a missing subject, a source that is down or a deadline that passed, with an optional fixed `x-strig-reason`. A path with dot segments or encoded separators matches nothing. See [`crates/strig-server/API.md`](crates/strig-server/API.md#envoy-external-authorization-grpc-feature-envoy) and [`examples/envoy.yaml`](crates/strig-server/examples/envoy.yaml).
+
+```rust
+let envoy = EnvoyConfig::default()
+    .with_subject_header("x-user")?
+    .with_route("GET", "/healthz", RouteRule::public())?
+    .with_route(
+        "GET,HEAD",
+        "/documents/{id}",
+        RouteRule::require("document.view", ResourceTemplate::new("document", "{id}")),
+    )?;
+let service = DecisionServer::new(source).envoy_service(envoy);
+service.serve(TcpListener::bind("127.0.0.1:9191").await?, shutdown).await?;
+```
+
 ## Observability
 
 Every crate has an optional `tracing` feature, off by default. It adds spans through [`tracing`](https://docs.rs/tracing) and metrics through the [`metrics`](https://docs.rs/metrics) facade, so you pick the backend: Prometheus, OpenTelemetry or your own recorder. The features chain (`strig-sync/tracing` turns on `strig/tracing`, `strig-postgres/tracing` and `strig-redis/tracing` turn on `strig-sync/tracing`, `strig-server/tracing` turns on `strig/tracing`).
@@ -934,6 +953,46 @@ const rows2 = await db.selectFrom('document').selectAll().where(kyselyWhere).exe
 
 The unit tests check the object each adapter builds, and an oracle runs every scenario (allow by kind, by anchor, by exact id, denies that cut, a condition that stays a residue) against SQLite (Drizzle and Kysely) and an evaluator of the Prisma shape, comparing the rows with the ids `engine.list` resolves. TypeORM, Sequelize and MikroORM have no adapter yet; the mapping and the compiler (`bounds`, `Emitter`) are what a new one would reuse.
 
+## Python
+
+`strig-auth` is the Python binding over the same engine and the same JSON `EngineSpec` as the Rust and JavaScript APIs: a native extension (PyO3), one `abi3` wheel per platform for Python 3.9 and later, with type stubs (`py.typed`).
+
+```sh
+pip install strig-auth
+```
+
+```python
+import strig
+from strig import dsl
+
+spec = dsl.load_project_dir("policies")          # or a plain dict: the EngineSpec JSON
+engine = strig.Engine(spec)
+
+ctx = strig.Context(grants, tuples=[...], env={"dept": "eng"}, now=1_700_000_000_000)
+ctx.add_grant(grant); ctx.remove_grant("g1"); ctx.set_now(None)
+
+request = {"subject": {"kind": "user", "id": "ana"}, "permission": "project.edit",
+           "resource": strig.scope_from_string("project:p1/org:o1")}
+engine.check(ctx, request)                        # bool
+engine.decide(ctx, request)                       # {"effect": "allow", "matched": [...], "reason": {...}}
+engine.explain(ctx, request)                      # the trace
+engine.check_many(ctx, [request, other], now=1_700_000_000_000)
+engine.list(ctx, subject, "project.view", "project")
+engine.who_can(ctx, "project.view")
+
+result = engine.apply({"actor": actor, "current": grants, "mutation": {"add": grant},
+                       "invariants": [{"kind": "custom", "name": "role_in_use"}],
+                       "audit": {"level": "forensic", "failMode": "open"}})
+```
+
+- **Same JSON, same names.** Arguments and results are the dicts and lists the JavaScript API takes and returns, with the same camelCase fields (`validFrom`, `grantId`, `auditStatus`); methods and keyword arguments are snake_case (`check_many`, `who_can_on`, `audit_sink`). Anything that is not JSON (`nan`, a `set`, a non-text key, an int over 64 bits) is refused with `INVALID_ARGUMENT`; nothing is coerced.
+- **Errors are exceptions with a `code`.** A failed call raises `strig.StrigError` with `.code` equal to the `errorCode` of the JavaScript binding (`INVALID_INPUT`, `INVALID_ARGUMENT`, `UNKNOWN_SUBJECT`, `REENTRANT_CALL`, ...); match on the code, not on the message. The policy language raises `strig.DslError` (a `StrigError`) with `.diagnostics`.
+- **Rules written in Python.** `Engine(spec, conditions={...}, overrides=[{"name": ..., "except": [...], "evaluate": fn}], invariants={...}, audit_sink=fn, audit_redact=fn, on_audit_drop=fn, audit_policy={...})` take synchronous callables with the same contract as the JavaScript hooks: an exception denies (a condition that raises does not grant, an override that raises answers `denied`, an invariant that raises refuses with its message), a coroutine is a wrong answer, and a callback that calls the engine or changes a `Context` gets `REENTRANT_CALL`. The GIL stays held during a call, so a callback runs on the thread that is deciding.
+- **Time is explicit.** Every method that decides takes an optional `now` (ms UTC) that wins over `ctx.set_now`; without one the engine fails closed on validity windows. The system clock is used only by `apply`/`propose` for the audit record and by `Exclusive` when `now` is omitted.
+- `strig.Exclusive(...)`, `strig.verify_audit_chain(records, anchors)` and `strig.audit_estimate(level, records)` mirror the JavaScript ones. `strig.dsl` has `compile`, `print`, `convert`, `format`, `is_formatted`, `load_project` and `load_project_dir`.
+
+To build it from the repository: `pip install maturin && cd crates/strig-python && maturin develop && pytest`.
+
 ## Policy language
 
 With the `dsl` feature, a policy can be written as text instead of JSON. The same policy has three syntaxes, Blocks, Rules and Actors, and `convert` moves between them. Every error carries a position and a hint. The validated JSON stays the source of truth.
@@ -1043,7 +1102,7 @@ strig test policies/ --junit test-results/strig.xml   # exit 1 on a failure, 2 o
   with: { path: policies, version: 0.9.0 }
 ```
 
-The same runner is `strig::dsl::testing` in Rust and `strig.runTests(policy, tests)` in JavaScript. The format, the
+The same runner is `strig::dsl::testing` in Rust and `strig.runTests(policy, tests)` in JavaScript and `strig.dsl.run_tests(policy, tests)` in Python. The format, the
 report and the exit codes are in [the guide](docs/dsl.md#testing-a-policy); `examples/policy-tests/` has a project that
 passes.
 
@@ -1146,8 +1205,8 @@ Files reload when they change on disk. The window follows the system light or da
 
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --exclude strig-inspect --all-targets -- -D warnings
-cargo test --workspace --exclude strig-inspect
+cargo clippy --workspace --exclude strig-inspect --exclude strig-python --all-targets -- -D warnings
+cargo test --workspace --exclude strig-inspect --exclude strig-python
 cargo test -p strig-inspect --no-default-features
 
 # transports against real servers (skipped without the variables)
