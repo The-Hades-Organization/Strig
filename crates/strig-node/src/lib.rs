@@ -26,10 +26,11 @@ use serde_json::Value;
 use strig::ChainError;
 use strig::audit::{AuditLevel, AuditRecord, AuditStatus, FailMode, MemoryAuditLog, chain_head, verify_chain_anchored};
 use strig::{
-    ApprovalError, ApprovalPolicy, ApprovalRule, Approvals, Attributes, CapabilitySet, Context, Engine, EngineSpec,
-    Governance, Grant, ImpactOptions, ImpactSource, InMemorySubjects, InMemoryTuples, InvariantSpec,
-    MemoryPendingStore, Mutation, PathLayout, PendingError, PendingRequest, PendingStore, Proposed, QueryContext,
-    QueryLimits, Request, Resource, Review, RoleTemplate, Subject, Tuple,
+    ApprovalError, ApprovalPolicy, ApprovalRule, Approvals, Attributes, CapabilitySet, Context, Elevated,
+    ElevationPolicy, ElevationRequest, ElevationRule, Elevations, Engine, EngineSpec, Governance, Grant, ImpactOptions,
+    ImpactSource, InMemorySubjects, InMemoryTuples, InvariantSpec, MemoryPendingStore, Mutation, PathLayout,
+    PendingError, PendingRequest, PendingStore, Proposed, QueryContext, QueryLimits, Request, Resource, Review,
+    RoleTemplate, Subject, Tuple,
 };
 
 #[cfg(feature = "timestamp")]
@@ -520,6 +521,32 @@ struct ResolveInput {
     decision: String,
     #[serde(default)]
     reason: Option<String>,
+    #[serde(flatten)]
+    flow: FlowInput,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ElevateInput {
+    /// `request`, `approve`, `reject`, `revoke` ou `close_review`.
+    op: String,
+    /// A política: o que se eleva e como.
+    #[serde(default)]
+    elevation: Vec<ElevationRule>,
+    /// O pedido de elevação (`op: 'request'`).
+    #[serde(default)]
+    elevation_request: Option<ElevationRequest>,
+    /// O pedido guardado (as demais operações).
+    #[serde(default)]
+    request: Option<PendingRequest>,
+    /// Quem aprova, recusa, revoga ou revisa.
+    #[serde(default)]
+    by: Option<Subject>,
+    /// O motivo de uma recusa ou de uma revogação, ou a nota do fechamento da revisão.
+    #[serde(default)]
+    reason: Option<String>,
+    #[serde(default)]
+    expires_at: Option<Value>,
     #[serde(flatten)]
     flow: FlowInput,
 }
@@ -1376,6 +1403,124 @@ impl EngineHandle {
                 return Err(BindingError::invalid_argument(
                     "decision",
                     format!("esperado approve ou reject, veio {other}"),
+                ));
+            }
+        })
+    }
+
+    /// A elevação temporária e o break-glass. `op: 'request'` pede (`elevationRequest`, `expiresAt?`):
+    /// `{ ok: true, applied: false, request }` fica à espera de um aprovador e
+    /// `{ ok: true, applied: true, grants, request }` é um break-glass já em vigor. `approve`, `reject`,
+    /// `revoke` e `close_review` agem sobre o `request` guardado, como `by`: `approve` devolve
+    /// `{ grants, request }` como `resolve`, `revoke` devolve `{ grants, request }` e `reject` e
+    /// `close_review` devolvem `{ request }`. Recusas como as de `resolve`; nada se grava aqui.
+    pub fn elevate(&self, input: Value, clock: BindingResult<u64>) -> BindingResult<Value> {
+        host::forbid_reentry()?;
+        let mut input = input;
+        let custom = host::take_custom(&mut input)?;
+        let mut input: ElevateInput = parse("elevate", input)?;
+        let (now, governance, capture, _policy, tuples) = self.flow_parts(&mut input.flow, &custom, clock)?;
+        let policy = ElevationPolicy::from_rules(std::mem::take(&mut input.elevation));
+        let store = MemoryPendingStore::new();
+        let id = input.request.as_ref().map(|r| r.id.clone());
+        if let Some(request) = &input.request {
+            seed(&store, std::slice::from_ref(request))?;
+        }
+        let impact_options = input.flow.impact.as_ref().map(|i| i.options(tuples.as_ref(), now));
+        let flow = Elevations::new(&governance, &policy, &store);
+        let flow = match impact_options.as_ref() {
+            Some(options) => flow.with_impact(options),
+            None => flow,
+        };
+        let flow = match input.flow.audit.as_ref().and_then(|a| a.fail_mode) {
+            Some(mode) => flow.fail_mode(mode),
+            None => flow,
+        };
+        let review = Review {
+            engine: &self.engine,
+            current: &input.flow.current,
+            tuples: tuples.as_ref().map(|s| s as &dyn strig::TupleStore),
+            now,
+            meta: &input.flow.meta,
+        };
+        let stored = |store: &MemoryPendingStore| id.as_deref().and_then(|id| store.get(id).ok().flatten());
+        let who = |by: Option<&Subject>| {
+            by.cloned()
+                .ok_or_else(|| BindingError::invalid_argument("by", "falta quem age"))
+        };
+        let reason = input.reason.as_deref().unwrap_or_default();
+        Ok(match input.op.as_str() {
+            "request" => {
+                let request = input
+                    .elevation_request
+                    .ok_or_else(|| BindingError::invalid_argument("elevationRequest", "falta o pedido"))?;
+                let expires_at = match &input.expires_at {
+                    Some(v) if !v.is_null() => Some(millis_value("expiresAt", v)?),
+                    _ => None,
+                };
+                match flow.request(&review, &request, expires_at) {
+                    Ok(Elevated::Pending(pending)) => flow_reply(
+                        &capture,
+                        true,
+                        serde_json::json!({"applied": false, "request": request_json(&pending)}),
+                    ),
+                    Ok(Elevated::Active(approved)) => flow_reply(
+                        &capture,
+                        true,
+                        serde_json::json!({"applied": true, "grants": to_value(&approved.grants), "request": request_json(&approved.request)}),
+                    ),
+                    Ok(_) => {
+                        return Err(BindingError::invalid_input(
+                            "elevate",
+                            "resultado de elevação desconhecido",
+                        ));
+                    }
+                    Err(error) => refused_reply(&capture, error, None)?,
+                }
+            }
+            "approve" => match flow.approve(&review, &who(input.by.as_ref())?, &id.clone().unwrap_or_default()) {
+                Ok(approved) => {
+                    let mut extra = serde_json::json!({"grants": to_value(&approved.grants), "request": request_json(&approved.request)});
+                    if let Some(proposed) = &approved.proposed_impact {
+                        extra["proposedImpact"] = to_value(proposed);
+                    }
+                    flow_reply(&capture, true, extra)
+                }
+                Err(error) => refused_reply(&capture, error, stored(&store).as_ref())?,
+            },
+            "reject" => match flow.reject(
+                &review,
+                &who(input.by.as_ref())?,
+                &id.clone().unwrap_or_default(),
+                reason,
+            ) {
+                Ok(request) => flow_reply(&capture, true, serde_json::json!({"request": request_json(&request)})),
+                Err(error) => refused_reply(&capture, error, stored(&store).as_ref())?,
+            },
+            "revoke" => {
+                let why = input.reason.as_deref();
+                match flow.revoke(&review, &who(input.by.as_ref())?, &id.clone().unwrap_or_default(), why) {
+                    Ok(revoked) => flow_reply(
+                        &capture,
+                        true,
+                        serde_json::json!({"grants": to_value(&revoked.grants), "request": request_json(&revoked.request)}),
+                    ),
+                    Err(error) => refused_reply(&capture, error, stored(&store).as_ref())?,
+                }
+            }
+            "close_review" => match flow.close_review(
+                &review,
+                &who(input.by.as_ref())?,
+                &id.clone().unwrap_or_default(),
+                reason,
+            ) {
+                Ok(request) => flow_reply(&capture, true, serde_json::json!({"request": request_json(&request)})),
+                Err(error) => refused_reply(&capture, error, stored(&store).as_ref())?,
+            },
+            other => {
+                return Err(BindingError::invalid_argument(
+                    "op",
+                    format!("esperado request, approve, reject, revoke ou close_review, veio {other}"),
                 ));
             }
         })

@@ -499,6 +499,14 @@ impl JsEngine {
             .map_err(err)
     }
 
+    /// Requests, approves, refuses, revokes or reviews a temporary elevation (break-glass included).
+    #[napi]
+    pub fn elevate(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {
+        self.inner
+            .elevate(json(env, input)?, crate::clock_ms(std::time::SystemTime::now()))
+            .map_err(err)
+    }
+
     /// Closes the pending requests whose expiry has come.
     #[napi]
     pub fn expire(&self, env: &Env, input: Unknown<'_>) -> Result<Value> {

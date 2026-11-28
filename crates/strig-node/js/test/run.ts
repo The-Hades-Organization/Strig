@@ -22,6 +22,7 @@ import './frameworks.js';
 import './web-routes.js';
 import './store.js';
 import './approvals.js';
+import './elevation.js';
 import './orm.js';
 import { Hub, change, engineProvider, memoryTransport, openSession, pgTransport, pipeSse, redisTransport, sseResponse } from '../dist/server.js';
 

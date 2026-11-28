@@ -576,6 +576,14 @@ impl PyEngine {
         out(py, &result)
     }
 
+    fn elevate<'py>(&self, py: Python<'py>, input: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        let result = self
+            .inner
+            .elevate(json(py, "input", input)?, clock_ms(std::time::SystemTime::now()))
+            .map_err(|e| fail(py, e))?;
+        out(py, &result)
+    }
+
     fn expire<'py>(&self, py: Python<'py>, input: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let result = self
             .inner
