@@ -26,6 +26,12 @@ trait gained `acquire_lease`, `renew_lease`, `release_lease` and `remove_expired
 implemented keeps compiling and working. `PgQueryError` is `#[non_exhaustive]`; an exhaustive `match` already needs a
 `_` arm.
 
+### New, no action: AuthZEN in `strig-server`
+
+`DecisionServer::with_authzen(AuthzenConfig)` is an addition. Without that call the server has no `/access/v1/*` or
+`/.well-known/authzen-configuration` route, and `/v1` is unchanged. Call it only if you want to serve the OpenID
+AuthZEN Authorization API next to `/v1`.
+
 ### New, no action: `checkMany` and `explainMany`
 
 `engine.checkMany(ctx, requests)` and `engine.explainMany(ctx, requests)` decide a batch in one call. `check`,
