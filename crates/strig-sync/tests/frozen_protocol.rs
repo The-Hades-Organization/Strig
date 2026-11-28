@@ -5,11 +5,9 @@
 
 use std::path::PathBuf;
 
-use strig::{
-    Anchor, CapabilitySet, Grant, Resource, Revision, Subject, SubjectMatcher, TargetSelector,
-};
-use strig_sync::{ClientMessage, PROTOCOL_VERSION, ServerMessage};
+use strig::{Anchor, CapabilitySet, Grant, Resource, Revision, Subject, SubjectMatcher, TargetSelector};
 use strig_sync::change::Change;
+use strig_sync::{ClientMessage, PROTOCOL_VERSION, ServerMessage};
 
 fn path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -69,12 +67,7 @@ fn client() -> Vec<(&'static str, ClientMessage)> {
                 scopes: vec![scope(), Resource::new("project", "p2")],
             },
         ),
-        (
-            "client-unwatch",
-            ClientMessage::Unwatch {
-                scopes: vec![scope()],
-            },
-        ),
+        ("client-unwatch", ClientMessage::Unwatch { scopes: vec![scope()] }),
         ("client-refresh", ClientMessage::Refresh),
         (
             "client-refresh-at-least",
@@ -97,7 +90,11 @@ fn check(name: &str, written: &str, read_back: impl Fn(&str) -> String) {
         written, frozen,
         "{name}: the wire format changed, which is a breaking change; update on purpose with STRIG_UPDATE_FROZEN=1"
     );
-    assert_eq!(format!("{}\n", read_back(frozen.trim_end())), frozen, "{name}: read then written differs");
+    assert_eq!(
+        format!("{}\n", read_back(frozen.trim_end())),
+        frozen,
+        "{name}: read then written differs"
+    );
 }
 
 #[test]
@@ -143,8 +140,16 @@ fn every_message_type_has_a_fixture() {
     assert_eq!(
         types,
         [
-            "capabilities", "change", "error", "hello", "ping", "refresh", "refresh_at_least", "resync",
-            "unwatch", "watch"
+            "capabilities",
+            "change",
+            "error",
+            "hello",
+            "ping",
+            "refresh",
+            "refresh_at_least",
+            "resync",
+            "unwatch",
+            "watch"
         ]
     );
 }

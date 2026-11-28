@@ -80,7 +80,11 @@ fn text_to_json_to_text_is_stable_in_every_syntax() {
             let text = print(&policy, language).unwrap();
             let again = parse(scenario, &text).unwrap_or_else(|errors| panic!("{scenario} in {language}:\n{errors}"));
             assert!(policy.equivalent(&again.policy), "{scenario} in {language}");
-            assert_eq!(print(&again.policy, language).unwrap(), text, "{scenario} in {language}");
+            assert_eq!(
+                print(&again.policy, language).unwrap(),
+                text,
+                "{scenario} in {language}"
+            );
             assert_eq!(
                 canonical(&again.policy),
                 canonical(&policy),

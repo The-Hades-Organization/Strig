@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use strig::audit::{Auditor, MemoryAuditLog};
 use strig::{
-    AUDIT_FORMAT, Attributes, AuditLevel, AuditOutcome, AuditRecord, CatalogConformance, Context, Governance,
-    Mutation, NoSelfManagement, ObjectRef, Request, RoleAssignment, Subject, Tuple, verify_chain,
+    AUDIT_FORMAT, Attributes, AuditLevel, AuditOutcome, AuditRecord, CatalogConformance, Context, Governance, Mutation,
+    NoSelfManagement, ObjectRef, Request, RoleAssignment, Subject, Tuple, verify_chain,
 };
 use support::*;
 
@@ -72,7 +72,10 @@ fn trail(level: AuditLevel) -> Vec<AuditRecord> {
     let project = project();
     let ctx = Context::new(&grants);
     for key in ["project.view", "project.delete"] {
-        auditor.decide(&engine, &ctx, &Request::new(&subject, key, &project), &meta).1.unwrap();
+        auditor
+            .decide(&engine, &ctx, &Request::new(&subject, key, &project), &meta)
+            .1
+            .unwrap();
     }
     log.records()
 }

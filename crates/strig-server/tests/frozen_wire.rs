@@ -8,7 +8,9 @@ use std::path::PathBuf;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use strig_server::error::{ErrorBody, ErrorCode};
-use strig_server::wire::{AccessRequest, BatchRequest, BatchResponse, CheckRequest, CheckResponse, ListRequest, WhoRequest};
+use strig_server::wire::{
+    AccessRequest, BatchRequest, BatchResponse, CheckRequest, CheckResponse, ListRequest, WhoRequest,
+};
 
 fn path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -56,7 +58,9 @@ fn the_check_bodies_are_frozen() {
     );
     freeze::<CheckResponse>(
         "check-response-allow",
-        &format!(r#"{{"decision":{ALLOW},"evaluated_at":1700000000000,"requested_at":1700000000000,"revision":"tenant@7"}}"#),
+        &format!(
+            r#"{{"decision":{ALLOW},"evaluated_at":1700000000000,"requested_at":1700000000000,"revision":"tenant@7"}}"#
+        ),
     );
     freeze::<CheckResponse>(
         "check-response-deny",
@@ -83,7 +87,9 @@ fn the_batch_bodies_are_frozen() {
 fn the_query_requests_are_frozen() {
     freeze::<ListRequest>(
         "list-request",
-        &format!(r#"{{"subject":{SUBJECT},"permission":"document.view","kind":"document","layout":["document","project"]}}"#),
+        &format!(
+            r#"{{"subject":{SUBJECT},"permission":"document.view","kind":"document","layout":["document","project"]}}"#
+        ),
     );
     freeze::<WhoRequest>(
         "who-request",

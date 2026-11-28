@@ -73,9 +73,10 @@ pub mod why_not;
 pub use attr::{Attributes, Value};
 #[cfg(feature = "audit")]
 pub use audit::{
-    AUDIT_FORMAT, AuditAction, AuditError, AuditLevel, AuditOutcome, AuditRecord, AuditSink, AuditStats, AuditStatus, Auditor,
-    ChainError, DropHook, DroppedRecord, Emitted, FailMode, JsonLinesAudit, MemoryAuditLog, PendingQueue, PendingRef,
-    RecertRef, Redactor, RetryPolicy, RoleChange, chain_head, mask_attributes, verify_chain, verify_chain_anchored,
+    AUDIT_FORMAT, AuditAction, AuditError, AuditLevel, AuditOutcome, AuditRecord, AuditSink, AuditStats, AuditStatus,
+    Auditor, ChainError, DropHook, DroppedRecord, Emitted, FailMode, JsonLinesAudit, MemoryAuditLog, PendingQueue,
+    PendingRef, RecertRef, Redactor, RetryPolicy, RoleChange, chain_head, mask_attributes, verify_chain,
+    verify_chain_anchored,
 };
 pub use catalog::{
     ActionConflict, Catalog, CatalogBuilder, CatalogError, CatalogErrors, CatalogExport, CatalogRule, ExclusiveKind,
