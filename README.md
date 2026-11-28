@@ -456,6 +456,36 @@ res.json(pickAllowed(document, fields)); // only title and body leave
 
 `PermissionClient.allowedFields(permission, resource)` and `can(permission, resource, field)` decide locally. Capabilities that carry field-restricted grants are sent in two forms (`grants` for older readers, which never see a restricted `allow` and read a restricted `deny` as whole, and `withFields` with the real ones), so an older client fails closed.
 
+## Why not? What would allow it
+
+`Engine::explain` says why a decision came out as it did. When it is a denial, `Engine::why_not(ctx, request, options)` adds what would turn it into an `allow`: the smallest changes, smallest and most specific first. It returns `None` when the request is already allowed.
+
+```rust
+let answer = engine.why_not(&ctx, &request, &WhyNotOptions::default()).expect("denied");
+println!("{:?}", answer.cause); // what denied it: Cause::NoApplicableGrant, Cause::Deny { .. }, Cause::Override { .. }, ...
+for remedy in &answer.remedies {
+    println!("{:?} {:?}", remedy.change, remedy.caveats);
+}
+```
+
+| Change | Meaning |
+|---|---|
+| `SatisfyCondition` | an otherwise applicable `allow` has a condition that failed (`failed`, with the values the engine saw) or could not be evaluated (`unresolved`, a missing attribute for example). No value is invented: it names what has to hold. |
+| `AddGrant` | an `allow` for the subject on the most specific step of the path (the exact target, then the kind), checked with `validate_grant`, so it respects the catalog's `targets` and `fields`; a field question asks for that field only |
+| `NarrowDeny` | take the asked field out of the `fields` of the `deny` that decided |
+| `AssignRole` | a role that has an applicable `allow`, scoped to the narrowest step of the path |
+| `RemoveDeny` | remove the `deny` that decided |
+
+Every remedy is **verified**: the engine applies it alone to a copy of the subject or of the grants and decides the request again. Only a change that comes out as `allow` is returned, so a suggestion that would not work (a role blocked by a deny, a grant a `DenyOverrides` strategy still beats) does not appear. Nothing is written.
+
+- A denial by an **override** (a suspended account, for example) comes back as `Cause::Override { name }` with no remedy: no change of grants or roles undoes it. The same goes for `UnknownPermission` and for an `override_only` permission (`Cause::OverrideOnlyPermission`). When a prerequisite (`depends_on`) is what is missing, the cause says which, with the cause of the prerequisite, and the remedies are for the prerequisite.
+- Each remedy carries `caveats` for the governance the catalog knows (`ManagementOnly`, `NonDelegable`, `OverrideOnly`) and `AffectsOthers` when the change edits a grant that is not the subject's own. The invariants of a `Governance` are not consulted: the change may still be refused when applied.
+- Grants of other subjects are never listed: only the `deny` that decided is named, and only a role's `allow` is used to suggest that role.
+- `WhyNotOptions` bounds the work: `limits.max_decisions` caps the verifications (the engine has no clock, so the bound is a count, as in the reverse queries) and `max_remedies` the list (16 by default). When either cuts the answer, `partial` is true.
+- Changes are single: a denial that needs two changes at once (an allow that is also beaten by a deny) shows the deny's removal only if that alone is enough.
+
+In JavaScript and Python: `engine.whyNot(ctx, request, now?, options?)` and `engine.why_not(ctx, request, now=None, options=None)`, with `options = { maxDecisions, maxRemedies }` (the limits of the `Context` apply by default); `null`/`None` when allowed. Values are JSON with the same camelCase names; `Remedies`, `Remedy` and the cause are typed in `index.d.ts`. The Wasm ABI has the `whyNot` operation. `strig-inspect explain` prints the remedies after a denial.
+
 ## Reverse queries and filtered listing
 
 Ask who can do something, or what a subject can reach, instead of checking one request. `QueryContext` carries the grants (and `.at(now)`), `QueryLimits` bounds the work, and `PgTables` turns the answers into SQL.

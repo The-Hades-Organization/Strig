@@ -456,6 +456,36 @@ res.json(pickAllowed(document, fields)); // só title e body saem
 
 `PermissionClient.allowedFields(permission, resource)` e `can(permission, resource, field)` decidem localmente. As capacidades que carregam grants restritos a campos vão em duas formas (`grants` para leitores antigos, que nunca veem um `allow` restrito e leem um `deny` restrito como inteiro, e `withFields` com os reais), então um cliente antigo falha fechado.
 
+## Por que não? O que permitiria
+
+`Engine::explain` diz por que uma decisão saiu como saiu. Quando é uma negação, `Engine::why_not(ctx, request, options)` acrescenta o que a transformaria em `allow`: as menores mudanças, a menor e mais específica primeiro. Devolve `None` quando o pedido já é permitido.
+
+```rust
+let resposta = engine.why_not(&ctx, &request, &WhyNotOptions::default()).expect("negado");
+println!("{:?}", resposta.cause); // o que negou: Cause::NoApplicableGrant, Cause::Deny { .. }, Cause::Override { .. }, ...
+for remedio in &resposta.remedies {
+    println!("{:?} {:?}", remedio.change, remedio.caveats);
+}
+```
+
+| Mudança | Significado |
+|---|---|
+| `SatisfyCondition` | um `allow` que seria aplicável tem uma condição que falhou (`failed`, com os valores que o motor viu) ou que não pôde ser avaliada (`unresolved`, um atributo ausente, por exemplo). Nenhum valor é inventado: ela nomeia o que precisa valer. |
+| `AddGrant` | um `allow` para o sujeito no passo mais específico do caminho (o alvo exato e depois o tipo), conferido com `validate_grant`, então respeita os `targets` e `fields` do catálogo; uma pergunta por campo pede só aquele campo |
+| `NarrowDeny` | tirar o campo perguntado dos `fields` do `deny` que decidiu |
+| `AssignRole` | um papel que tem um `allow` aplicável, com escopo no passo mais estreito do caminho |
+| `RemoveDeny` | remover o `deny` que decidiu |
+
+Cada remédio é **verificado**: o motor o aplica sozinho sobre uma cópia do sujeito ou dos grants e decide o pedido de novo. Só volta a mudança que resulta em `allow`, então uma sugestão que não funcionaria (um papel barrado por um deny, um grant que a estratégia `DenyOverrides` ainda vence) não aparece. Nada é gravado.
+
+- Uma negação por **override** (conta suspensa, por exemplo) volta como `Cause::Override { name }` sem remédio: nenhuma mudança de grants ou papéis a desfaz. O mesmo vale para `UnknownPermission` e para uma permissão `override_only` (`Cause::OverrideOnlyPermission`). Quando o que falta é um pré-requisito (`depends_on`), a causa diz qual, com a causa do pré-requisito, e os remédios são para o pré-requisito.
+- Cada remédio leva `caveats` para a governança que o catálogo conhece (`ManagementOnly`, `NonDelegable`, `OverrideOnly`) e `AffectsOthers` quando a mudança edita um grant que não é do próprio sujeito. As invariantes de uma `Governance` não são consultadas: a mudança ainda pode ser recusada ao ser aplicada.
+- Grants de outros sujeitos nunca são listados: só o `deny` que decidiu é nomeado, e só o `allow` de um papel serve para sugerir esse papel.
+- `WhyNotOptions` limita o trabalho: `limits.max_decisions` limita as verificações (o motor não tem relógio, então o limite é uma contagem, como nas consultas reversas) e `max_remedies` a lista (16 por padrão). Quando um deles corta a resposta, `partial` é verdadeiro.
+- As mudanças são únicas: uma negação que exige duas mudanças ao mesmo tempo (um allow que também é vencido por um deny) mostra a remoção do deny só se ela bastar sozinha.
+
+Em JavaScript e Python: `engine.whyNot(ctx, request, now?, options?)` e `engine.why_not(ctx, request, now=None, options=None)`, com `options = { maxDecisions, maxRemedies }` (os limites do `Context` valem por padrão); `null`/`None` quando permitido. Os valores são JSON com os mesmos nomes em camelCase; `Remedies`, `Remedy` e a causa têm tipos em `index.d.ts`. A ABI Wasm tem a operação `whyNot`. `strig-inspect explain` imprime os remédios depois de uma negação.
+
 ## Consultas reversas e listagem filtrada
 
 Pergunte quem pode fazer algo, ou o que um sujeito alcança, em vez de checar uma requisição. `QueryContext` leva os grants (e `.at(now)`), `QueryLimits` limita o trabalho e `PgTables` transforma as respostas em SQL.

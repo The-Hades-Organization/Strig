@@ -9,6 +9,7 @@ import './binding040.js';
 import './hooks.js';
 import './batch.js';
 import './fields.js';
+import './why-not.js';
 import './audit.js';
 import './audit-proofs.js';
 import './dsl.js';

@@ -171,6 +171,14 @@ fn run(reg: &mut Registry, op: &str, input: &Value) -> BindingResult<Value> {
         "explain" => with_engine(reg, input, |e, c| {
             e.explain(c, field(input, "request")?.clone(), now_of(input)?)
         }),
+        "whyNot" => with_engine(reg, input, |e, c| {
+            e.why_not(
+                c,
+                field(input, "request")?.clone(),
+                now_of(input)?,
+                optional(input, "options"),
+            )
+        }),
         "checkMany" => with_engine(reg, input, |e, c| {
             e.check_many(c, field(input, "requests")?.clone(), now_of(input)?)
                 .map(|v| json!(v))
@@ -286,6 +294,10 @@ mod tests {
         assert_eq!(value("check", ask("project.view")), true);
         assert_eq!(value("decide", ask("project.view"))["effect"], "allow");
         assert_eq!(value("check", ask("project.edit")), false);
+        assert_eq!(value("whyNot", ask("project.view")), Value::Null);
+        let why = value("whyNot", ask("project.edit"));
+        assert_eq!(why["cause"]["kind"], "unknown_permission");
+        assert_eq!(why["remedies"], json!([]));
         assert_eq!(value("explain", ask("project.view"))["permission"], "project.view");
         assert_eq!(value("context.removeGrant", json!({ "context": ctx, "id": "g" })), true);
         assert_eq!(value("check", ask("project.view")), false);
