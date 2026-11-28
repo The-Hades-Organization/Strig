@@ -1664,6 +1664,32 @@ impl Engine {
         resource: &Resource,
         with_overrides: bool,
     ) -> Explanation {
+        self.decide_parties_field(ctx, parties, permission, resource, None, with_overrides)
+    }
+
+    /// The decision for one party alone, overrides included, optionally about one field. Used by the
+    /// impact of a change to decide the same party before and after.
+    pub(crate) fn decide_party(
+        &self,
+        ctx: &QueryContext<'_>,
+        party: &SubjectRef,
+        permission: &str,
+        resource: &Resource,
+        field: Option<&str>,
+    ) -> Decision {
+        self.decide_parties_field(ctx, &[party], permission, resource, field, true)
+            .decision
+    }
+
+    fn decide_parties_field(
+        &self,
+        ctx: &QueryContext<'_>,
+        parties: &[&SubjectRef],
+        permission: &str,
+        resource: &Resource,
+        field: Option<&str>,
+        with_overrides: bool,
+    ) -> Explanation {
         let (subject, usersets) = archetype(parties);
         let overlay = Overlay {
             inner: ctx.tuples,
@@ -1679,7 +1705,12 @@ impl Engine {
         if ctx.tuples.is_some() || !overlay.extra.is_empty() {
             data = data.with_tuples(&overlay);
         }
-        self.explain_with(&data, &Request::new(&subject, permission, resource), with_overrides)
+        let request = Request::new(&subject, permission, resource);
+        let request = match field {
+            Some(field) => request.field(field),
+            None => request,
+        };
+        self.explain_with(&data, &request, with_overrides)
     }
 
     /// Parties named by the grants that can reach the resource, with the effects they have.

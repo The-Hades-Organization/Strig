@@ -267,6 +267,7 @@ fn request(id: &str, requested_at: u64, expires_at: Option<u64>) -> PendingReque
         requested_at,
         expires_at,
         status: PendingStatus::Pending,
+        impact: None,
     }
 }
 

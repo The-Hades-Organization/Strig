@@ -23,6 +23,7 @@ use crate::engine::{Context, Engine};
 use crate::explain::Explanation;
 use crate::governance::{Mutation, Suggestion, Violation};
 use crate::grant::{Effect, Grant, SubjectMatcher, TargetSelector};
+use crate::impact::{Impact, ImpactSummary};
 use crate::rebac::Tuple;
 use crate::resource::{Anchor, ObjectRef, Resource};
 use crate::subject::{RoleAssignment, Subject};
@@ -273,6 +274,10 @@ pub struct AuditRecord {
     pub actor_detail: Option<Subject>,
     #[serde(default, skip_serializing_if = "Attributes::is_empty")]
     pub meta: Attributes,
+    /// What the change does to access (counts and a few examples), from `detailed` upward, on a change
+    /// recorded with [`Governance::apply_with_impact`](crate::Governance::apply_with_impact).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impact: Option<ImpactSummary>,
 
     /// Digest of the grant set before the change. For a role change, the digest of the subject's
     /// roles.
@@ -815,6 +820,7 @@ impl Auditor {
             tuple: None,
             actor_detail: None,
             meta: Attributes::new(),
+            impact: None,
             before_digest: None,
             after_digest: None,
             prev_hash: None,
@@ -939,6 +945,25 @@ impl Auditor {
         meta: &Attributes,
         call: Option<FailMode>,
     ) -> Result<Emitted, AuditError> {
+        self.grant_mutation_impact(actor, mutation, before, result, meta, call, None)
+    }
+
+    /// Like [`Auditor::grant_mutation_with`], with the [`Impact`] of the change: from `detailed` upward the
+    /// record keeps its summary.
+    #[allow(clippy::too_many_arguments)]
+    pub fn grant_mutation_impact(
+        &self,
+        actor: &Subject,
+        mutation: &Mutation,
+        before: &[Grant],
+        result: &Result<Vec<Grant>, Vec<Violation>>,
+        meta: &Attributes,
+        call: Option<FailMode>,
+        impact: Option<&Impact>,
+    ) -> Result<Emitted, AuditError> {
+        let impact = impact
+            .filter(|_| self.level >= AuditLevel::Detailed)
+            .map(Impact::summary);
         let (outcome, violations) = match result {
             Ok(_) => (AuditOutcome::Applied, &[][..]),
             Err(violations) => (AuditOutcome::Rejected, violations.as_slice()),
@@ -962,7 +987,9 @@ impl Auditor {
                     Err(_) => before.clone(),
                 };
                 let digests = Some((before, after));
-                return self.role_record(actor, assigned, &change, outcome, violations, digests, meta, call);
+                return self.role_record(
+                    actor, assigned, &change, outcome, violations, digests, meta, call, impact,
+                );
             }
         };
         let mut record = self.base(actor, action, object, outcome);
@@ -975,6 +1002,7 @@ impl Auditor {
             record.full_grant = grant.cloned();
         }
         self.detail(&mut record, actor, meta);
+        record.impact = impact;
         if self.level >= AuditLevel::Forensic {
             record.before_digest = Some(grant_set_digest(before));
             record.after_digest = Some(match result {
@@ -1060,7 +1088,7 @@ impl Auditor {
         outcome: AuditOutcome,
         meta: &Attributes,
     ) -> Result<AuditRecord, AuditError> {
-        self.role_record(actor, assigned, change, outcome, &[], None, meta, None)
+        self.role_record(actor, assigned, change, outcome, &[], None, meta, None, None)
             .map(|emitted| emitted.record)
     }
 
@@ -1075,6 +1103,7 @@ impl Auditor {
         digests: Option<(String, String)>,
         meta: &Attributes,
         call: Option<FailMode>,
+        impact: Option<ImpactSummary>,
     ) -> Result<Emitted, AuditError> {
         let action = if assigned {
             AuditAction::RoleAssign
@@ -1092,6 +1121,7 @@ impl Auditor {
             record.suggestions = suggestions_of(violations);
         }
         self.detail(&mut record, actor, meta);
+        record.impact = impact;
         if self.level >= AuditLevel::Forensic
             && let Some((before, after)) = digests
         {

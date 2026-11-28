@@ -10,6 +10,10 @@
 //!   runs the invariants again over the grants as they are *now*, with the author as the actor, and only
 //!   then applies; if they refuse, the request stays pending and the violations come back. A refusal
 //!   carries a reason.
+//! - **Impact.** With [`Approvals::with_impact`], a proposal stores what the change does to access
+//!   ([`Impact`]) in the request, so the approver sees it. Approving recomputes it over the grants as
+//!   they are now (they may have changed since the proposal); [`Approvals::review_impact`] shows both
+//!   before deciding, and an approved request keeps the recomputed one.
 //! - **Expiry.** A request is expired from the instant `expires_at` on. [`Approvals::expire_due`] closes
 //!   the ones due; approving or refusing one that is due closes it too.
 //! - **Audit.** With the `audit` feature and an auditor on the [`Governance`], every step is a record:
@@ -35,6 +39,7 @@ use crate::decision::Request;
 use crate::engine::{Context, Engine};
 use crate::governance::{Governance, Mutation, MutationKind, Violation, same_subject};
 use crate::grant::Grant;
+use crate::impact::{Impact, ImpactOptions};
 use crate::rebac::TupleStore;
 use crate::resource::Resource;
 use crate::subject::Subject;
@@ -122,6 +127,10 @@ pub struct PendingRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<u64>,
     pub status: PendingStatus,
+    /// What the change does to access: computed when it was proposed, and again when it was approved.
+    /// Absent when the flow ran without [`Approvals::with_impact`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impact: Option<Impact>,
 }
 
 impl PendingRequest {
@@ -274,7 +283,21 @@ pub enum Proposed {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Approved {
     pub grants: Vec<Grant>,
+    /// The request as it now stands; its `impact` is the one recomputed at the approval.
     pub request: PendingRequest,
+    /// The impact the request had when it was proposed, to compare with `request.impact`.
+    pub proposed_impact: Option<Impact>,
+}
+
+/// The impact of a pending request as proposed and as it would be now, from [`Approvals::review_impact`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ImpactReview {
+    pub proposed: Option<Impact>,
+    pub current: Option<Impact>,
+    /// The grants moved the answer since the proposal.
+    pub changed: bool,
 }
 
 /// The approval flow over a [`Governance`], an [`ApprovalPolicy`] and a [`PendingStore`].
@@ -282,6 +305,7 @@ pub struct Approvals<'a> {
     governance: &'a Governance,
     policy: &'a ApprovalPolicy,
     store: &'a dyn PendingStore,
+    impact: Option<&'a ImpactOptions<'a>>,
     #[cfg(feature = "audit")]
     call_mode: Option<FailMode>,
 }
@@ -297,9 +321,45 @@ impl<'a> Approvals<'a> {
             governance,
             policy,
             store,
+            impact: None,
             #[cfg(feature = "audit")]
             call_mode: None,
         }
+    }
+
+    /// Computes the [`Impact`] of every change proposed or approved through this flow, over `options`.
+    /// The instant is the one of the [`Review`], and `options.tuples` should be the store the review
+    /// reads. An impact that cannot be computed (the change is refused) is simply absent.
+    #[must_use]
+    pub fn with_impact(mut self, options: &'a ImpactOptions<'a>) -> Self {
+        self.impact = Some(options);
+        self
+    }
+
+    fn impact_now(&self, review: &Review<'_>, actor: &Subject, mutation: &Mutation) -> Option<Impact> {
+        let options = ImpactOptions {
+            now: Some(review.now),
+            ..self.impact?.clone()
+        };
+        self.governance
+            .impact(review.engine, actor, review.current, mutation, &options)
+            .ok()
+    }
+
+    /// The impact of pending request `id` as proposed and as it would be over the grants now, for the
+    /// approver to see before deciding. Neither is recorded.
+    pub fn review_impact(&self, review: &Review<'_>, id: &str) -> Result<ImpactReview, ApprovalError> {
+        let request = self
+            .store
+            .get(id)?
+            .ok_or_else(|| PendingError::Unknown(id.to_string()))?;
+        let current = self.impact_now(review, &request.actor, &request.mutation);
+        let changed = request.impact != current;
+        Ok(ImpactReview {
+            proposed: request.impact,
+            current,
+            changed,
+        })
     }
 
     /// The [`FailMode`] of every audit record of this flow, over the mode of the permission and the
@@ -356,6 +416,7 @@ impl<'a> Approvals<'a> {
             requested_at: review.now,
             expires_at,
             status: PendingStatus::Pending,
+            impact: None,
         };
         let refuse = |violations: Vec<Violation>| -> ApprovalError {
             match self.record(
@@ -387,6 +448,8 @@ impl<'a> Approvals<'a> {
             return Err(refuse(violations));
         }
         self.record(review, actor, Step::Propose, &request, None, None, rule)?;
+        let mut request = request;
+        request.impact = self.impact_now(review, actor, mutation);
         self.store.insert(request.clone())?;
         Ok(Proposed::Pending(request))
     }
@@ -423,17 +486,24 @@ impl<'a> Approvals<'a> {
             return Err(refuse(violations));
         }
         self.record(review, approver, Step::Approve, &request, None, None, &rule)?;
+        let current_impact = self.impact_now(review, &request.actor, &request.mutation);
         let mut meta = review.meta.clone();
         meta.insert("request_id".into(), Value::Str(request.id.clone()));
         meta.insert("approved_by".into(), Value::Str(subject_label(approver)));
         let grants = self.apply_directly(&Review { meta: &meta, ..*review }, &request.actor, &request.mutation)?;
         let mut request = request;
+        let proposed_impact = request.impact.take();
+        request.impact = current_impact;
         request.status = PendingStatus::Approved {
             by: subject_label(approver),
             at: review.now,
         };
         self.store.update(request.clone())?;
-        Ok(Approved { grants, request })
+        Ok(Approved {
+            grants,
+            request,
+            proposed_impact,
+        })
     }
 
     /// `approver` refuses request `id`, with a non-empty `reason`. Same checks on the approver as in
@@ -619,6 +689,20 @@ impl<'a> Approvals<'a> {
             Some(mode) => at.fail_mode(mode),
             None => at,
         };
+        if let Some(options) = self.impact {
+            return at
+                .apply_with_impact(
+                    review.engine,
+                    actor,
+                    review.current,
+                    mutation,
+                    review.tuples,
+                    review.meta,
+                    options,
+                )
+                .map(|applied| applied.grants)
+                .map_err(ApprovalError::Refused);
+        }
         at.apply_with(
             review.engine,
             actor,
