@@ -180,3 +180,14 @@ def test_propose_without_an_approval_policy_applies_at_once():
     engine = strig.Engine(SPEC)
     out = engine.propose({**request("g1", {"level": "standard"}), "id": "r1"})
     assert out["ok"] is True
+
+
+def test_impact_says_who_gains_before_the_change_is_applied():
+    engine = strig.Engine(SPEC)
+    bob = {"kind": "user", "id": "bob"}
+    resource = {"path": [{"kind": "project", "id": "p1"}]}
+    sample = {"kind": "sample", "subjects": [bob], "resources": [resource]}
+    out = engine.impact({**request("g1"), "mutation": {"add": allow("g1", "project.view", subject=bob)}, "impact": {"source": sample}})
+    assert out["ok"] is True
+    assert [c["subject"] for c in out["impact"]["gained"]] == ["user:bob"]
+    assert out["impact"]["lost"] == []

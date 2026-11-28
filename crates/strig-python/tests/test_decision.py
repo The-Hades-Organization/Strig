@@ -167,3 +167,23 @@ def test_exclusive_lease_preemption_and_expiry():
     with pytest.raises(strig.StrigError) as e:
         strig.Exclusive().validate(strig.Engine({"catalog": {"targetKinds": ["project"], "permissions": []}}))
     assert code_of(e) == "EXCLUSIVE_UNKNOWN_PERMISSION"
+
+
+def test_why_not_suggests_verified_changes_and_names_the_cause(engine):
+    role_grant = allow("r", subject={"kind": "role", "id": "viewer"})
+    ctx = strig.Context([role_grant])
+    answer = engine.why_not(ctx, ask(user("ana"), "project.view", P1))
+    assert answer["cause"] == {"kind": "no_applicable_grant"}
+    assert [r["kind"] for r in answer["remedies"]] == ["add_grant", "add_grant", "assign_role"]
+    assert answer["remedies"][2]["role"] == "viewer"
+    assert "partial" not in answer
+
+
+def test_why_not_is_none_when_allowed_and_honours_options(engine):
+    ctx = strig.Context([allow("g")])
+    assert engine.why_not(ctx, ask(user("ana"), "project.view", P1)) is None
+    denied = engine.why_not(ctx, ask(user("ana"), "project.edit", P1), options={"maxRemedies": 1})
+    assert len(denied["remedies"]) == 1 and denied["partial"] is True
+    with pytest.raises(strig.StrigError) as error:
+        engine.why_not(ctx, ask(user("ana"), "project.edit", P1), options={"bogus": 1})
+    assert code_of(error) == "INVALID_INPUT"

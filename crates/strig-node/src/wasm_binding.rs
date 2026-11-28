@@ -359,6 +359,22 @@ impl WasmEngine {
         )
     }
 
+    #[wasm_bindgen(js_name = whyNot)]
+    pub fn why_not(
+        &self,
+        ctx: &WasmContext,
+        request: JsValue,
+        now: JsValue,
+        options: JsValue,
+    ) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .why_not(&ctx.inner, from_js(request)?, now_of(now)?, optional(options)?)
+                .map_err(err)?,
+        )
+    }
+
     #[wasm_bindgen(js_name = allowedFields)]
     pub fn allowed_fields(&self, ctx: &WasmContext, request: JsValue, now: JsValue) -> Result<JsValue, JsFailure> {
         to_js(
@@ -471,6 +487,25 @@ impl WasmEngine {
             &self
                 .inner
                 .apply(from_js(input)?, crate::millis("now", js_sys::Date::now()))
+                .map_err(err)?,
+        )
+    }
+
+    pub fn impact(&self, input: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .impact(from_js(input)?, crate::millis("now", js_sys::Date::now()))
+                .map_err(err)?,
+        )
+    }
+
+    #[wasm_bindgen(js_name = reviewImpact)]
+    pub fn review_impact(&self, input: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .review_impact(from_js(input)?, crate::millis("now", js_sys::Date::now()))
                 .map_err(err)?,
         )
     }
@@ -707,6 +742,21 @@ pub fn audit_estimate(level: JsValue, records: JsValue) -> Result<f64, JsFailure
 #[wasm_bindgen(js_name = verifyAuditChain)]
 pub fn verify_audit_chain(records: JsValue, anchors: JsValue) -> Result<JsValue, JsFailure> {
     to_js(&crate::verify_audit_chain(from_js(records)?, optional(anchors)?).map_err(err)?)
+}
+
+#[wasm_bindgen(js_name = verifyMerkleInclusion)]
+pub fn verify_merkle_inclusion(input: JsValue) -> Result<JsValue, JsFailure> {
+    to_js(&crate::verify_merkle_inclusion(from_js(input)?).map_err(err)?)
+}
+
+#[wasm_bindgen(js_name = verifyMerkleConsistency)]
+pub fn verify_merkle_consistency(input: JsValue) -> Result<JsValue, JsFailure> {
+    to_js(&crate::verify_merkle_consistency(from_js(input)?).map_err(err)?)
+}
+
+#[wasm_bindgen(js_name = verifyTimestamp)]
+pub fn verify_timestamp(input: JsValue) -> Result<JsValue, JsFailure> {
+    to_js(&crate::verify_timestamp(from_js(input)?).map_err(err)?)
 }
 
 /// Um argumento da linguagem: o que não é JSON vira o `INVALID_ARGUMENT` do envelope.

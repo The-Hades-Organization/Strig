@@ -455,6 +455,28 @@ impl PyEngine {
         out(py, &explanation)
     }
 
+    /// For a denied request, the verified changes that would allow it; `None` when it is allowed.
+    #[pyo3(signature = (context, request, now=None, options=None))]
+    fn why_not<'py>(
+        &self,
+        py: Python<'py>,
+        context: &PyContext,
+        request: &Bound<'_, PyAny>,
+        now: Option<&Bound<'_, PyAny>>,
+        options: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let remedies = self
+            .inner
+            .why_not(
+                &context.inner,
+                json(py, "request", request)?,
+                now_of(py, now)?,
+                optional(py, "options", options)?,
+            )
+            .map_err(|e| fail(py, e))?;
+        out(py, &remedies)
+    }
+
     #[pyo3(signature = (context, requests, now=None))]
     fn check_many(
         &self,
@@ -518,6 +540,22 @@ impl PyEngine {
         let result = self
             .inner
             .apply(json(py, "input", input)?, clock_ms(std::time::SystemTime::now()))
+            .map_err(|e| fail(py, e))?;
+        out(py, &result)
+    }
+
+    fn impact<'py>(&self, py: Python<'py>, input: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        let result = self
+            .inner
+            .impact(json(py, "input", input)?, clock_ms(std::time::SystemTime::now()))
+            .map_err(|e| fail(py, e))?;
+        out(py, &result)
+    }
+
+    fn review_impact<'py>(&self, py: Python<'py>, input: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        let result = self
+            .inner
+            .review_impact(json(py, "input", input)?, clock_ms(std::time::SystemTime::now()))
             .map_err(|e| fail(py, e))?;
         out(py, &result)
     }

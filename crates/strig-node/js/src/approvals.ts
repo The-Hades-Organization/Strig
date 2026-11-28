@@ -8,12 +8,15 @@ import type {
   ExpireInput,
   ExpireResult,
   Grant,
+  ImpactOptions,
   InvariantSpec,
   PendingRequest,
   ProposeInput,
   ProposeResult,
   ResolveInput,
   ResolveResult,
+  ReviewImpactInput,
+  ReviewImpactResult,
   Subject,
 } from './index.js';
 
@@ -43,6 +46,8 @@ export interface ApprovalEngine {
   propose(input: ProposeInput): ProposeResult;
   resolve(input: ResolveInput): ResolveResult;
   expire(input: ExpireInput): ExpireResult;
+  /** Needed by `Approvals.reviewImpact`. `Engine` has it. */
+  reviewImpact?(input: ReviewImpactInput): ReviewImpactResult;
 }
 
 export class MemoryPendingStore implements PendingStore {
@@ -76,6 +81,8 @@ export interface ApprovalsOptions {
   invariants?: InvariantSpec[];
   /** The audit of every step. `prevHash` starts the chain; the flow carries the head from one call to the next. */
   audit?: ApplyInput['audit'];
+  /** Computes the impact of every change: `propose` keeps it in the request and the approval recomputes it over the grants then. */
+  impact?: ImpactOptions;
   /** Makes the id of a request when `propose` is not given one. Default: `crypto.randomUUID()`. */
   newId?: () => string;
   /** The instant of a step, in ms UTC, when the call gives none. Default: the engine's clock. */
@@ -140,6 +147,14 @@ export class Approvals {
     return this.decide(id, approver, 'reject', reason, current, options);
   }
 
+  /** The impact of pending request `id` as it was proposed and as it would be over `current` now, for the approver. Nothing is recorded. */
+  async reviewImpact(id: string, current: Grant[], options: CallOptions = {}): Promise<ReviewImpactResult> {
+    const request = await this.store.get(id);
+    if (!request) throw new PendingStoreError('PENDING_UNKNOWN', `request "${id}" does not exist`);
+    if (!this.engine.reviewImpact) throw new TypeError('the engine has no reviewImpact');
+    return this.engine.reviewImpact({ ...this.common(current, options), request });
+  }
+
   /** Closes the pending requests whose expiry has come and returns them. */
   async expire(options: CallOptions = {}): Promise<ExpireResult> {
     const requests = (await this.store.list()).filter((r) => r.status.state === 'pending');
@@ -187,6 +202,7 @@ export class Approvals {
       current,
       approval: this.options.approval,
       ...(this.options.invariants ? { invariants: this.options.invariants } : {}),
+      ...(this.options.impact ? { impact: this.options.impact } : {}),
       ...(this.options.audit ? { audit: { ...this.options.audit, ...(this.head === undefined ? {} : { prevHash: this.head }) } } : {}),
       ...(options.meta ? { meta: options.meta } : {}),
       ...(options.tuples ? { tuples: options.tuples } : {}),

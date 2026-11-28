@@ -29,6 +29,8 @@ mod obs;
 pub mod attr;
 #[cfg(feature = "audit")]
 pub mod audit;
+#[cfg(feature = "audit")]
+pub mod audit_report;
 pub mod catalog;
 pub mod condition;
 pub mod decision;
@@ -45,6 +47,9 @@ pub mod explain;
 pub mod field;
 pub mod governance;
 pub mod grant;
+pub mod impact;
+#[cfg(feature = "audit")]
+pub mod merkle;
 pub mod overrides;
 pub mod pending;
 pub mod query;
@@ -55,7 +60,10 @@ pub mod spec;
 pub mod strategy;
 pub mod subject;
 pub mod template;
+#[cfg(feature = "timestamp")]
+pub mod timestamp;
 pub mod validity;
+pub mod why_not;
 
 pub use attr::{Attributes, Value};
 #[cfg(feature = "audit")]
@@ -82,17 +90,20 @@ pub use explain::{
 };
 pub use field::{FieldExplanation, FieldSet, FieldVerdict};
 pub use governance::{
-    Bypass, CatalogConformance, Forbid, Governance, GovernanceAt, Invariant, ManagementOnly, Mutation, MutationKind,
-    NoEscalation, NoLockout, NoSelfManagement, NonDelegable, Prerequisites, Proposal, RequirePermission, Suggestion,
-    Violation,
+    AppliedWithImpact, Bypass, CatalogConformance, Forbid, Governance, GovernanceAt, Invariant, ManagementOnly,
+    Mutation, MutationKind, NoEscalation, NoLockout, NoSelfManagement, NonDelegable, Prerequisites, Proposal,
+    RequirePermission, Suggestion, Violation,
 };
 pub use grant::{Effect, Grant, GrantIndex, GrantSource, SubjectMatcher, TargetSelector};
+pub use impact::{
+    AUDIT_EXAMPLES, Access, AccessChange, Impact, ImpactOptions, ImpactSource, ImpactSummary, SampleSpec,
+};
 pub use overrides::{
     FnOverride, Override, OverrideGate, OverrideReach, PermissionHolder, ReachRequest, ResourceOwner, SubjectsRequest,
 };
 pub use pending::{
-    ApprovalError, ApprovalPolicy, ApprovalRule, Approvals, Approved, MemoryPendingStore, PendingError, PendingRequest,
-    PendingStatus, PendingStore, Proposed, Review,
+    ApprovalError, ApprovalPolicy, ApprovalRule, Approvals, Approved, ImpactReview, MemoryPendingStore, PendingError,
+    PendingRequest, PendingStatus, PendingStore, Proposed, Review,
 };
 pub use query::{
     AccessFilter, AccessVia, CheckAnswer, Expr, FilterOutcome, FilterResidual, FilterResolution, FilterShape,
@@ -111,3 +122,4 @@ pub use strategy::{
 pub use subject::{ANONYMOUS, AUTHENTICATED, RoleAssignment, Subject};
 pub use template::{Materialized, RoleTemplate, TemplateGrant};
 pub use validity::{Validity, ValidityError, next_boundary};
+pub use why_not::{Cause, Caveat, Change, Remedies, Remedy, WhyNotOptions};
