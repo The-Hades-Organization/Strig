@@ -10,7 +10,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Breaking
 
-- Rust: about 40 public enums that can grow (the error enums, `Condition`, `Operand`, `Reason`, `Rewrite`, `Value`, `MutationKind` and others) and about 60 structs the library returns (`Decision`, `Explanation`, `WhoCan`, `CheckAnswer`, `AuditStats`, `Violation` and others) are now `#[non_exhaustive]`: a `match` needs a catch-all arm that fails closed, a destructuring needs `..`, and a result struct is no longer built with a literal outside its crate. `Effect`, `PendingStatus`, `TupleSubject`, `Mutation` and `SubjectMatcher` stay exhaustive on purpose. Structs you build to feed the library are unchanged. JavaScript, Python, Go, Java, the JSON formats and the audit hash do not change. See "0.10 → 1.0" in docs/migration.md.
+- Rust: about 40 public enums that can grow (the error enums, `Condition`, `Operand`, `Reason`, `Rewrite`, `Value`, `MutationKind` and others) and about 60 structs the library returns (`Decision`, `Explanation`, `WhoCan`, `CheckAnswer`, `AuditStats`, `Violation` and others) are now `#[non_exhaustive]`: a `match` needs a catch-all arm that fails closed, a destructuring needs `..`, and a result struct is no longer built with a literal outside its crate. `Effect`, `PendingStatus`, `TupleSubject`, `Mutation` and `SubjectMatcher` stay exhaustive on purpose. Structs you build to feed the library are unchanged for now; they become `#[non_exhaustive]`, with a constructor or builder, before `1.0.0-rc.1`. JavaScript, Python, Go, Java, the JSON formats and the audit hash do not change. See "0.10 → 1.0" in docs/migration.md.
 
 ## [0.10.0] - 2026-11-28
 

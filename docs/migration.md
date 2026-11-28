@@ -39,7 +39,7 @@ let Decision { effect, .. } = decision;
 
 A result struct can no longer be built with a literal outside the crate that defines it: get one from the API that
 produces it. Structs you build to feed the library (`Review`, `Resource`, `Anchor`, `Lease`, `Proposal`, `EvalContext`,
-`SessionOptions`, `RetryPolicy`, `WindowColumns` and other input records) are unchanged.
+`SessionOptions`, `RetryPolicy`, `WindowColumns` and other input records) are unchanged for now; they become `#[non_exhaustive]`, with a constructor or builder, before `1.0.0-rc.1`, and this guide will say how to migrate.
 
 `Effect`, `PendingStatus`, `TupleSubject`, `Mutation` and `SubjectMatcher` stay exhaustive on purpose: a store or
 caller must handle every variant, so a new one is a major change.
