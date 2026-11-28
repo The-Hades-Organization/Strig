@@ -807,6 +807,47 @@ const client = new PermissionClient<PermissionId>(/* ... */);
 client.can('users:read', resource); // só ids da união compilam; estreite uma string com isPermissionId antes
 ```
 
+### React e Angular
+
+`/react` e `/angular` põem o [`PermissionClient`](#tempo-real) de tempo real (`/client`) atrás das primitivas de interface de sempre. A decisão é local, sobre as capacidades que o stream entrega, e a resposta é **negar** sempre que não há nenhuma: antes das primeiras capacidades, depois de uma desconexão, durante um resync, no servidor (SSR) e para um escopo que os grants não cobrem. React 18 e 19, Angular 17+ (standalone, signals). Os dois aceitam o `PermissionId` gerado pelo `strig-types` como parâmetro de tipo.
+
+```tsx
+import { PermissionClient } from '@the-hades-organization/strig/client';
+import { StrigProvider, useCan, Can, useStrigStatus } from '@the-hades-organization/strig/react';
+import type { PermissionId } from './permissions.generated';
+
+const client = new PermissionClient<PermissionId>({ url: '/strig/stream', scopes: [project], strig, engine });
+
+<StrigProvider client={client}>
+  <Can<PermissionId> permission="document.edit" resource={doc} fallback={<SoLeitura />}>
+    <Editor />
+  </Can>
+</StrigProvider>;
+
+const canEdit = useCan<PermissionId>('document.edit', doc); // re-renderiza quando chegam capacidades
+const { connected, resyncing, error } = useStrigStatus();
+```
+
+O `StrigProvider` abre o stream ao montar e fecha ao desmontar (`connect={false}` deixa isso com você), e nunca conecta no servidor. Sem provider, todo hook nega.
+
+```ts
+// app.config.ts
+import { provideStrig } from '@the-hades-organization/strig/angular';
+providers: [provideStrig(client)]; // { connect: false } para abrir o stream você mesmo
+
+// componente
+import { StrigCanDirective, StrigService, strigCanActivate } from '@the-hades-organization/strig/angular';
+// template: <button *strigCan="'document.edit'; resource: doc; else somenteLeitura">Editar</button>
+canEdit = inject(StrigService<PermissionId>).can('document.edit', this.doc); // Signal<boolean>; os argumentos podem ser signals
+
+// rotas
+{ path: 'doc/:id', canActivate: [strigCanActivate<PermissionId>('document.view', (route) => resourceOf(route))] }
+```
+
+O guard de rota espera as primeiras capacidades (`waitMs`, padrão 5000 ms) para que um link direto não seja recusado enquanto o stream abre, e então decide localmente; timeout ou negação devolvem `false`, ou o que `onDeny` devolver (roda no contexto de injeção, então pode devolver uma `UrlTree`).
+
+React e Angular são peer dependencies opcionais e entram por import estático, para que o seu bundler resolva a própria cópia (uma cópia carregada por fora poderia ser um segundo React e quebrar os hooks). Por isso, um peer ausente falha na resolução do módulo, com o erro do próprio loader citando o pacote, e não com `MissingPeerError` como nas integrações Express, Fastify e NestJS. O pacote entrega o Angular como saída Ivy parcial, para o linker do Angular. Vue e Svelte podem seguir o mesmo caminho: a ponte em `client-bridge.ts` é neutra de framework e cada binding tem cerca de cem linhas.
+
 ## Linguagem de políticas
 
 Com a feature `dsl`, uma política pode ser escrita em texto em vez de JSON. A mesma política tem três sintaxes, Blocks, Rules e Actors, e `convert` passa de uma para outra. Todo erro traz posição e dica. O JSON validado continua sendo a fonte da verdade.
