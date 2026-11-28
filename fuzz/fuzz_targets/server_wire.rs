@@ -4,8 +4,8 @@ use libfuzzer_sys::fuzz_target;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use strig_server::wire::{
-    AccessRequest, AccessResponse, BatchRequest, BatchResponse, CheckRequest, CheckResponse, ListRequest,
-    ListResponse, WhoRequest, WhoResponse,
+    AccessRequest, AccessResponse, BatchRequest, BatchResponse, CheckRequest, CheckResponse, ListRequest, ListResponse,
+    WhoRequest, WhoResponse,
 };
 
 fn read<T: DeserializeOwned + Serialize>(data: &[u8]) {

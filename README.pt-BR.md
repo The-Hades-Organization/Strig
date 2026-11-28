@@ -938,6 +938,8 @@ Compilar a janela do `strig-inspect` no Linux exige as bibliotecas de desenvolvi
 
 Medições: `cargo bench -p strig --bench engine` e `node bench/bench.mjs` em `crates/strig-node/js` (ou `bun`); veja [docs/benchmarks.md](docs/benchmarks.md).
 
+Fuzzing: `./fuzz/run.sh <alvo> [segundos]` (nightly e `cargo install cargo-fuzz`) roda os alvos de `fuzz/` para a linguagem de políticas, `EngineSpec`, condições, decisões, as mensagens do sync e do server e a cadeia de auditoria; veja o [CONTRIBUTING.md](CONTRIBUTING.md#contribuindo-com-a-strig).
+
 Os comentários do código são em português do Brasil. Issues e pull requests são bem-vindos em inglês ou português; veja o [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Licença

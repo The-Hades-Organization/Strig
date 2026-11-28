@@ -2,9 +2,7 @@
 
 use libfuzzer_sys::fuzz_target;
 use serde::Deserialize;
-use strig::{
-    Attributes, Catalog, Context, Effect, Engine, Grant, PermissionDef, Request, Resource, Subject,
-};
+use strig::{Attributes, Catalog, Context, Effect, Engine, Grant, PermissionDef, Request, Resource, Subject};
 
 #[derive(Deserialize)]
 struct Input {
@@ -46,14 +44,19 @@ fuzz_target!(|data: &[u8]| {
 
     let decision = engine.decide(&ctx, &request);
     assert_eq!(engine.check(&ctx, &request), decision.is_allowed());
-    assert_eq!(decision, engine.decide(&ctx, &request), "decision must be deterministic");
+    assert_eq!(
+        decision,
+        engine.decide(&ctx, &request),
+        "decision must be deterministic"
+    );
     let _ = engine.explain(&ctx, &request);
     let _ = engine.capabilities(&ctx, &input.subject, &input.resource);
 
     if decision.effect == Effect::Allow {
-        let candidate = input.grants.iter().any(|grant| {
-            grant.effect == Effect::Allow && decision.matched.iter().any(|id| *id == grant.id)
-        });
+        let candidate = input
+            .grants
+            .iter()
+            .any(|grant| grant.effect == Effect::Allow && decision.matched.iter().any(|id| *id == grant.id));
         assert!(candidate, "allowed without an allow grant among the candidates");
     }
 });
