@@ -1,6 +1,6 @@
 {
   "name": "@the-hades-organization/strig",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Strig authorization engine (RBAC, ABAC, ReBAC) for Node, Bun and the browser, with real-time permissions.",
   "license": "MIT",
   "type": "module",

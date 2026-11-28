@@ -363,11 +363,11 @@ Exit codes: `0` all passed, `1` a case failed or errored, `2` the policy, a test
 directory has no test file. In GitHub Actions:
 
 ```yaml
-- uses: The-Hades-Organization/Strig/.github/actions/strig-test@v0.9.0
+- uses: The-Hades-Organization/Strig/.github/actions/strig-test@v0.10.0
   with:
     path: policies
     junit: test-results/strig.xml
-    version: 0.9.0   # pin the strig-cli version
+    version: 0.10.0   # pin the strig-cli version
 ```
 
 In JavaScript, `strig.runTests(policy, tests)` runs the same runner over a policy document and test files (objects or

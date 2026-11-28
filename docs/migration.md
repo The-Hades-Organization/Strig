@@ -4,6 +4,116 @@ What to change in your code when you upgrade, release by release. The newest rel
 [changelog](../CHANGELOG.md) lists every change; this page shows the before, the after and the step for the ones that
 need action. The rules for what counts as breaking are in [versioning.md](versioning.md).
 
+## 0.10.0
+
+Four changes break, all of them only for Rust code that names these types. The JavaScript package, the Python, Go and
+JVM bindings, the JSON protocol, stored requests and records, and the audit hash need no edit. The types below are now
+`#[non_exhaustive]` so that a field or variant added later is no longer a breaking change.
+
+### Rust: `AuditAction` is `#[non_exhaustive]` and has `ElevationReview`
+
+**Before.**
+
+```rust
+match record.action { AuditAction::Apply => .., AuditAction::Check => .. /* every variant */ }
+```
+
+**After.** An exhaustive `match` no longer compiles outside `strig`:
+
+```rust
+match record.action { AuditAction::Apply => .., AuditAction::Check => .., _ => .. }
+```
+
+**Step.** Add a `_ =>` arm to every `match` on `AuditAction`. `ElevationReview` is only written by
+`Elevations::close_review`; in the JSON it is `elevation_review`, so add it to a closed list of `action` values in a
+log consumer. Reading, serialising and comparing the values is unchanged. `PendingStore` has a new method, `annotate`,
+with a default that refuses, so existing implementations still compile.
+
+### Rust: `PendingRequest`, `Approved` and `AuditRecord` gain `impact` and are `#[non_exhaustive]`
+
+**Before.**
+
+```rust
+let req = PendingRequest { id, author, change, status, expires_at, .. };
+let AuditRecord { id, action, .. } = record;
+```
+
+**After.**
+
+```rust
+let req = PendingRequest::new(id, author, change).expiring_at(at).with_impact(impact);
+let AuditRecord { id, action, .. } = record;
+```
+
+**Step.** Build a `PendingRequest` with `PendingRequest::new(..)` and its builders (`expiring_at`, `with_status`,
+`with_impact`, `with_elevation`) instead of a struct literal. `Approved` (field `proposed_impact`) and `AuditRecord`
+come from `Approvals` and the auditor, so only code that built them by hand changes. Add `..` to every pattern that
+destructures any of the three. Stored requests and records without `impact` still load.
+
+### Rust: `CatalogExport` gains `mutually_exclusive` and `conflicting_actions`; `Impact` gains `separation`
+
+**Before.**
+
+```rust
+let export = CatalogExport { permissions, roles, .. /* every field */ };
+let CatalogExport { permissions, roles } = export;
+```
+
+**After.**
+
+```rust
+let export = CatalogExport { permissions, roles, ..CatalogExport::default() };
+let CatalogExport { permissions, roles, .. } = export;
+```
+
+**Step.** Build it with `CatalogExport { .., ..CatalogExport::default() }` or through `Catalog::export`, and put a `..`
+in every pattern that destructures it. JSON and the bindings are unaffected: both fields are optional on read and
+omitted when empty.
+
+### Rust: revisions in `strig-sync` and `strig-server` types
+
+`Change` (`strig-sync`), `Snapshot`, `CheckRequest`, `CheckResponse`, `BatchRequest` and `BatchResponse`
+(`strig-server`) gain a `revision` (`min_revision` on the two requests). `ServerMessage` and `ClientMessage` gain
+variants and fields (`ClientMessage::RefreshAtLeast`, `ServerMessage::Hello.version`,
+`ServerMessage::Capabilities.revision`). All of them are now `#[non_exhaustive]`.
+
+**Before.**
+
+```rust
+let change = Change { scope, kind, .. };
+let req = CheckRequest { subject, permission, resource, env, at };
+match message { ServerMessage::Hello { .. } => .., ServerMessage::Change(c) => .. /* every variant */ }
+```
+
+**After.**
+
+```rust
+let change = Change::new(kind, scope).with_revision(rev);
+let req = CheckRequest::new(subject, permission, resource).with_env(env).at(at).with_min_revision(rev);
+match message { ServerMessage::Hello { .. } => .., ServerMessage::Change(c) => .., _ => .. }
+```
+
+**Step.** Build values with the constructors and builders (`Change::new` and `with_revision`, `Snapshot::new` with
+`with_revision` and `with_tuples`, `CheckRequest::new` with `with_env`, `at` and `with_min_revision`,
+`BatchRequest::new`, `ServerMessage::hello` and `ServerMessage::capabilities` with `with_revision`) instead of struct
+literals, add `..` to every pattern that destructures these structs and the two `ServerMessage` variants, and add a
+`_` arm to every `match` on the two enums. Responses are built by the server, so only code that built them by hand
+changes. The JSON protocol stays additive: every new field is optional and omitted when empty, and a peer that sends
+none keeps working.
+
+### Policies with separation of duties export `"schema": 5`
+
+`DSL_SCHEMA` is now 5. A policy that uses `mutually_exclusive`, `conflicting_actions` or the `separation_of_duties`
+invariant exports its canonical JSON with `"schema": 5`; a reader of an older schema refuses it instead of ignoring
+a rule that denies. A policy without them still exports the schema it did before. Upgrade every reader of the exported
+JSON (the JS package, `strig-cli`, other services) before you ship a policy that uses them.
+
+### New, no action
+
+Everything else in 0.10.0 is additive: the language server and VS Code extension, audit proofs (Merkle, RFC 3161),
+`why_not`, change impact, `strig diff` and `strig lint`, the Casbin and OpenFGA importers, temporary elevation and
+break-glass, separation of duties, recertification campaigns and revisions for reading your own writes.
+
 ## 0.9.0
 
 One change breaks, and only for Rust code. The JavaScript package, the JSON spec and stored data need no edit.
