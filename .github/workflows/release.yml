@@ -341,7 +341,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: build
-          args: --release --locked --out dist -m crates/strig-python/pyproject.toml
+          args: --release --locked --out dist -m crates/strig-python/Cargo.toml
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
       - uses: actions/upload-artifact@v7
@@ -359,7 +359,7 @@ jobs:
       - uses: PyO3/maturin-action@v1
         with:
           command: sdist
-          args: --out dist -m crates/strig-python/pyproject.toml
+          args: --out dist -m crates/strig-python/Cargo.toml
       - uses: actions/upload-artifact@v7
         with:
           name: python-sdist
