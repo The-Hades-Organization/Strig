@@ -538,6 +538,23 @@ let config = AuthzenConfig::default()
 let router = DecisionServer::new(source).with_authzen(config).router();
 ```
 
+### Envoy
+
+With the `envoy` feature (off by default, no `tonic` or `prost` without it), `DecisionServer::envoy_service(EnvoyConfig)` serves Envoy's External Authorization (`envoy.service.auth.v3.Authorization/Check`, gRPC) over the same source as the HTTP routes, so a service mesh or a gateway built on Envoy asks Strig before it forwards a request. A declarative `EnvoyConfig` maps the request: the subject comes from a header or from the filter metadata (for example the claims `jwt_authn` validated), each method and path pattern asks one permission, and the resource is a template over the path parameters. `OK` on an allow; `PERMISSION_DENIED` with HTTP 403 on a deny, a path no rule covers, a missing subject, a source that is down or a deadline that passed, with an optional fixed `x-strig-reason`. A path with dot segments or encoded separators matches nothing. See [`crates/strig-server/API.md`](crates/strig-server/API.md#envoy-external-authorization-grpc-feature-envoy) and [`examples/envoy.yaml`](crates/strig-server/examples/envoy.yaml).
+
+```rust
+let envoy = EnvoyConfig::default()
+    .with_subject_header("x-user")?
+    .with_route("GET", "/healthz", RouteRule::public())?
+    .with_route(
+        "GET,HEAD",
+        "/documents/{id}",
+        RouteRule::require("document.view", ResourceTemplate::new("document", "{id}")),
+    )?;
+let service = DecisionServer::new(source).envoy_service(envoy);
+service.serve(TcpListener::bind("127.0.0.1:9191").await?, shutdown).await?;
+```
+
 ## Observability
 
 Every crate has an optional `tracing` feature, off by default. It adds spans through [`tracing`](https://docs.rs/tracing) and metrics through the [`metrics`](https://docs.rs/metrics) facade, so you pick the backend: Prometheus, OpenTelemetry or your own recorder. The features chain (`strig-sync/tracing` turns on `strig/tracing`, `strig-postgres/tracing` and `strig-redis/tracing` turn on `strig-sync/tracing`, `strig-server/tracing` turns on `strig/tracing`).

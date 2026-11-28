@@ -17,6 +17,8 @@ default = ["client"]
 ## Rust client: per-call timeout, circuit breaker and fail-closed answers.
 client = ["dep:hyper-util", "dep:http-body-util"]
 ## Request spans and metrics for the server, calls and circuit breaker of the client, and everything `strig/tracing` covers. The log events (`tracing` is a plain dependency here) stay on either way; off costs nothing more.
+## Envoy External Authorization (`envoy.service.auth.v3.Authorization/Check`, gRPC) over the same source as the HTTP routes. Adds `tonic` and `prost`; without it the build has neither.
+envoy = ["dep:tonic", "dep:tonic-prost", "dep:prost", "dep:prost-types", "dep:tokio-stream"]
 tracing = ["dep:metrics", "strig/tracing", "axum/matched-path"]
 
 [dependencies]
@@ -32,6 +34,11 @@ tracing.workspace = true
 metrics = { workspace = true, optional = true }
 hyper-util = { version = "0.1", optional = true, default-features = false, features = ["client-legacy", "http1", "tokio"] }
 http-body-util = { version = "0.1", optional = true }
+tonic = { version = "0.14", optional = true, default-features = false, features = ["server", "codegen", "router"] }
+tonic-prost = { version = "0.14", optional = true }
+prost = { version = "0.14", optional = true }
+prost-types = { version = "0.14", optional = true }
+tokio-stream = { workspace = true, optional = true, features = ["net"] }
 
 [dev-dependencies]
 opentelemetry = "0.33"
@@ -40,10 +47,12 @@ opentelemetry-otlp = { version = "0.33", default-features = false, features = ["
 tracing-opentelemetry = "0.34"
 tracing-subscriber = { version = "0.3", features = ["registry"] }
 metrics-exporter-opentelemetry = "0.2"
+metrics = { workspace = true }
 metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
 http-body-util = "0.1"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "test-util"] }
 tower = { version = "0.5", features = ["util"] }
+tonic = { version = "0.14", default-features = false, features = ["server", "codegen", "router", "channel"] }
 
 [[test]]
 name = "observability"
@@ -52,3 +61,11 @@ required-features = ["tracing", "client"]
 [[example]]
 name = "otlp"
 required-features = ["tracing", "client"]
+
+[[test]]
+name = "envoy"
+required-features = ["envoy"]
+
+[[example]]
+name = "envoy"
+required-features = ["envoy"]
