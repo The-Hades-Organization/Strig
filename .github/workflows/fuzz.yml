@@ -1,0 +1,66 @@
+name: Fuzz
+
+on:
+  pull_request:
+    paths:
+      - "crates/strig/**"
+      - "crates/strig-sync/**"
+      - "crates/strig-server/**"
+      - "fuzz/**"
+      - ".github/workflows/fuzz.yml"
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per target
+        default: "600"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  fuzz:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - dsl_parse
+          - dsl_format
+          - dsl_convert
+          - spec_json
+          - condition_eval
+          - decide
+          - sync_protocol
+          - server_wire
+          - audit_chain
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: Seconds per target
+        run: |
+          case "${{ github.event_name }}" in
+            pull_request) echo "SECONDS_PER_TARGET=45" >> "$GITHUB_ENV" ;;
+            schedule) echo "SECONDS_PER_TARGET=1500" >> "$GITHUB_ENV" ;;
+            *) echo "SECONDS_PER_TARGET=${{ inputs.seconds }}" >> "$GITHUB_ENV" ;;
+          esac
+      - name: Fuzz
+        run: ./fuzz/run.sh ${{ matrix.target }} "$SECONDS_PER_TARGET"
+      - name: Keep the crash
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: ignore

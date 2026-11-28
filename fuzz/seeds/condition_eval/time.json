@@ -1,0 +1,1 @@
+{"condition":{"op":"all","of":[{"op":"time_between","from":"22:00","until":"06:00","tz":"America/Sao_Paulo"},{"op":"ip_in","item":{"attr":"env.ip"},"set":["10.0.0.0/8","2001:db8::/32"]},{"op":"weekday_in","days":["mon","fri"]}]},"subject":{"kind":"user","id":"u1","attrs":{"level":3}},"env":{"ip":"10.1.2.3"},"now":1763700000000}

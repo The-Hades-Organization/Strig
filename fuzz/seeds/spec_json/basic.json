@@ -1,0 +1,1 @@
+{"catalog":{"targetKinds":["document","project"],"broadTargets":["org"],"permissions":[{"key":"project.view","targets":["project"]},{"key":"document.view","targets":["project","document"],"impliedBy":["project.view"]}]},"roles":[{"role":"editor","inherits":["viewer"]}],"strategy":"deny_overrides","overrides":[{"kind":"resource_owner","attr":"owner"}],"maxRelationDepth":4}
