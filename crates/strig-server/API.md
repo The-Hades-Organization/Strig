@@ -186,6 +186,57 @@ token is stateless and bound to the request: change an entity, the context or th
 `signed_metadata`, `capabilities`, tenant suffixes of the well-known URI, `action.properties` and `page.properties` are not
 read. The Rust client has no AuthZEN methods: a PEP that speaks the standard uses its own SDK.
 
+## Envoy External Authorization (gRPC, feature `envoy`)
+
+With the `envoy` feature, `DecisionServer::envoy_service(EnvoyConfig)` builds the
+`envoy.service.auth.v3.Authorization` service (method `Check`) over the same source, clock, limits and work slots as the
+HTTP routes. Take it before `router()`, which consumes the server. It is a tower service: add it to a
+`tonic::transport::Server`, or call `EnvoyService::serve(listener, shutdown)`, which also bounds each call with
+`ServerConfig::max_timeout` and the open streams per connection with `EnvoyConfig::with_max_concurrent_streams`.
+Without the feature the crate has no `tonic` or `prost` in its build. The messages are the part of the Envoy protos the
+adapter uses, as prost structs in `strig_server::envoy` (no `protoc`, no code generation); fields it does not declare are
+skipped, so newer Envoys decode. An example Envoy configuration is `examples/envoy.yaml`, with `examples/envoy.rs`.
+
+### Mapping
+
+| `CheckRequest` | Strig |
+| --- | --- |
+| `attributes.request.http.method` and `path` | The first route whose methods and pattern match decides. The query and fragment are dropped, segments are percent-decoded; a path with dot segments, an empty segment in the middle, an encoded `/`, `\` or NUL, invalid UTF-8 or more than 64 segments matches no route. |
+| A header (`with_subject_header`) or a string in the filter metadata (`with_subject_metadata("envoy.filters.http.jwt_authn", ["payload", "sub"])`) | The subject id, of the kind `with_subject_kind` (default `user`), with the `authenticated` principal. Sources are tried in order. A value that is empty, longer than 512 bytes or holds a comma is no subject. |
+| A header (`with_roles_header`), comma-separated | The roles of the subject, up to 64 of at most 512 bytes; past that there is no subject. |
+| The route's `RouteRule::require(permission, ResourceTemplate::new(kind, id))` | The permission and the resource; `{param}` in `kind` and `id` is filled from the path parameters, and a template that names a parameter the pattern lacks fails at configuration. |
+| `with_path_resolver` | The broader steps of the resource, as for AuthZEN. A resolver that does not know the resource makes the answer a deny. |
+
+Patterns start with `/`; a segment is a literal, `{name}` (one segment, captured), `*` (one segment) or, last, `**` (the
+rest). Methods are `*` or a list such as `GET,HEAD`. Rules are tried in the order they were added.
+
+The adapter trusts the subject and roles it reads. Envoy must set those headers itself and overwrite what the client sent
+(for example `claim_to_headers` of the JWT filter), or read them from the metadata of a filter that validated the token.
+
+### Answers
+
+| Case | `status.code` | HTTP | `x-strig-reason` (only with `with_reasons(true)`) |
+| --- | --- | --- | --- |
+| The engine allows, or the route is `public` | `OK` (0), `ok_response` | | |
+| The engine denies | `PERMISSION_DENIED` (7), `denied_response` | 403 | `denied` |
+| No route matches | same | 403 | `no_route` |
+| No usable subject on a route that needs one | same | 403 | `no_subject` |
+| The resolver does not know the resource | same | 403 | `unknown_resource` |
+| The source is down, the deadline passed, no work slot, the clock or the work failed | same | 403 | `unavailable` |
+| No HTTP attributes, or a template that cannot be filled | same | 403 | `bad_request` |
+
+The reason is a fixed code, never a grant, a role or a permission. A `public` route decides nothing and does not read the
+source, so it allows even while the source is down. A panic in the work is a deny too. A message over `max_body_bytes`
+or a call that outlives `max_timeout` is a gRPC error instead (`RESOURCE_EXHAUSTED`, `CANCELLED`): leave
+`failure_mode_allow: false` in the Envoy filter so that Envoy denies on those as well. The deadline is
+`ServerConfig::default_timeout` (capped by `max_timeout`); Envoy's own `grpc_service.timeout` should be at least as long.
+
+### Observability
+
+With `tracing`, each check is a `strig.server.envoy.check` span with its `outcome`, and the counter
+`strig_server_envoy_checks_total{outcome, reason}` (`reason` is `none` on an allow). No subject, route or resource is a
+label.
+
 ## Client behavior (Rust, feature `client`)
 
 * Every call has a timeout, sent to the server as the deadline header.

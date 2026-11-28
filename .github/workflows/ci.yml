@@ -30,6 +30,8 @@ jobs:
       - run: cargo test -p strig-inspect --no-default-features
       - run: cargo clippy -p strig --no-default-features --features exclusive --all-targets -- -D warnings
       - run: cargo test -p strig --no-default-features --features exclusive
+      - run: cargo clippy -p strig-server --features envoy,tracing --all-targets -- -D warnings
+      - run: cargo test -p strig-server --features envoy,tracing
 
   msrv:
     name: MSRV (1.88)

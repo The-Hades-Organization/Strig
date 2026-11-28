@@ -537,6 +537,23 @@ let config = AuthzenConfig::default()
 let router = DecisionServer::new(source).with_authzen(config).router();
 ```
 
+### Envoy
+
+Com a feature `envoy` (desligada por padrão, sem `tonic` nem `prost` sem ela), `DecisionServer::envoy_service(EnvoyConfig)` serve a External Authorization do Envoy (`envoy.service.auth.v3.Authorization/Check`, gRPC) sobre a mesma fonte das rotas HTTP, para que uma malha de serviço ou um gateway feito em Envoy consulte o Strig antes de repassar o pedido. Um `EnvoyConfig` declarativo mapeia o pedido: o sujeito vem de um header ou do metadata do filtro (por exemplo as claims que o `jwt_authn` validou), cada método e padrão de path pede uma permissão, e o recurso é um template sobre os parâmetros do path. `OK` no allow; `PERMISSION_DENIED` com HTTP 403 no deny, num path que nenhuma regra cobre, sem sujeito, com a fonte fora ou com o prazo vencido, com um `x-strig-reason` fixo opcional. Path com segmentos de ponto ou separadores codificados não casa com nada. Veja [`crates/strig-server/API.md`](crates/strig-server/API.md#envoy-external-authorization-grpc-feature-envoy) e [`examples/envoy.yaml`](crates/strig-server/examples/envoy.yaml).
+
+```rust
+let envoy = EnvoyConfig::default()
+    .with_subject_header("x-user")?
+    .with_route("GET", "/healthz", RouteRule::public())?
+    .with_route(
+        "GET,HEAD",
+        "/documents/{id}",
+        RouteRule::require("document.view", ResourceTemplate::new("document", "{id}")),
+    )?;
+let service = DecisionServer::new(source).envoy_service(envoy);
+service.serve(TcpListener::bind("127.0.0.1:9191").await?, shutdown).await?;
+```
+
 ## Observabilidade
 
 Todo crate tem uma feature `tracing` opcional, desligada por padrão. Ela traz spans pelo [`tracing`](https://docs.rs/tracing) e métricas pela fachada [`metrics`](https://docs.rs/metrics), então o backend é escolha sua: Prometheus, OpenTelemetry ou um recorder próprio. As features se encadeiam (`strig-sync/tracing` liga `strig/tracing`, `strig-postgres/tracing` e `strig-redis/tracing` ligam `strig-sync/tracing`, `strig-server/tracing` liga `strig/tracing`).

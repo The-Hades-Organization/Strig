@@ -8,6 +8,7 @@ pub(crate) mod on {
     pub const REQUESTS: &str = "strig_server_requests_total";
     pub const REQUEST_DURATION: &str = "strig_server_request_duration_seconds";
     pub const ERRORS: &str = "strig_server_errors_total";
+    pub const ENVOY_CHECKS: &str = "strig_server_envoy_checks_total";
     pub const CALLS: &str = "strig_client_calls_total";
     pub const CALL_DURATION: &str = "strig_client_call_duration_seconds";
     pub const BREAKER_TRANSITIONS: &str = "strig_client_breaker_transitions_total";
@@ -53,3 +54,18 @@ pub(crate) mod http {
         response
     }
 }
+
+/// One Envoy check: the outcome and, on a denial, its fixed code. Never the subject or the route.
+#[cfg(all(feature = "envoy", feature = "tracing"))]
+pub(crate) fn envoy_checked(verdict: &crate::envoy::Verdict) {
+    use crate::envoy::Verdict;
+
+    let (outcome, reason) = match verdict {
+        Verdict::Allow => ("allow", "none"),
+        Verdict::Deny(code) => ("deny", *code),
+    };
+    metrics::counter!(on::ENVOY_CHECKS, "outcome" => outcome, "reason" => reason).increment(1);
+}
+
+#[cfg(all(feature = "envoy", not(feature = "tracing")))]
+pub(crate) fn envoy_checked(_verdict: &crate::envoy::Verdict) {}
