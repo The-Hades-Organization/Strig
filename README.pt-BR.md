@@ -1397,8 +1397,8 @@ strig test policies/ --junit test-results/strig.xml   # exit 1 em falha, 2 em en
 ```
 
 ```yaml
-- uses: The-Hades-Organization/Strig/.github/actions/strig-test@v0.9.0
-  with: { path: policies, version: 0.9.0 }
+- uses: The-Hades-Organization/Strig/.github/actions/strig-test@v0.10.0
+  with: { path: policies, version: 0.10.0 }
 ```
 
 O mesmo runner é `strig::dsl::testing` em Rust e `strig.runTests(policy, tests)` em JavaScript e `strig.dsl.run_tests(policy, tests)` em Python. O formato, o relatório e

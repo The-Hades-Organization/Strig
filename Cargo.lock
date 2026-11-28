@@ -6973,7 +6973,7 @@ dependencies = [
 
 [[package]]
 name = "strig"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -6994,7 +6994,7 @@ dependencies = [
 
 [[package]]
 name = "strig-axum"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -7011,7 +7011,7 @@ dependencies = [
 
 [[package]]
 name = "strig-cli"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "serde_json",
  "strig",
@@ -7019,7 +7019,7 @@ dependencies = [
 
 [[package]]
 name = "strig-inspect"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "gpui-component",
  "gpui-pre",
@@ -7032,7 +7032,7 @@ dependencies = [
 
 [[package]]
 name = "strig-lsp"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "lsp-server",
  "lsp-types",
@@ -7043,7 +7043,7 @@ dependencies = [
 
 [[package]]
 name = "strig-macros"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7055,7 +7055,7 @@ dependencies = [
 
 [[package]]
 name = "strig-node"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "getrandom 0.2.17",
  "js-sys",
@@ -7071,7 +7071,7 @@ dependencies = [
 
 [[package]]
 name = "strig-postgres"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -7087,7 +7087,7 @@ dependencies = [
 
 [[package]]
 name = "strig-python"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "pyo3",
  "serde_json",
@@ -7096,7 +7096,7 @@ dependencies = [
 
 [[package]]
 name = "strig-redis"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -7110,7 +7110,7 @@ dependencies = [
 
 [[package]]
 name = "strig-server"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -7141,7 +7141,7 @@ dependencies = [
 
 [[package]]
 name = "strig-sync"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -7158,7 +7158,7 @@ dependencies = [
 
 [[package]]
 name = "strig-wasi"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "serde_json",
  "strig-node",
