@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::fmt;
-#[cfg(feature = "audit")]
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
