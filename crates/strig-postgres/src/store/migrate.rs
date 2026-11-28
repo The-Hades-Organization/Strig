@@ -6,7 +6,7 @@ use crate::query::{PgQueryError, PgTables};
 use crate::quote_ident;
 
 /// Highest schema version this build of the library knows.
-pub const LATEST_VERSION: u32 = 3;
+pub const LATEST_VERSION: u32 = 4;
 
 struct Migration {
     version: u32,
@@ -25,6 +25,10 @@ const MIGRATIONS: [Migration; LATEST_VERSION as usize] = [
     Migration {
         version: 3,
         sql: pending_sql,
+    },
+    Migration {
+        version: 4,
+        sql: exclusive_sql,
     },
 ];
 
@@ -61,6 +65,23 @@ fn pending_sql(tables: &PgTables) -> String {
             CHECK (expires_at IS NOT DISTINCT FROM (data->>'expiresAt')::bigint));\
         CREATE INDEX IF NOT EXISTS {order} ON {pending} (requested_at, id);\
         CREATE INDEX IF NOT EXISTS {due} ON {pending} (expires_at) WHERE state = 'pending';"
+    )
+}
+
+fn exclusive_sql(tables: &PgTables) -> String {
+    let exclusive = tables.qualified(&tables.exclusive);
+    let due = quote_ident(&format!("{}_due_idx", tables.exclusive));
+    format!(
+        "CREATE TABLE IF NOT EXISTS {exclusive} (\
+            resource_kind text NOT NULL, \
+            resource_id text NOT NULL, \
+            holder_kind text NOT NULL, \
+            holder_id text NOT NULL, \
+            priority bigint NOT NULL, \
+            acquired_at bigint NOT NULL, \
+            expires_at bigint NOT NULL, \
+            PRIMARY KEY (resource_kind, resource_id));\
+        CREATE INDEX IF NOT EXISTS {due} ON {exclusive} (expires_at);"
     )
 }
 

@@ -37,6 +37,10 @@ pub mod dsl;
 pub mod engine;
 #[cfg(feature = "exclusive")]
 pub mod exclusive;
+/// Battery of scenarios every [`ExclusiveStore`] implementation must pass. Test support (feature `conformance`), outside the stable API.
+#[cfg(feature = "conformance")]
+#[path = "exclusive_conformance.rs"]
+pub mod exclusive_conformance;
 pub mod explain;
 pub mod governance;
 pub mod grant;
@@ -69,7 +73,7 @@ pub use engine::{CapabilitySet, Context, Engine, EngineBuilder, EngineError, Gra
 #[cfg(feature = "exclusive")]
 pub use exclusive::{
     Acquisition, Claim, ExclusiveError, ExclusivePermissions, ExclusiveRegistry, ExclusiveStore, Lease,
-    MemoryExclusiveStore, Preemption, StoreError, Terms, priority_from_attr,
+    MemoryExclusiveStore, OwnedChange, Preemption, StoreError, Terms, priority_from_attr,
 };
 pub use explain::{
     ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, PrerequisiteStep, TraceResult, Verdict,
