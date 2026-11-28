@@ -101,7 +101,7 @@ cargo run -p strig-axum --example server      # servidor de tempo real sobre SSE
 
 ## Crates
 
-Todos os crates, menos `strig-inspect`, `strig-node`, `strig-python` e `strig-wasi`, estão no crates.io na mesma versão.
+Todos os crates, menos `strig-inspect`, `strig-node`, `strig-python`, `strig-wasi` e `strig-lsp`, estão no crates.io na mesma versão.
 
 | Crate | Use para | Dependências principais |
 |---|---|---|
@@ -116,6 +116,7 @@ Todos os crates, menos `strig-inspect`, `strig-node`, `strig-python` e `strig-wa
 | `strig-python` | O pacote PyPI `strig-auth` (`import strig`): extensão nativa (PyO3, abi3) sobre o mesmo núcleo do `strig-node` | `pyo3` |
 | `strig-wasi` | O módulo WebAssembly com ABI C que os bindings de Go e da JVM executam: JSON na entrada, JSON na saída, sem `wasm-bindgen` | `strig-node` |
 | `strig-cli` | O comando `strig`: `strig test` roda os testes de uma política, para pessoas e para o CI (JUnit) | `strig` |
+| `strig-lsp` | Language server para arquivos `.strig` por stdio: diagnósticos, formatação, completar, hover, ir para definição, converter (compilado do fonte; a extensão do VS Code está em `editors/vscode`) | `strig`, `lsp-server` |
 | `strig-inspect` | Visualizador: rastro das decisões, simulação de grants, matriz de acesso, trilha de auditoria. Janela desktop e comandos de terminal | `gpui-pre`, `gpui-component` |
 
 ```toml
@@ -1180,6 +1181,24 @@ strig test policies/ --junit test-results/strig.xml   # exit 1 em falha, 2 em en
 
 O mesmo runner é `strig::dsl::testing` em Rust e `strig.runTests(policy, tests)` em JavaScript e `strig.dsl.run_tests(policy, tests)` em Python. O formato, o relatório e
 os códigos de saída estão [no guia](docs/dsl.pt-BR.md#testando-uma-politica); `examples/policy-tests/` tem um projeto que passa.
+
+### Editor
+
+`strig-lsp` é um language server para arquivos `.strig`, e `editors/vscode` é a extensão do VS Code que o usa. Os dois leem o projeto como o `strig test` lê: todo `*.strig` do diretório do arquivo aberto é uma política só, em qualquer mistura das três sintaxes, e todo `*.strig-test.json` ao lado é um arquivo de testes. Buffers não salvos contam.
+
+- **Diagnósticos enquanto você digita**, com a posição e a dica do validador, inclusive conflitos entre arquivos (o outro lado vai como local relacionado) e os erros de um `*.strig-test.json`.
+- **Formatar documento**, com o mesmo layout de `strig::dsl::format`; fonte que não compila fica como está.
+- **Completar** ids de permissão, kinds, papéis, sujeitos e operadores de condição a partir do projeto, filtrados pela linha (`depends_on = [`, `inherits `, `when = ...`).
+- **Hover** numa permissão com targets, `implied_by`, `depends_on`, campos e labels por locale, e num papel ou kind.
+- **Ir para definição** de permissão, papel, grant ou sujeito entre arquivos.
+- **Code action** "Convert to rules/actors/blocks syntax" para o arquivo inteiro.
+
+```sh
+cargo install --git https://github.com/The-Hades-Organization/Strig strig-lsp --locked   # o servidor
+cargo install strig-cli --locked                                                            # `strig test`, para o comando abaixo
+```
+
+A extensão procura `strig-lsp` e `strig` no `PATH`, ou em `strig.server.path` e `strig.cli.path`, e explica como instalar quando faltam. O comando "Strig: Run policy tests" roda `strig test .` na pasta do arquivo aberto. Para montar a extensão: `cd editors/vscode && npm ci && npm test && npx vsce package`. A publicação no Marketplace e no Open VSX ainda não está configurada. Outros editores com LSP podem rodar `strig-lsp` direto: ele fala por stdio e não recebe argumentos.
 
 ### Macros
 
