@@ -219,3 +219,28 @@ fn an_unknown_field_gets_a_suggestion() {
     });
     assert!(text.contains("distinct_roles"), "{text}");
 }
+
+#[test]
+fn a_project_keeps_the_separation_declared_in_each_file_and_refuses_a_name_declared_twice() {
+    let mut project = strig::dsl::Project::new();
+    project.add_source("a.strig", BLOCKS).unwrap();
+    let other = "language blocks\n\nmutually_exclusive extra {\n  of = roles\n  members = [maker, auditor]\n}\n\nrole auditor {}\n";
+    project.add_source("b.strig", other).unwrap();
+    let built = project.build().unwrap_or_else(|errors| panic!("{errors}"));
+    let names: Vec<_> = built
+        .policy
+        .catalog
+        .mutually_exclusive
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
+    assert_eq!(names, ["payment_duties", "create_or_approve", "extra"]);
+    assert_eq!(built.policy.catalog.conflicting_actions.len(), 1);
+
+    let mut twice = strig::dsl::Project::new();
+    twice.add_source("a.strig", BLOCKS).unwrap();
+    let again = "language blocks\n\nmutually_exclusive payment_duties {\n  of = roles\n  members = [maker, auditor]\n}\n\nrole auditor {}\n";
+    twice.add_source("b.strig", again).unwrap();
+    let errors = twice.build().err().expect("a name declared twice").to_string();
+    assert!(errors.contains("payment_duties"), "{errors}");
+}
