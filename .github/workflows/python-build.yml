@@ -1,0 +1,37 @@
+name: Python build
+
+# Builds the sdist and a Linux wheel with the exact maturin-action arguments of release.yml,
+# so a broken manifest path shows up on the pull request and not on the next tag.
+on:
+  pull_request:
+    paths:
+      - "crates/strig-python/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/release.yml"
+      - ".github/workflows/python-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-build:
+    name: sdist and linux wheel
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist -m crates/strig-python/Cargo.toml
+      - name: Build the abi3 wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --locked --out dist -m crates/strig-python/Cargo.toml
+          target: x86_64
+          manylinux: auto
+      - run: test "$(ls dist/*.whl | wc -l)" -eq 1 && test "$(ls dist/*.tar.gz | wc -l)" -eq 1

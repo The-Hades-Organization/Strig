@@ -10,6 +10,10 @@ All notable changes to this project are documented here. The format follows [Kee
 - `strig audit report <trail.jsonl> [--json] [--anchor-head <hash>] [--anchor-start <hash>] [--timestamp <resp.tsr>]... [--root <ca.pem>]...`: the conformance report for people or as JSON; exit `0` conforming, `1` not, `2` usage.
 - JS binding: `verifyMerkleInclusion`, `verifyMerkleConsistency` and `verifyTimestamp` (native and wasm, no network) with their types in `index.d.ts`. The wasm build links `getrandom` with its `js` feature so the RSA and ECDSA crates build for `wasm32-unknown-unknown`; verification never draws random numbers.
 
+### Fixed
+
+- The Python sdist and wheels did not build in the release: `maturin-action` received `pyproject.toml` as `--manifest-path`. The release now passes `crates/strig-python/Cargo.toml`, and a new `python-build` workflow builds the sdist and a Linux wheel with the same arguments on pull requests that touch `crates/strig-python/**`, the workspace manifests or either workflow (also runnable by hand).
+
 ## [0.9.0] - 2026-11-28
 
 ### Added
