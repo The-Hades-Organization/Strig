@@ -92,6 +92,7 @@ impl From<&Anchor> for TargetSelector {
 /// Grant or denial of a catalog permission.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Grant {
     pub id: String,
     pub subject: SubjectMatcher,

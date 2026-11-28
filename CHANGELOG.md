@@ -18,7 +18,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Breaking
 
-- Rust only, for code that builds these by struct literal or matches them exhaustively: `Grant` and `PermissionDef` gain a `fields` field (use `Grant::new`/`PermissionDef::new`), `Request` is now `#[non_exhaustive]` and gains `field` (use `Request::new`), and `CatalogError`, `GrantError` and `Verdict` gain variants. Nothing changes for a policy that does not use fields.
+- Rust only. `Grant`, `PermissionDef`, `CatalogError`, `GrantError` and `Verdict` are now `#[non_exhaustive]`, and `Request` too, so that a field or a variant added later is no longer a breaking change. `Grant` and `PermissionDef` gain `fields`, `Request` gains `field`, and `CatalogError`, `GrantError` and `Verdict` gain variants. What to do: build values with the constructors and builders (`Grant::allow`/`Grant::deny`/`Grant::new` and its chained methods, `PermissionDef::new` and its builders, `Request::new` with `.field(..)`) instead of struct literals, and add a `_` arm to every `match` on those enums. Nothing changes for a policy that does not use fields.
 
 ## [0.8.0] - 2026-11-28
 

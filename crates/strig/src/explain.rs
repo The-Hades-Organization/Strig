@@ -92,6 +92,7 @@ impl From<Option<Effect>> for OverrideOutcome {
 /// The fate of a grant during collection, in the order the engine checks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Verdict {
     /// Became a candidate.
     Candidate,

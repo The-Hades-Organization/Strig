@@ -10,6 +10,7 @@ use crate::resource::GLOBAL;
 /// Definition of an atomic permission.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct PermissionDef {
     pub key: String,
     /// Target kinds a grant of this permission can anchor to, besides the broad ones.
@@ -177,6 +178,7 @@ fn is_false(flag: &bool) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum CatalogError {
     #[error("chave inválida '{0}': use segmentos [a-z0-9_] separados por ponto")]
     InvalidKey(String),

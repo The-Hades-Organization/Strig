@@ -94,6 +94,7 @@ pub enum EngineError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum GrantError {
     #[error("grant sem id")]
     EmptyId,

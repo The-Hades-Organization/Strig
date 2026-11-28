@@ -68,6 +68,7 @@ pub fn verdict(verdict: &Verdict) -> String {
         Verdict::OverrideOnly => "permission only holds through an override: grant ignored".into(),
         Verdict::FieldNotCovered => "the grant names fields and this one is not among them".into(),
         Verdict::NotReached => "not evaluated (an override decided first)".into(),
+        _ => "not classified by this version".into(),
     }
 }
 
