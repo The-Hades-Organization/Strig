@@ -22,11 +22,26 @@ use crate::provider::CapabilityProvider;
 use strig::Revision;
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SessionOptions {
     /// Interval of the `ping`. Keeps proxies and load balancers from closing an idle connection.
     pub heartbeat: Option<Duration>,
     /// Messages queued for a slow client before the session waits for it.
     pub buffer: usize,
+}
+
+impl SessionOptions {
+    #[must_use]
+    pub fn with_heartbeat(mut self, heartbeat: Option<Duration>) -> Self {
+        self.heartbeat = heartbeat;
+        self
+    }
+
+    #[must_use]
+    pub fn with_buffer(mut self, buffer: usize) -> Self {
+        self.buffer = buffer;
+        self
+    }
 }
 
 impl Default for SessionOptions {

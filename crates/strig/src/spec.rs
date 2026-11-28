@@ -91,12 +91,28 @@ pub enum OverrideRule {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct OverrideSpec {
     #[serde(flatten)]
     pub rule: OverrideRule,
     /// Permissions (and the ones they grant) outside the reach of this override.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub except: Vec<String>,
+}
+
+impl OverrideSpec {
+    pub fn new(rule: OverrideRule) -> Self {
+        Self {
+            rule,
+            except: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_except(mut self, except: Vec<String>) -> Self {
+        self.except = except;
+        self
+    }
 }
 
 impl EngineSpec {

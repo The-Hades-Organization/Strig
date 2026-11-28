@@ -855,9 +855,16 @@ impl Engine {
 /// grants is written as it always was.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(from = "CapabilityWire", into = "CapabilityWire")]
+#[non_exhaustive]
 pub struct CapabilitySet {
     pub subject: Subject,
     pub grants: Vec<Grant>,
+}
+
+impl CapabilitySet {
+    pub fn new(subject: Subject, grants: Vec<Grant>) -> Self {
+        Self { subject, grants }
+    }
 }
 
 #[derive(Serialize, Deserialize)]

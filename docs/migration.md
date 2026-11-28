@@ -38,11 +38,42 @@ let Decision { effect, .. } = decision;
 ```
 
 A result struct can no longer be built with a literal outside the crate that defines it: get one from the API that
-produces it. Structs you build to feed the library (`Review`, `Resource`, `Anchor`, `Lease`, `Proposal`, `EvalContext`,
-`SessionOptions`, `RetryPolicy`, `WindowColumns` and other input records) are unchanged for now; they become `#[non_exhaustive]`, with a constructor or builder, before `1.0.0-rc.1`, and this guide will say how to migrate.
+produces it. Structs you build to feed the library are `#[non_exhaustive]` too; see the next section.
 
 `Effect`, `PendingStatus`, `TupleSubject`, `Mutation` and `SubjectMatcher` stay exhaustive on purpose: a store or
 caller must handle every variant, so a new one is a major change.
+
+### Rust: input structs are `#[non_exhaustive]` and built with a constructor
+
+The structs you build to configure or feed the library can no longer be built with a literal, nor with
+`..Default::default()`, outside their crate. Required fields go in `new(...)`, optional ones in `with_*`, and
+configuration structs keep `Default`. Reading a field is unchanged, and so is assigning one on a value you own. A
+pattern that destructures one needs `..`. `Review` is now `Copy`, so `review.with_now(t)` and
+`review.with_current(&grants)` replace `Review { now: t, ..review }`. A store implemented outside this repository builds
+what it returns the same way (`Lease::new`, `Review::new`).
+
+| Struct | Before | After |
+| --- | --- | --- |
+| `Review` | `Review { engine, current, tuples: None, now, meta }` | `Review::new(engine, current, now, meta)`, `.with_tuples(store)` |
+| `Proposal` | `Proposal { actor, mutation, before, after, tuples: None, now: None }` | `Proposal::new(actor, mutation, before, after)`, `.with_tuples(store)`, `.with_now(now)` |
+| `EvalContext` | `EvalContext { subject, resource, env }` | `EvalContext::new(subject, resource, env)` |
+| `CapabilitySet` | `CapabilitySet { subject, grants }` | `CapabilitySet::new(subject, grants)` |
+| `Lease` | `Lease { resource, holder, priority, acquired_at, expires_at }` | `Lease::new(resource, holder, priority, acquired_at, expires_at)` |
+| `ExclusivePermissions` | `ExclusivePermissions { hold, preempt }` | `ExclusivePermissions::new(hold, preempt)` |
+| `Resource` | `Resource { path, attrs: Default::default() }` | `Resource::from_path(path)`, or `Resource::new(kind, id).within(..)` |
+| `Anchor` | `Anchor { kind, id }` | `Anchor::new(kind, id)` or `Anchor::kind_only(kind)` |
+| `RoleAssignment` | `RoleAssignment { role, scope, valid_from, valid_until }` | `RoleAssignment::new(role)` or `::in_scope(role, scope)`, `.valid_from(t)`, `.valid_until(t)` |
+| `OverrideSpec` | `OverrideSpec { rule, except }` | `OverrideSpec::new(rule).with_except(except)` |
+| `RetryPolicy` | `RetryPolicy { capacity: 500, ..RetryPolicy::default() }` | `RetryPolicy::default().with_capacity(500)`; also `with_base_delay_ms`, `with_max_delay_ms`, `with_on_drop` |
+| `Note` | `Note { text, anchor, origin }` | `Note::new(text, anchor, origin)` |
+| `NoteAnchor` | `NoteAnchor { element, placement }` | `NoteAnchor::new(element, placement)` |
+| `NoteOrigin` | `NoteOrigin { file, language, line, column, field }` | `NoteOrigin::new(file, language, line, column)`, `.with_field(field)` |
+| `import::openfga::Options` | `Options { model_file, ..Options::default() }` | `Options::default().with_model_file(..)`, `.with_tuples_file(..)` |
+| `import::casbin::Options` | `Options { actions, ..Options::default() }` | `Options::default().with_actions(..)`, `.with_model_file(..)`, `.with_policy_file(..)` |
+| `SessionOptions` (`strig-sync`) | `SessionOptions { heartbeat: None, ..Default::default() }` | `SessionOptions::default().with_heartbeat(None)`, `.with_buffer(n)` |
+| `WindowColumns` (`strig-postgres`) | `WindowColumns { effect, ..Default::default() }` | `WindowColumns::default().with_effect(..)`; also `with_valid_from`, `with_valid_until`, `with_allow_effect` |
+| `ListRequest` (`strig-server`) | `ListRequest { subject, permission, kind, layout, resources, env, at }` | `ListRequest::new(subject, permission, kind)`, `.with_layout(..)`, `.with_resources(..)`, `.with_env(..)`, `.with_at(..)` |
+| `RawResponse` (`strig-server`) | `RawResponse { status, body }` | `RawResponse::new(status, body)` |
 
 ### Added, no action
 

@@ -405,6 +405,7 @@ pub type DropHook = Arc<dyn Fn(&DroppedRecord) + Send + Sync>;
 
 /// Limits of the retry queue that `open` mode feeds.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct RetryPolicy {
     /// Records kept waiting; past it a new record is dropped (the older ones keep their place).
     pub capacity: usize,
@@ -412,6 +413,32 @@ pub struct RetryPolicy {
     pub base_delay_ms: u64,
     pub max_delay_ms: u64,
     pub on_drop: Option<DropHook>,
+}
+
+impl RetryPolicy {
+    #[must_use]
+    pub fn with_capacity(mut self, capacity: usize) -> Self {
+        self.capacity = capacity;
+        self
+    }
+
+    #[must_use]
+    pub fn with_base_delay_ms(mut self, base_delay_ms: u64) -> Self {
+        self.base_delay_ms = base_delay_ms;
+        self
+    }
+
+    #[must_use]
+    pub fn with_max_delay_ms(mut self, max_delay_ms: u64) -> Self {
+        self.max_delay_ms = max_delay_ms;
+        self
+    }
+
+    #[must_use]
+    pub fn with_on_drop(mut self, on_drop: DropHook) -> Self {
+        self.on_drop = Some(on_drop);
+        self
+    }
 }
 
 impl Default for RetryPolicy {

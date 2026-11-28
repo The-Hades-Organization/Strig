@@ -55,13 +55,7 @@ impl Scene {
     }
 
     fn review(&self, now: u64) -> Review<'_> {
-        Review {
-            engine: &self.engine,
-            current: &self.grants,
-            tuples: None,
-            now,
-            meta: &self.meta,
-        }
+        Review::new(&self.engine, &self.grants, now, &self.meta)
     }
 }
 

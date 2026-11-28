@@ -25,12 +25,9 @@ fn without_now_only_unwindowed_rows_and_possible_denies_pass() {
 
 #[test]
 fn column_names_are_quoted() {
-    let columns = WindowColumns {
-        valid_from: "a\"b".into(),
-        valid_until: "until; DROP TABLE x".into(),
-        effect: "effect".into(),
-        allow_effect: "allow".into(),
-    };
+    let columns = WindowColumns::default()
+        .with_valid_from("a\"b")
+        .with_valid_until("until; DROP TABLE x");
     let p = window_predicate(&columns, 1, Some(1)).unwrap();
     assert!(p.sql.contains("\"a\"\"b\""));
     assert!(p.sql.contains("\"until; DROP TABLE x\""));
@@ -49,10 +46,7 @@ fn an_effect_that_is_not_known_to_be_allow_is_kept_without_now() {
 
 #[test]
 fn the_allow_value_is_escaped() {
-    let columns = WindowColumns {
-        allow_effect: "a'b\\c".into(),
-        ..WindowColumns::default()
-    };
+    let columns = WindowColumns::default().with_allow_effect("a'b\\c");
     let p = window_predicate(&columns, 1, None).unwrap();
     assert!(p.sql.contains(r"E'a''b\\c'"), "{}", p.sql);
 }

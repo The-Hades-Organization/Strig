@@ -45,6 +45,7 @@ pub const DEFAULT_PREEMPT_PERMISSION: &str = "exclusive.preempt";
 
 /// Active or expired ownership of a resource.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Lease {
     pub resource: ObjectRef,
     pub holder: ObjectRef,
@@ -53,6 +54,18 @@ pub struct Lease {
     pub acquired_at: u64,
     /// Milliseconds since the Unix epoch. The lease is over at this instant.
     pub expires_at: u64,
+}
+
+impl Lease {
+    pub fn new(resource: ObjectRef, holder: ObjectRef, priority: i64, acquired_at: u64, expires_at: u64) -> Self {
+        Self {
+            resource,
+            holder,
+            priority,
+            acquired_at,
+            expires_at,
+        }
+    }
 }
 
 impl Lease {
@@ -308,9 +321,19 @@ impl ExclusiveStore for MemoryExclusiveStore {
 /// Names of the permissions the checked acquisition asks the engine for. The catalog must declare
 /// both; [`ExclusiveRegistry::validate`] checks it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ExclusivePermissions {
     pub hold: String,
     pub preempt: String,
+}
+
+impl ExclusivePermissions {
+    pub fn new(hold: impl Into<String>, preempt: impl Into<String>) -> Self {
+        Self {
+            hold: hold.into(),
+            preempt: preempt.into(),
+        }
+    }
 }
 
 impl Default for ExclusivePermissions {

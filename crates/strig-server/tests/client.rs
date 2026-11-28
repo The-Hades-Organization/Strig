@@ -59,10 +59,7 @@ impl Transport for Scripted {
 }
 
 fn status(status: u16, body: &str) -> Result<RawResponse, TransportError> {
-    Ok(RawResponse {
-        status,
-        body: body.as_bytes().to_vec(),
-    })
+    Ok(RawResponse::new(status, body.as_bytes().to_vec()))
 }
 
 const UNAVAILABLE: &str = r#"{"error":{"code":"source_unavailable","message":"x"}}"#;
@@ -111,7 +108,7 @@ impl Transport for InProcess {
             .map_err(TransportError::unreachable)?
             .to_bytes()
             .to_vec();
-        Ok(RawResponse { status, body })
+        Ok(RawResponse::new(status, body))
     }
 }
 
@@ -313,15 +310,7 @@ async fn a_failing_source_behind_the_server_denies_through_the_client() {
 #[tokio::test]
 async fn list_failure_is_an_error_not_an_empty_listing() {
     let client = Client::new(Scripted::new(vec![status(503, UNAVAILABLE)]), ClientConfig::default());
-    let request = strig_server::wire::ListRequest {
-        subject: Subject::user("alice"),
-        permission: "document.view".into(),
-        kind: "document".into(),
-        layout: None,
-        resources: None,
-        env: strig::Attributes::new(),
-        at: None,
-    };
+    let request = strig_server::wire::ListRequest::new(Subject::user("alice"), "document.view", "document");
     assert!(client.list(&request).await.is_err());
 }
 

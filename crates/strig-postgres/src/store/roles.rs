@@ -14,7 +14,7 @@ fn scope_columns(role: &RoleAssignment) -> Result<(&str, &str), PgQueryError> {
         Some(Anchor { id: Some(id), .. }) if id.is_empty() => {
             Err(PgQueryError::Invalid("role scope with an empty id".into()))
         }
-        Some(Anchor { kind, id }) => Ok((kind, id.as_deref().unwrap_or(""))),
+        Some(Anchor { kind, id, .. }) => Ok((kind, id.as_deref().unwrap_or(""))),
     }
 }
 
@@ -117,18 +117,17 @@ impl PgTables {
             .map(|row| {
                 let scope_kind: String = row.get(1);
                 let scope_id: String = row.get(2);
-                let scope = (!scope_kind.is_empty()).then(|| Anchor {
-                    kind: scope_kind,
-                    id: (!scope_id.is_empty()).then_some(scope_id),
+                let scope = (!scope_kind.is_empty()).then(|| match scope_id.is_empty() {
+                    true => Anchor::kind_only(scope_kind),
+                    false => Anchor::new(scope_kind, scope_id),
                 });
                 let from: Option<i64> = row.get(3);
                 let until: Option<i64> = row.get(4);
-                RoleAssignment {
-                    role: row.get(0),
-                    scope,
-                    valid_from: from.and_then(|v| u64::try_from(v).ok()),
-                    valid_until: until.and_then(|v| u64::try_from(v).ok()),
-                }
+                let mut assignment = RoleAssignment::new(row.get::<_, String>(0));
+                assignment.scope = scope;
+                assignment.valid_from = from.and_then(|v| u64::try_from(v).ok());
+                assignment.valid_until = until.and_then(|v| u64::try_from(v).ok());
+                assignment
             })
             .collect())
     }

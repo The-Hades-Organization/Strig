@@ -20,15 +20,15 @@ fn scope() -> Resource {
 }
 
 fn capabilities() -> CapabilitySet {
-    CapabilitySet {
-        subject: Subject::user("u1").with_role("member"),
-        grants: vec![Grant::allow(
+    CapabilitySet::new(
+        Subject::user("u1").with_role("member"),
+        vec![Grant::allow(
             "g1",
             SubjectMatcher::Any,
             "project.view",
             TargetSelector::kind("project"),
         )],
-    }
+    )
 }
 
 fn server() -> Vec<(&'static str, ServerMessage)> {

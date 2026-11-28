@@ -34,8 +34,9 @@ variant or a field is then not breaking. A few enums are closed on purpose: `Eff
 `TupleSubject`, and `Mutation` and `SubjectMatcher`, which every store matches exhaustively so that a new variant fails
 at compile time instead of dropping a write silently. Adding a variant to those is a major change. Structs you
 construct to configure or feed the library (`Review`, `Resource`, `Anchor`, `Lease`, `SessionOptions`,
-`RetryPolicy`, `Proposal`, `EvalContext` and similar input records) are still open to a struct literal today
-and become `#[non_exhaustive]`, with a constructor or builder, before `1.0.0-rc.1`.
+`RetryPolicy`, `Proposal`, `EvalContext` and similar input records) are `#[non_exhaustive]` too: build them with
+`new(...)` for the required fields and `with_*` for the optional ones, and read their fields as before. Adding a field
+to one is then not breaking.
 
 **Error codes, closed lists.** A code is added, never changed or reused.
 

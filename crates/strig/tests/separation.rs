@@ -53,11 +53,9 @@ fn org(id: &str) -> Anchor {
 fn assign(subject: &Subject, role: &str, scope: Option<Anchor>) -> Mutation {
     Mutation::AssignRole {
         subject: subject.clone(),
-        role: RoleAssignment {
-            role: role.to_string(),
-            scope,
-            valid_from: None,
-            valid_until: None,
+        role: match scope {
+            Some(scope) => RoleAssignment::in_scope(role, scope),
+            None => RoleAssignment::new(role),
         },
     }
 }
@@ -143,12 +141,7 @@ fn revoking_a_role_never_creates_a_clash() {
         .with_role_in("checker", org("o1"));
     let revoke = Mutation::RevokeRole {
         subject: ana.clone(),
-        role: RoleAssignment {
-            role: "maker".into(),
-            scope: Some(org("o1")),
-            valid_from: None,
-            valid_until: None,
-        },
+        role: RoleAssignment::in_scope("maker", org("o1")),
     };
     assert!(apply(&admin(), &[], &revoke).is_ok());
 }

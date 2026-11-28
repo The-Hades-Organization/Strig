@@ -40,6 +40,7 @@ const MAX_DISJUNCTS: usize = 64;
 
 /// What the import is told besides the two texts.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Options {
     /// Actions to add to the ones the policy names. A model that does not constrain the action
     /// (ABAC) has none of its own: name them here.
@@ -48,6 +49,26 @@ pub struct Options {
     pub model_file: String,
     /// Name of the policy, in positions.
     pub policy_file: String,
+}
+
+impl Options {
+    #[must_use]
+    pub fn with_actions(mut self, actions: Vec<String>) -> Self {
+        self.actions = actions;
+        self
+    }
+
+    #[must_use]
+    pub fn with_model_file(mut self, model_file: impl Into<String>) -> Self {
+        self.model_file = model_file.into();
+        self
+    }
+
+    #[must_use]
+    pub fn with_policy_file(mut self, policy_file: impl Into<String>) -> Self {
+        self.policy_file = policy_file.into();
+        self
+    }
 }
 
 impl Default for Options {

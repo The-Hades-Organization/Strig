@@ -218,13 +218,7 @@ fn the_approver_sees_the_impact_recomputed_over_the_grants_as_they_are_now() {
     let flow = Approvals::new(&governance, &policy, &store).with_impact(&options);
     let meta = Attributes::new();
     let before = vec![approver_grant()];
-    let review = |grants: &'static [Grant], now| Review {
-        engine: &engine,
-        current: grants,
-        tuples: None,
-        now,
-        meta: &meta,
-    };
+    let review = |grants: &'static [Grant], now| Review::new(&engine, grants, now, &meta);
     let leaked: &'static [Grant] = Box::leak(before.clone().into_boxed_slice());
     let mutation = Mutation::Add(view_for_editor());
     let Proposed::Pending(pending) = flow

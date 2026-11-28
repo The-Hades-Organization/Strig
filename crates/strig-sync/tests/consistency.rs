@@ -283,10 +283,7 @@ async fn a_session_sends_the_revision_and_refuses_to_send_an_older_set() {
         alice(),
         vec![project()],
         Some(provider),
-        SessionOptions {
-            heartbeat: None,
-            ..SessionOptions::default()
-        },
+        SessionOptions::default().with_heartbeat(None),
     );
     assert!(matches!(
         next(&mut stream).await,
@@ -334,10 +331,7 @@ fn the_message_constructors_speak_the_current_version_and_carry_the_revision() {
     assert!(matches!(&hello, ServerMessage::Hello { version: 2, .. }));
     assert!(hello.to_json().contains(r#""version":2"#));
 
-    let set = CapabilitySet {
-        subject: Subject::anonymous(),
-        grants: Vec::new(),
-    };
+    let set = CapabilitySet::new(Subject::anonymous(), Vec::new());
     let plain = ServerMessage::capabilities(Resource::new("project", "p1"), set);
     assert!(!plain.to_json().contains("revision"));
     let revised = plain.with_revision(Revision::new("tenant", 4));

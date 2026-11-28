@@ -77,11 +77,10 @@ fn casbin_import(args: &Args, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         (Ok(model), Ok(policy)) => (model, policy),
         (Err(message), _) | (_, Err(message)) => return usage(err, &message),
     };
-    let options = casbin::Options {
-        actions: args.actions.clone(),
-        model_file: args.inputs[0].clone(),
-        policy_file: args.inputs[1].clone(),
-    };
+    let options = casbin::Options::default()
+        .with_actions(args.actions.clone())
+        .with_model_file(args.inputs[0].clone())
+        .with_policy_file(args.inputs[1].clone());
     match casbin::import(&model, &policy, &options) {
         Ok(imported) => write_policy(imported.policy(), imported.report(), args, out, err),
         Err(error) => refused(&error, out),
@@ -93,10 +92,9 @@ fn openfga_import(args: &Args, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         (Ok(model), Ok(tuples)) => (model, tuples),
         (Err(message), _) | (_, Err(message)) => return usage(err, &message),
     };
-    let options = openfga::Options {
-        model_file: args.inputs[0].clone(),
-        tuples_file: args.inputs[1].clone(),
-    };
+    let options = openfga::Options::default()
+        .with_model_file(args.inputs[0].clone())
+        .with_tuples_file(args.inputs[1].clone());
     match openfga::import(&model, &tuples, &options) {
         Ok(imported) => write_policy(imported.policy(), imported.report(), args, out, err),
         Err(error) => refused(&error, out),

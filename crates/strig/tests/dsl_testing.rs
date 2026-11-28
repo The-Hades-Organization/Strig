@@ -208,10 +208,10 @@ fn unknown_fields_and_bad_json_are_refused_at_load() {
 #[test]
 fn a_policy_that_does_not_build_is_one_error() {
     let mut broken = policy();
-    broken.overrides.push(strig::OverrideSpec {
-        rule: strig::OverrideRule::ResourceOwner { attr: "o".into() },
-        except: vec!["nope".into()],
-    });
+    broken.overrides.push(
+        strig::OverrideSpec::new(strig::OverrideRule::ResourceOwner { attr: "o".into() })
+            .with_except(vec!["nope".into()]),
+    );
     let report = run(&broken, &[tests(r#"{"cases": []}"#)]);
     assert_eq!(report.results[0].outcome, Outcome::Errored);
     assert_eq!(report.results[0].file, "(policy)");

@@ -421,13 +421,7 @@ async fn approvals_run_over_the_postgres_store() {
         let policy = ApprovalPolicy::new().require(MutationKind::Add, "org.manage", project());
         let flow = Approvals::new(&gov, &policy, &store);
         let meta = Attributes::new();
-        let review = |now| Review {
-            engine: &engine,
-            current: &grants,
-            tuples: None,
-            now,
-            meta: &meta,
-        };
+        let review = |now| Review::new(&engine, &grants, now, &meta);
         let mutation = Mutation::Add(role_grant("m-edit", "member", "project.edit"));
         let Proposed::Pending(pending) = flow
             .propose(&review(1_000), &ana, &mutation, "r1", Some(1_500))

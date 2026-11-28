@@ -235,7 +235,7 @@ let policy = ApprovalPolicy::new()
     .require(MutationKind::AssignRole, "org.approve", org_resource);
 let store = MemoryPendingStore::new();
 let flow = Approvals::new(&governance, &policy, &store);
-let review = Review { engine: &engine, current: &current, tuples: None, now, meta: &request_meta };
+let review = Review::new(&engine, &current, now, &request_meta);
 
 // Ana propõe; as invariantes julgam e, se aceitam, o pedido fica guardado (expira em uma hora).
 let Proposed::Pending(request) = flow.propose(&review, &ana, &Mutation::Add(grant), "req-1", Some(now + 3_600_000))? else {
@@ -504,7 +504,7 @@ Por padrão, um destino que falha recusa a mudança (`FailMode::Closed`). Com `F
 let auditor = Auditor::new(AuditLevel::Forensic, sink)
     .with_fail_mode(FailMode::Closed)
     .with_permission_fail_mode("report.view", FailMode::Open)
-    .with_retry(RetryPolicy { capacity: 500, ..RetryPolicy::default() })
+    .with_retry(RetryPolicy::default().with_capacity(500))
     .with_redactor(mask_attributes(["ip", "email"], "[redacted]"));
 ```
 

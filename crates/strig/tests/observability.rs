@@ -89,13 +89,7 @@ fn run_scenario(engine: &Engine) {
     )));
     let flow = Approvals::new(&plain, &policy, &store);
     let meta = Attributes::new();
-    let review = Review {
-        engine,
-        current: &grants,
-        tuples: None,
-        now: 1_000,
-        meta: &meta,
-    };
+    let review = Review::new(engine, &grants, 1_000, &meta);
     flow.propose(&review, &admin(), &ok, "r1", None).expect("proposed");
     flow.approve(&review, &admin(), "r1").unwrap_err();
 }

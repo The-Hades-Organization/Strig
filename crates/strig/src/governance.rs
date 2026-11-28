@@ -137,6 +137,7 @@ fn role_label(role: &RoleAssignment) -> String {
 /// What an invariant sees: who changes, what, and the set before and after. In a role
 /// change, `before` and `after` are the same set; the effect shows up in
 /// [`Proposal::subject_after`].
+#[non_exhaustive]
 pub struct Proposal<'a> {
     pub actor: &'a Subject,
     pub mutation: &'a Mutation,
@@ -147,6 +148,31 @@ pub struct Proposal<'a> {
     /// [`Governance::at`]. Without it, grants and roles with a validity window fail closed, as in
     /// [`Engine::decide`].
     pub now: Option<u64>,
+}
+
+impl<'a> Proposal<'a> {
+    pub fn new(actor: &'a Subject, mutation: &'a Mutation, before: &'a [Grant], after: &'a [Grant]) -> Self {
+        Self {
+            actor,
+            mutation,
+            before,
+            after,
+            tuples: None,
+            now: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_tuples(mut self, tuples: &'a dyn TupleStore) -> Self {
+        self.tuples = Some(tuples);
+        self
+    }
+
+    #[must_use]
+    pub fn with_now(mut self, now: u64) -> Self {
+        self.now = Some(now);
+        self
+    }
 }
 
 impl<'a> Proposal<'a> {
