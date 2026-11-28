@@ -1395,12 +1395,11 @@ fn build(
         }
     }
     for line in &pl.lines {
-        if let Some(act) = field(def, line, Dim::Act) {
-            if disjuncts.iter().any(|d| d.act == Some(ActSpec::RegexP)) {
-                if let Ok(names) = literal_names(&act) {
-                    domain.extend(names);
-                }
-            }
+        if let Some(act) = field(def, line, Dim::Act)
+            && disjuncts.iter().any(|d| d.act == Some(ActSpec::RegexP))
+            && let Ok(names) = literal_names(&act)
+        {
+            domain.extend(names);
         }
     }
     let needs_any_action = disjuncts.iter().any(|d| d.act.is_none()) || def.effect == Effect::DenyBaseline;

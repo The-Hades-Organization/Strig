@@ -605,10 +605,10 @@ fn json_model(text: &str, options: &Options, report: &mut Report) -> Option<Vec<
             return None;
         }
     };
-    if let Some(version) = pick(&document, &["schema_version", "schemaVersion"]).and_then(Json::as_str) {
-        if version != "1.1" {
-            report.refuse(at(1, 1), "only the schema 1.1 is read", None);
-        }
+    if let Some(version) = pick(&document, &["schema_version", "schemaVersion"]).and_then(Json::as_str)
+        && version != "1.1"
+    {
+        report.refuse(at(1, 1), "only the schema 1.1 is read", None);
     }
     let Some(definitions) = pick(&document, &["type_definitions", "typeDefinitions"]).and_then(Json::as_array) else {
         report.refuse(at(1, 1), "the model has no `type_definitions`", None);

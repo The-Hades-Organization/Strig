@@ -18,7 +18,7 @@
 //!              [policy_effect]\ne = some(where (p.eft == allow))\n\
 //!              [matchers]\nm = r.sub == p.sub && r.obj == p.obj && r.act == p.act\n";
 //! let imported = casbin::import(model, "p, alice, data1, read\n", &casbin::Options::default()).unwrap();
-//! let alice = imported.subject("alice", None);
+//! let alice = imported.subject("alice");
 //! let (permission, resource) = imported.request("data1", "read", None).unwrap();
 //! let engine = imported.policy().engine_spec().build().unwrap();
 //! let grants = imported.policy().grants.clone();
