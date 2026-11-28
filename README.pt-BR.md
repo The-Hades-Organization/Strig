@@ -20,7 +20,7 @@ O núcleo não faz IO, não precisa de runtime assíncrono e compila para WebAss
 [Documentação](https://strig.vercel.app/docs) · [Playground](https://strig-playground.vercel.app) · [API no docs.rs](https://docs.rs/strig) · [Changelog](CHANGELOG.md)
 
 > [!NOTE]
-> A Strig ainda não chegou à 1.0: a API pode mudar entre versões menores. Até a 0.5.0 o projeto saiu com o nome Themis. A [política de versão e depreciação](docs/versioning.md) diz o que é API pública e o que a quebra, o [migration.md](docs/migration.md) mostra o que mudar ao atualizar e os [benchmarks](docs/benchmarks.md) trazem os números (os três guias estão em inglês).
+> A Strig é pré-1.0 até a `1.0.0-rc.1`, quando a API pública congela: daí em diante só uma versão maior a quebra, e o CI confere a API Rust (`cargo semver-checks`), os snapshots de `.d.ts` e `.pyi`, o JSON da política, o formato de auditoria e o protocolo contra fixtures congeladas. Até o congelamento, a API pode mudar entre versões menores. Até a 0.5.0 o projeto saiu com o nome Themis. A [política de versão e depreciação](docs/versioning.md) diz o que é API pública e o que a quebra, o [migration.md](docs/migration.md) mostra o que mudar ao atualizar e os [benchmarks](docs/benchmarks.md) trazem os números (os três guias estão em inglês).
 
 ## Instalação
 

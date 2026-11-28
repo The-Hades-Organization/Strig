@@ -20,7 +20,7 @@ The core does no IO, needs no async runtime and compiles to WebAssembly. Real ti
 [Documentation](https://strig.vercel.app/docs) · [Playground](https://strig-playground.vercel.app) · [API on docs.rs](https://docs.rs/strig) · [Changelog](CHANGELOG.md)
 
 > [!NOTE]
-> Strig is pre-1.0: the API can change between minor versions. Versions up to 0.5.0 were published as Themis. The [versioning and deprecation policy](docs/versioning.md) says what counts as public API and what breaks it, [migration.md](docs/migration.md) shows what to change when you upgrade, and [benchmarks](docs/benchmarks.md) has the numbers.
+> Strig is pre-1.0 until `1.0.0-rc.1`, when the public API freezes: from then on only a major version breaks it, and CI checks the Rust API (`cargo semver-checks`), the `.d.ts` and `.pyi` snapshots, the policy JSON, the audit format and the wire protocol against frozen fixtures. Until the freeze, the API can change between minor versions. Versions up to 0.5.0 were published as Themis. The [versioning and deprecation policy](docs/versioning.md) says what counts as public API and what breaks it, [migration.md](docs/migration.md) shows what to change when you upgrade, and [benchmarks](docs/benchmarks.md) has the numbers.
 
 ## Install
 

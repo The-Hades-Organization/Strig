@@ -4,6 +4,52 @@ What to change in your code when you upgrade, release by release. The newest rel
 [changelog](../CHANGELOG.md) lists every change; this page shows the before, the after and the step for the ones that
 need action. The rules for what counts as breaking are in [versioning.md](versioning.md).
 
+## 0.10 → 1.0
+
+The public API is frozen from `1.0.0-rc.1` (see the promise in [versioning.md](versioning.md)). This is the last
+window for breaking changes, and it breaks only Rust code that names the types below. The JavaScript package, the
+Python, Go and JVM bindings, the JSON protocol, the policy language, the stored data and the audit hash need no edit.
+
+### Rust: growing enums and result structs are `#[non_exhaustive]`
+
+Every public enum that can gain a variant (the error enums such as `EngineError`, `GrantError`, `SpecError`,
+`PendingError`, `AuditError` and `QueryError`, and `Condition`, `Operand`, `Reason`, `Rewrite`, `Value` and
+`MutationKind` among others) and the structs the library returns (`Decision`, `Explanation`, `WhoCan`, `CheckAnswer`,
+`AuditStats`, `Violation`, `Materialized` and similar) can now grow without a major version.
+
+**Before.**
+
+```rust
+match builder.build() {
+    Ok(engine) => use_it(engine),
+    Err(EngineError::UnknownPermission(p)) => reject(p),
+}
+```
+
+**After.** Add a catch-all arm that fails closed, and `..` when you destructure a result struct.
+
+```rust
+match builder.build() {
+    Ok(engine) => use_it(engine),
+    Err(EngineError::UnknownPermission(p)) => reject(p),
+    Err(_) => reject_unknown(),
+}
+let Decision { effect, .. } = decision;
+```
+
+A result struct can no longer be built with a literal outside the crate that defines it: get one from the API that
+produces it. Structs you build to feed the library (`Review`, `Resource`, `Anchor`, `Lease`, `Proposal`, `EvalContext`,
+`SessionOptions`, `RetryPolicy`, `WindowColumns` and other input records) are unchanged.
+
+`Effect`, `PendingStatus`, `TupleSubject`, `Mutation` and `SubjectMatcher` stay exhaustive on purpose: a store or
+caller must handle every variant, so a new one is a major change.
+
+### Added, no action
+
+- `strig::audit::AUDIT_FORMAT` (1) and `strig::dsl::DSL_SCHEMA` (5) are public constants.
+- `dsl.run_tests` is in the `__all__` of the Python package.
+- CI gates for the public Rust API (`cargo semver-checks`), the `.d.ts` and `.pyi` snapshots and the frozen fixtures.
+
 ## 0.10.0
 
 Four changes break, all of them only for Rust code that names these types. The JavaScript package, the Python, Go and
