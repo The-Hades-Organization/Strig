@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::graph;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum RbacError {
     #[error("ciclo de herança de papéis: {}", .0.join(" -> "))]
     Cycle(Vec<String>),

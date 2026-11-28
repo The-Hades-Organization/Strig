@@ -18,6 +18,7 @@ use crate::subject::RoleAssignment;
 
 /// A window whose end is not after its start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ValidityError {
     #[error("empty validity window: valid_until {until} is not after valid_from {from}")]
     Inverted { from: u64, until: u64 },

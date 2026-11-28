@@ -8,7 +8,7 @@ use strig::{
     Terms,
 };
 
-use crate::error::BindingResult;
+use crate::error::{BindingError, BindingResult};
 use crate::{ContextData, EngineHandle, parse, to_value};
 
 #[derive(Deserialize, Default)]
@@ -97,6 +97,7 @@ impl ExclusiveHandle {
                 out!({"outcome": "preempted", "lease": self.lease_of(target, now)?, "previous": previous})
             }
             Acquisition::Busy { holder } => out!({"outcome": "busy", "holder": holder}),
+            _ => return Err(BindingError::unsupported("acquire")),
         })
     }
 

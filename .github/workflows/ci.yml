@@ -33,6 +33,24 @@ jobs:
       - run: cargo clippy -p strig-server --features envoy,tracing --all-targets -- -D warnings
       - run: cargo test -p strig-server --features envoy,tracing
 
+  semver:
+    name: semver (public Rust API against the last release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Compares the public API of every published library crate with the latest version on crates.io.
+      # A break fails the job unless the crate version already carries it: before 1.0 that is a new minor
+      # (`0.y`), from 1.0 a new major. To declare an intentional break, bump the version of the crate in
+      # `[workspace.package]` accordingly and list the change under Breaking in CHANGELOG.md (see
+      # docs/versioning.md); never silence the check or exclude a crate to get past it.
+      - uses: taiki-e/install-action@cargo-semver-checks
+      - run: >
+          cargo semver-checks
+          -p strig -p strig-sync -p strig-redis -p strig-postgres -p strig-axum -p strig-server -p strig-macros
+
   msrv:
     name: MSRV (1.88)
     runs-on: ubuntu-latest
@@ -87,6 +105,9 @@ jobs:
       - name: Type-check, compile and run the JavaScript tests
         working-directory: crates/strig-node/js
         run: npm test
+      - name: Public API snapshot (.d.ts)
+        working-directory: crates/strig-node/js
+        run: node scripts/api-snapshot.mjs --check
 
   playground:
     name: playground build
@@ -160,6 +181,9 @@ jobs:
           .venv/bin/maturin develop
           .venv/bin/mypy --strict python/strig
           .venv/bin/python -m pytest -q tests
+      - name: Public API snapshot (.pyi)
+        working-directory: crates/strig-python
+        run: python scripts/api_snapshot.py --check
 
   go:
     name: go binding

@@ -35,6 +35,7 @@ pub const AUDIT_FORMAT: u32 = 1;
 /// How much of each change is recorded. Each level includes everything from the previous one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum AuditLevel {
     /// Who, when, what (object id) and whether it was applied.
     Minimal,
@@ -143,6 +144,7 @@ pub enum AuditAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum AuditOutcome {
     Applied,
     Rejected,
@@ -330,6 +332,7 @@ pub struct AuditRecord {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum AuditError {
     #[error("falha ao gravar auditoria: {0}")]
     Sink(String),
@@ -363,6 +366,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// the auditor's default ([`Auditor::with_fail_mode`]), then [`FailMode::Closed`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum FailMode {
     /// No record, no change: the change is refused with the `audit` violation.
     #[default]
@@ -374,6 +378,7 @@ pub enum FailMode {
 /// Where a record ended up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum AuditStatus {
     /// The sink took it.
     Written,
@@ -1288,6 +1293,7 @@ pub fn record_hash(record: &AuditRecord) -> Result<String, AuditError> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ChainError {
     #[error("registro {index}: hash não confere")]
     Tampered { index: usize },

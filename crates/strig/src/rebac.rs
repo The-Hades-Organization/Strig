@@ -178,6 +178,7 @@ impl TupleIndex for InMemoryTuples {
 /// How a relation is derived from others (Zanzibar's userset rewrite).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "rewrite", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Rewrite {
     /// Only the tuples written for the relation itself.
     This,
@@ -239,6 +240,7 @@ impl Rewrite {
 static THIS: Rewrite = Rewrite::This;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum RebacError {
     #[error("profundidade máxima de relação ({0}) excedida")]
     DepthExceeded(usize),

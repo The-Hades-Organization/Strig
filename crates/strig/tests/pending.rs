@@ -66,7 +66,7 @@ impl Scene {
 fn pending_of(proposed: Proposed) -> strig::PendingRequest {
     match proposed {
         Proposed::Pending(request) => request,
-        Proposed::Applied(_) => panic!("esperava um pedido pendente"),
+        other => panic!("esperava um pedido pendente, veio {other:?}"),
     }
 }
 

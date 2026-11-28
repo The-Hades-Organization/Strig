@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 /// Attribute value used by ABAC conditions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum Value {
     Null,
     Bool(bool),

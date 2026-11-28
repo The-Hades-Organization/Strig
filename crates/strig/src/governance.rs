@@ -72,6 +72,7 @@ impl Mutation {
 /// The kind of a [`Mutation`], without its payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum MutationKind {
     Add,
     Remove,
@@ -196,6 +197,7 @@ impl<'a> Proposal<'a> {
 /// [`Suggestion::into_mutation`] and sends it through the governance like any other.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Suggestion {
     AssignRole { subject_id: String, role: RoleAssignment },
     RevokeRole { subject_id: String, role: RoleAssignment },

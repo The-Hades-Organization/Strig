@@ -29,6 +29,12 @@ impl BindingError {
         Self::new("INVALID_ARGUMENT", format!("{what} inválido: {cause}"))
     }
 
+    /// Resultado do núcleo que esta versão do binding não sabe traduzir: falha, nunca um valor
+    /// inventado (uma variante nova do núcleo cai aqui até o binding aprender a respondê-la).
+    pub fn unsupported(what: &str) -> Self {
+        Self::new("INTERNAL", format!("{what}: resultado desconhecido do núcleo"))
+    }
+
     /// Entrada que não tem a forma esperada.
     pub fn invalid_input(what: &str, cause: impl fmt::Display) -> Self {
         Self::new("INVALID_INPUT", format!("{what} inválido: {cause}"))

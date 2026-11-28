@@ -40,6 +40,7 @@ pub fn reason(reason: &Reason) -> String {
             permission,
             prerequisite,
         } => format!("{permission} requires {prerequisite}, which is not allowed on this resource"),
+        _ => "not classified by this version".into(),
     }
 }
 
@@ -78,6 +79,7 @@ pub fn override_outcome(outcome: OverrideOutcome) -> &'static str {
         OverrideOutcome::Abstained => "abstained",
         OverrideOutcome::Allowed => "allowed",
         OverrideOutcome::Denied => "denied",
+        _ => "not classified by this version",
     }
 }
 
@@ -87,6 +89,7 @@ pub fn trace_mark(result: &TraceResult) -> &'static str {
         TraceResult::False => "✘",
         TraceResult::Error(_) => "⚠",
         TraceResult::Skipped => "·",
+        _ => "?",
     }
 }
 

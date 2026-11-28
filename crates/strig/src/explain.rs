@@ -70,6 +70,7 @@ pub struct OverrideStep {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum OverrideOutcome {
     /// The permission is in the override's exceptions; it was not even consulted.
     Excepted,
@@ -148,6 +149,7 @@ pub struct GrantTrace {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum TraceResult {
     True,
     False,

@@ -42,6 +42,7 @@ impl Default for BreakerConfig {
 
 /// What the breaker is doing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BreakerState {
     /// Calls go through; failures are counted.
     Closed,

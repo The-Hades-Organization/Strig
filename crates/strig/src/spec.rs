@@ -23,6 +23,7 @@ use crate::strategy::{DenyOverrides, FirstApplicable, MostSpecific, PermitOverri
 use crate::subject::{RoleAssignment, Subject};
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum SpecError {
     #[error(transparent)]
     Catalog(#[from] CatalogErrors),
@@ -67,6 +68,7 @@ pub struct RelationSpec {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum StrategySpec {
     #[default]
     MostSpecific,
@@ -77,6 +79,7 @@ pub enum StrategySpec {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum OverrideRule {
     /// [`ResourceOwner`]: the subject's id is in the resource's `attr` attribute.
     ResourceOwner { attr: String },
@@ -138,6 +141,7 @@ impl EngineSpec {
 /// Ready-made governance invariants, in declarative form.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum InvariantSpec {
     CatalogConformance,
     NoSelfManagement,

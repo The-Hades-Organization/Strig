@@ -166,6 +166,7 @@ impl<'a> ImpactOptions<'a> {
 /// What one side of a question came out as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Access {
     Allowed,
     Denied,

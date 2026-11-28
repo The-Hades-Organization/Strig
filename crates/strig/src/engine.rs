@@ -89,6 +89,7 @@ impl<'a> Context<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum EngineError {
     #[error("exceção de override cita permissão fora do catálogo: {0}")]
     UnknownPermission(String),
