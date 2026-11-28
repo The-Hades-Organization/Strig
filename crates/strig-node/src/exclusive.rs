@@ -154,7 +154,7 @@ impl ExclusiveHandle {
 }
 
 /// `ttl_ms` que veio de um número JavaScript.
-#[cfg(any(feature = "napi", feature = "wasm"))]
+#[cfg(any(feature = "napi", feature = "wasm", feature = "dsl"))]
 pub fn ttl(value: &Value) -> BindingResult<u64> {
     crate::millis_value("ttlMs", value)
 }

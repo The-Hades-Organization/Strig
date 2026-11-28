@@ -11,10 +11,10 @@ macro_rules! out {
     };
 }
 
-#[cfg(any(feature = "napi", feature = "wasm", test))]
-mod dsl;
+#[cfg(any(feature = "napi", feature = "wasm", feature = "dsl", test))]
+pub mod dsl;
 mod error;
-mod exclusive;
+pub mod exclusive;
 mod host;
 mod query_json;
 
