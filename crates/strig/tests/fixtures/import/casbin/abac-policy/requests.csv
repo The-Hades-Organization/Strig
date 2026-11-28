@@ -1,0 +1,5 @@
+sub,obj,act,sub_attrs,allowed
+alice,data1,read,Level=3,true
+alice,data1,read,Level=2,false
+bob,data1,read,Level=9,true
+carl,data1,read,Level=9,false

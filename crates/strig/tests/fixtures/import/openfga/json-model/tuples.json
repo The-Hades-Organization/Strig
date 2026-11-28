@@ -1,0 +1,7 @@
+[
+  {"user": "user:anne", "relation": "owner", "object": "document:a"},
+  {"user": "folder:f", "relation": "parent", "object": "document:b"},
+  {"user": "user:bob", "relation": "viewer", "object": "folder:f"},
+  {"user": "user:*", "relation": "viewer", "object": "document:c"},
+  {"user": "user:bob", "relation": "blocked", "object": "document:c"}
+]

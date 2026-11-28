@@ -1,0 +1,7 @@
+[
+  {"user": "user:anne", "relation": "employee", "object": "document:vault"},
+  {"user": "user:anne", "relation": "trained", "object": "document:vault"},
+  {"user": "user:bob", "relation": "employee", "object": "document:vault"},
+  {"user": "user:cara", "relation": "trained", "object": "document:vault"},
+  {"user": "user:dina", "relation": "auditor", "object": "document:vault"}
+]

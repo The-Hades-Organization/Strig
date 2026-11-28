@@ -1,0 +1,5 @@
+user,relation,object,allowed
+user:zed,viewer,document:press,true
+user:anne,viewer,document:press,true
+user:zed,viewer,document:draft,false
+user:anne,viewer,document:draft,true

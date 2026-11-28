@@ -1,0 +1,11 @@
+user,relation,object,allowed
+user:anne,owner,document:roadmap,true
+user:anne,editor,document:roadmap,true
+user:anne,viewer,document:roadmap,true
+user:beth,owner,document:roadmap,false
+user:beth,editor,document:roadmap,true
+user:beth,viewer,document:roadmap,true
+user:carl,viewer,document:roadmap,true
+user:carl,editor,document:roadmap,false
+user:dan,viewer,document:roadmap,false
+user:anne,viewer,document:other,false

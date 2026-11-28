@@ -1,0 +1,6 @@
+- user: user:*
+  relation: viewer
+  object: document:press
+- user: user:anne
+  relation: viewer
+  object: document:draft

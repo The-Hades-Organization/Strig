@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.1",
+  "type_definitions": [
+    {"type": "user"},
+    {
+      "type": "folder",
+      "relations": {"viewer": {"this": {}}},
+      "metadata": {"relations": {"viewer": {"directly_related_user_types": [{"type": "user"}]}}}
+    },
+    {
+      "type": "document",
+      "relations": {
+        "parent": {"this": {}},
+        "owner": {"this": {}},
+        "editor": {"union": {"child": [{"this": {}}, {"computedUserset": {"relation": "owner"}}]}},
+        "viewer": {"union": {"child": [
+          {"this": {}},
+          {"computedUserset": {"relation": "editor"}},
+          {"tupleToUserset": {"tupleset": {"relation": "parent"}, "computedUserset": {"relation": "viewer"}}}
+        ]}},
+        "blocked": {"this": {}},
+        "can_view": {"difference": {"base": {"computedUserset": {"relation": "viewer"}}, "subtract": {"computedUserset": {"relation": "blocked"}}}}
+      },
+      "metadata": {"relations": {
+        "parent": {"directly_related_user_types": [{"type": "folder"}]},
+        "owner": {"directly_related_user_types": [{"type": "user"}]},
+        "editor": {"directly_related_user_types": [{"type": "user"}]},
+        "viewer": {"directly_related_user_types": [{"type": "user"}, {"type": "user", "wildcard": {}}]},
+        "blocked": {"directly_related_user_types": [{"type": "user"}]}
+      }}
+    }
+  ]
+}

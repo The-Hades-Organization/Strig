@@ -1,0 +1,73 @@
+{
+  "name": "strig",
+  "displayName": "Strig",
+  "description": "Language support for Strig policies: syntax highlighting, diagnostics, completion, hover, go to definition, formatting and conversion between the three syntaxes.",
+  "version": "0.1.0",
+  "publisher": "the-hades-organization",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/The-Hades-Organization/Strig.git",
+    "directory": "editors/vscode"
+  },
+  "homepage": "https://github.com/The-Hades-Organization/Strig",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Programming Languages", "Linters", "Formatters"],
+  "keywords": ["strig", "authorization", "permissions", "policy", "lsp"],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "strig",
+        "aliases": ["Strig", "strig"],
+        "extensions": [".strig"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "strig",
+        "scopeName": "source.strig",
+        "path": "./syntaxes/strig.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "strig.runPolicyTests",
+        "title": "Strig: Run policy tests"
+      },
+      {
+        "command": "strig.restartServer",
+        "title": "Strig: Restart language server"
+      }
+    ],
+    "configuration": {
+      "title": "Strig",
+      "properties": {
+        "strig.server.path": {
+          "type": "string",
+          "default": "strig-lsp",
+          "description": "The strig-lsp binary. A bare name is looked up on PATH."
+        },
+        "strig.cli.path": {
+          "type": "string",
+          "default": "strig",
+          "description": "The strig binary that the \"Run policy tests\" command calls. A bare name is looked up on PATH."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "check": "node --check extension.js && node --check test/smoke.js",
+    "test": "npm run check && node test/smoke.js",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "9.0.1"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "3.6.0"
+  }
+}

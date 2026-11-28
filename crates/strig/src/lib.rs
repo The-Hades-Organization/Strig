@@ -48,6 +48,8 @@ pub mod field;
 pub mod governance;
 pub mod grant;
 pub mod impact;
+#[cfg(feature = "import")]
+pub mod import;
 #[cfg(feature = "audit")]
 pub mod merkle;
 pub mod overrides;

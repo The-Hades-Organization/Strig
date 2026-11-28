@@ -1,0 +1,2 @@
+p, alice, data1, write, deny
+p, bob, data2, read, allow

@@ -1,0 +1,11 @@
+sub,dom,obj,act,allowed
+alice,domain1,data1,read,true
+alice,domain1,data1,write,true
+alice,domain1,data2,read,false
+alice,domain1,data2,write,false
+alice,domain2,data2,read,false
+alice,domain2,data2,write,false
+bob,domain2,data2,read,true
+bob,domain2,data2,write,true
+bob,domain1,data1,read,false
+bob,domain1,data1,write,false

@@ -101,7 +101,7 @@ cargo run -p strig-axum --example server      # real-time server over SSE and We
 
 ## Crates
 
-All crates except `strig-inspect`, `strig-node`, `strig-python` and `strig-wasi` are on crates.io at the same version.
+All crates except `strig-inspect`, `strig-node`, `strig-python`, `strig-wasi` and `strig-lsp` are on crates.io at the same version.
 
 | Crate | Use it for | Main dependencies |
 |---|---|---|
@@ -116,6 +116,7 @@ All crates except `strig-inspect`, `strig-node`, `strig-python` and `strig-wasi`
 | `strig-python` | The PyPI package `strig-auth` (`import strig`): native extension (PyO3, abi3) over the same core as `strig-node` | `pyo3` |
 | `strig-wasi` | The C-ABI WebAssembly module the Go and JVM bindings run: JSON in, JSON out, no `wasm-bindgen` | `strig-node` |
 | `strig-cli` | The `strig` command: `strig test` runs the tests of a policy, for people and for CI (JUnit) | `strig` |
+| `strig-lsp` | Language server for `.strig` files over stdio: diagnostics, formatting, completion, hover, go to definition, convert (built from source; the VS Code extension is in `editors/vscode`) | `strig`, `lsp-server` |
 | `strig-inspect` | Inspector: decision traces, grant simulation, access matrix, audit trail. Desktop window and terminal commands | `gpui-pre`, `gpui-component` |
 
 ```toml
@@ -1268,6 +1269,28 @@ try {
 }
 ```
 
+### Diff and lint of a policy
+
+`strig diff <before> <after>` lists the decisions that change between two versions of a policy (directories or `.strig`
+files): who, which permission, on what, whether access `widened` or `narrowed`, and the grant or override responsible on
+each side. `strig lint <dir>` finds policy that never acts: a shadowed grant, an unreachable deny, a permission nobody
+holds, an unused role, a redundant `implied_by`, a condition that is always false or true, a field never granted.
+
+```sh
+strig diff main/policies policies --fail-on allow     # exit 1 if any access widened
+strig lint policies/ --json                           # codes L001..L008, severity, position, hint
+```
+
+```js
+const found = strig.diff(before, after, { fixture: { resources: ['org:1'] } });
+const findings = strig.lint(policy, { ignore: ['unused-role'] });
+```
+
+Without a fixture the questions are derived from the catalogs and the grants and bounded by `QueryLimits`; a diff cut by
+a limit is marked `partial`, and finding no change then is not proof there is none. In Rust it is `strig::dsl::analysis`.
+The `strig-test` action takes `diff-base` to diff against the base of the pull request. See
+[the guide](docs/dsl.md#analyzing-a-policy).
+
 ### Testing a policy
 
 Tests sit beside the policy: `*.strig-test.json` files of `check` cases (subject, permission, resource, optional instant
@@ -1289,6 +1312,24 @@ The same runner is `strig::dsl::testing` in Rust and `strig.runTests(policy, tes
 report and the exit codes are in [the guide](docs/dsl.md#testing-a-policy); `examples/policy-tests/` has a project that
 passes.
 
+### Editor
+
+`strig-lsp` is a language server for `.strig` files, and `editors/vscode` is the VS Code extension that uses it. Both read the project the way `strig test` does: every `*.strig` file of the directory of the open file is one policy, in any mix of the three syntaxes, and every `*.strig-test.json` beside it is a test file. Unsaved buffers count.
+
+- **Diagnostics while you type**, with the position and the hint of the validator, including clashes between files (the other side is a related location) and the errors of a `*.strig-test.json`.
+- **Format document**, the same layout as `strig::dsl::format`; a source that does not compile is left alone.
+- **Completion** of permission ids, kinds, roles, subjects and condition operators from the project, narrowed by the line (`depends_on = [`, `inherits `, `when = ...`).
+- **Hover** on a permission with its targets, `implied_by`, `depends_on`, fields and labels per locale, and on a role or a kind.
+- **Go to definition** of a permission, role, grant or subject across files.
+- **Code action** "Convert to rules/actors/blocks syntax" for the whole file.
+
+```sh
+cargo install --git https://github.com/The-Hades-Organization/Strig strig-lsp --locked   # the server
+cargo install strig-cli --locked                                                            # `strig test`, for the command below
+```
+
+The extension finds `strig-lsp` and `strig` on `PATH`, or at `strig.server.path` and `strig.cli.path`, and says how to install them when they are missing. The command "Strig: Run policy tests" runs `strig test .` in the folder of the open file. To build the extension: `cd editors/vscode && npm ci && npm test && npx vsce package`. Publishing it to the Marketplace and Open VSX is not set up yet. Other editors that speak LSP can run `strig-lsp` directly: it talks over stdio and takes no arguments.
+
 ### Macros
 
 `policy!` and `include_policy!`, from the `strig-macros` crate, validate the policy at compile time: a policy that does not validate does not build. They live in their own crate rather than behind a `strig` feature; the guide explains [why](docs/dsl.md#macros).
@@ -1307,6 +1348,23 @@ permission org.read {
 "#);
 let from_file: strig::dsl::Policy = include_policy!("policies/main.strig");
 ```
+
+## Migrating from Casbin / OpenFGA
+
+`strig import` reads the model and the policy of another library and writes a `.strig` file. Nothing runs Casbin or OpenFGA: the converter is a module of the library (feature `import`, on in `strig-cli`, no IO) that takes text and returns a policy and a report.
+
+```sh
+strig import casbin model.conf policy.csv -o ./policy [--language blocks|rules|actors] [--action read]...
+strig import openfga model.fga tuples.csv -o ./policy [--language blocks|rules|actors]
+```
+
+It writes `<dir>/policy.strig` and prints what was converted, what was converted with a narrower reach and what was not. Exit `0` when everything converted, `1` when something has no faithful translation (nothing is written), `2` for usage errors. The result is checked like any policy: run it with `strig test`.
+
+**Casbin.** ACL, RBAC (`g = _, _`, and domains with `g = _, _, _`), RBAC with `keyMatch` on the resource, and ABAC over attributes are read. A `p` line becomes grants, a `g` line a role assignment or an edge of the role graph, and the policy effect picks the strategy (`some(where (p.eft == allow))` is `most_specific`, with a `deny` line dropped and reported; `!some(where (p.eft == deny))`, allow-and-deny and `priority(p.eft)` become `deny_overrides` or `first_applicable`). A model that does not constrain the action (ABAC) needs `--action <name>`. `keyMatch` becomes a `starts_with` condition and `regexMatch` is read only over alternations of literals, expanded over the actions the policy names. A matcher with no faithful translation (`keyMatch2`, `globMatch`, arithmetic, `!=` between request and policy) is an error with the file, line and column and the reason, never an approximation that allows more.
+
+**OpenFGA.** The DSL and the JSON of the model are read, and the tuples as JSON, CSV, YAML or one per line. Types and relations become a `RelationSchema` (`This`, `Computed`, `TupleToUserset`, `Union`, `Intersection`, `Exclusion`), tuples go to the `TupleStore`, and each relation gets a permission and a grant. Conditions (CEL) are not translated: a model or a tuple that uses one is an error that points at it.
+
+Each fixture under `crates/strig/tests/fixtures/import/` holds a model, a policy and a table of requests with the answers the source library gives (from its documentation); the tests decide the same requests with the imported policy, in the three syntaxes, and compare.
 
 ## Inspector (`strig-inspect`)
 

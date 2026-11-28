@@ -101,7 +101,7 @@ cargo run -p strig-axum --example server      # servidor de tempo real sobre SSE
 
 ## Crates
 
-Todos os crates, menos `strig-inspect`, `strig-node`, `strig-python` e `strig-wasi`, estão no crates.io na mesma versão.
+Todos os crates, menos `strig-inspect`, `strig-node`, `strig-python`, `strig-wasi` e `strig-lsp`, estão no crates.io na mesma versão.
 
 | Crate | Use para | Dependências principais |
 |---|---|---|
@@ -116,6 +116,7 @@ Todos os crates, menos `strig-inspect`, `strig-node`, `strig-python` e `strig-wa
 | `strig-python` | O pacote PyPI `strig-auth` (`import strig`): extensão nativa (PyO3, abi3) sobre o mesmo núcleo do `strig-node` | `pyo3` |
 | `strig-wasi` | O módulo WebAssembly com ABI C que os bindings de Go e da JVM executam: JSON na entrada, JSON na saída, sem `wasm-bindgen` | `strig-node` |
 | `strig-cli` | O comando `strig`: `strig test` roda os testes de uma política, para pessoas e para o CI (JUnit) | `strig` |
+| `strig-lsp` | Language server para arquivos `.strig` por stdio: diagnósticos, formatação, completar, hover, ir para definição, converter (compilado do fonte; a extensão do VS Code está em `editors/vscode`) | `strig`, `lsp-server` |
 | `strig-inspect` | Visualizador: rastro das decisões, simulação de grants, matriz de acesso, trilha de auditoria. Janela desktop e comandos de terminal | `gpui-pre`, `gpui-component` |
 
 ```toml
@@ -1268,6 +1269,27 @@ try {
 }
 ```
 
+### Diff e lint de uma política
+
+`strig diff <antes> <depois>` lista as decisões que mudam entre duas versões de uma política (diretórios ou arquivos
+`.strig`): quem, qual permissão, sobre o quê, se o acesso `widened` (ampliou) ou `narrowed` (restringiu), e o grant ou
+override responsável em cada lado. `strig lint <dir>` acha política que nunca age: grant sombreado, deny inalcançável,
+permissão sem titular, papel sem uso, `implied_by` redundante, condição sempre falsa ou verdadeira, campo nunca concedido.
+
+```sh
+strig diff main/policies policies --fail-on allow     # exit 1 se algum acesso ampliou
+strig lint policies/ --json                           # códigos L001..L008, severidade, posição, dica
+```
+
+```js
+const found = strig.diff(before, after, { fixture: { resources: ['org:1'] } });
+const findings = strig.lint(policy, { ignore: ['unused-role'] });
+```
+
+Sem fixture as perguntas saem dos catálogos e dos grants e são limitadas por `QueryLimits`; um diff cortado por limite
+vem marcado `partial`, e não achar mudança então não prova que não há. Em Rust é `strig::dsl::analysis`. A action
+`strig-test` aceita `diff-base` para comparar com a base da PR. Veja [o guia](docs/dsl.pt-BR.md#analisando-uma-política).
+
 ### Testando uma política
 
 Os testes ficam ao lado da política: arquivos `*.strig-test.json` com casos `check` (sujeito, permissão, recurso, instante
@@ -1288,6 +1310,24 @@ strig test policies/ --junit test-results/strig.xml   # exit 1 em falha, 2 em en
 O mesmo runner é `strig::dsl::testing` em Rust e `strig.runTests(policy, tests)` em JavaScript e `strig.dsl.run_tests(policy, tests)` em Python. O formato, o relatório e
 os códigos de saída estão [no guia](docs/dsl.pt-BR.md#testando-uma-politica); `examples/policy-tests/` tem um projeto que passa.
 
+### Editor
+
+`strig-lsp` é um language server para arquivos `.strig`, e `editors/vscode` é a extensão do VS Code que o usa. Os dois leem o projeto como o `strig test` lê: todo `*.strig` do diretório do arquivo aberto é uma política só, em qualquer mistura das três sintaxes, e todo `*.strig-test.json` ao lado é um arquivo de testes. Buffers não salvos contam.
+
+- **Diagnósticos enquanto você digita**, com a posição e a dica do validador, inclusive conflitos entre arquivos (o outro lado vai como local relacionado) e os erros de um `*.strig-test.json`.
+- **Formatar documento**, com o mesmo layout de `strig::dsl::format`; fonte que não compila fica como está.
+- **Completar** ids de permissão, kinds, papéis, sujeitos e operadores de condição a partir do projeto, filtrados pela linha (`depends_on = [`, `inherits `, `when = ...`).
+- **Hover** numa permissão com targets, `implied_by`, `depends_on`, campos e labels por locale, e num papel ou kind.
+- **Ir para definição** de permissão, papel, grant ou sujeito entre arquivos.
+- **Code action** "Convert to rules/actors/blocks syntax" para o arquivo inteiro.
+
+```sh
+cargo install --git https://github.com/The-Hades-Organization/Strig strig-lsp --locked   # o servidor
+cargo install strig-cli --locked                                                            # `strig test`, para o comando abaixo
+```
+
+A extensão procura `strig-lsp` e `strig` no `PATH`, ou em `strig.server.path` e `strig.cli.path`, e explica como instalar quando faltam. O comando "Strig: Run policy tests" roda `strig test .` na pasta do arquivo aberto. Para montar a extensão: `cd editors/vscode && npm ci && npm test && npx vsce package`. A publicação no Marketplace e no Open VSX ainda não está configurada. Outros editores com LSP podem rodar `strig-lsp` direto: ele fala por stdio e não recebe argumentos.
+
 ### Macros
 
 `policy!` e `include_policy!`, do crate `strig-macros`, validam a política em tempo de compilação: política que não valida não compila. Elas ficam num crate próprio, e não atrás de uma feature do `strig`; o guia explica [por quê](docs/dsl.md#macros).
@@ -1306,6 +1346,23 @@ permission org.read {
 "#);
 let from_file: strig::dsl::Policy = include_policy!("policies/main.strig");
 ```
+
+## Migrando do Casbin / OpenFGA
+
+`strig import` lê o modelo e a política de outra biblioteca e escreve um arquivo `.strig`. Nada roda o Casbin nem o OpenFGA: o conversor é um módulo da biblioteca (feature `import`, ligada no `strig-cli`, sem IO) que recebe texto e devolve uma política e um relatório.
+
+```sh
+strig import casbin model.conf policy.csv -o ./policy [--language blocks|rules|actors] [--action read]...
+strig import openfga model.fga tuples.csv -o ./policy [--language blocks|rules|actors]
+```
+
+Escreve `<dir>/policy.strig` e imprime o que foi convertido, o que foi convertido com alcance menor e o que não foi. Sai com `0` quando tudo converteu, `1` quando algo não tem tradução fiel (nada é escrito) e `2` para erro de uso. O resultado se confere como qualquer política: rode `strig test`.
+
+**Casbin.** ACL, RBAC (`g = _, _`, e domínios com `g = _, _, _`), RBAC com `keyMatch` no recurso e ABAC sobre atributos são lidos. Uma linha `p` vira grants, uma linha `g` vira atribuição de papel ou aresta do grafo de papéis, e o efeito da política escolhe a estratégia (`some(where (p.eft == allow))` é `most_specific`, com a linha `deny` descartada e relatada; `!some(where (p.eft == deny))`, allow-and-deny e `priority(p.eft)` viram `deny_overrides` ou `first_applicable`). Um modelo que não restringe a ação (ABAC) pede `--action <nome>`. `keyMatch` vira condição `starts_with` e `regexMatch` só é lido sobre alternâncias de literais, expandidas pelas ações que a política cita. Um matcher sem tradução fiel (`keyMatch2`, `globMatch`, aritmética, `!=` entre pedido e política) é um erro com arquivo, linha e coluna e o motivo, nunca uma aproximação que permita mais.
+
+**OpenFGA.** O DSL e o JSON do modelo são lidos, e as tuplas em JSON, CSV, YAML ou uma por linha. Tipos e relações viram um `RelationSchema` (`This`, `Computed`, `TupleToUserset`, `Union`, `Intersection`, `Exclusion`), as tuplas vão para o `TupleStore` e cada relação ganha uma permissão e um grant. Condições (CEL) não são traduzidas: modelo ou tupla que use uma é um erro que aponta para ela.
+
+Cada fixture em `crates/strig/tests/fixtures/import/` traz um modelo, uma política e uma tabela de pedidos com as respostas da biblioteca de origem (da documentação dela); os testes decidem os mesmos pedidos com a política importada, nas três sintaxes, e comparam.
 
 ## Visualizador (`strig-inspect`)
 
