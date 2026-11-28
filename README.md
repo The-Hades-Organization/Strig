@@ -1262,6 +1262,17 @@ The window has three tabs:
 
 Files reload when they change on disk. The window follows the system light or dark appearance, uses the playground's palette, and embeds its fonts (Noto Sans and JetBrains Mono, OFL) and icons, so it looks the same on any machine. The interface is in English.
 
+### In the browser
+
+The playground also hosts the inspector: [strig-playground.vercel.app/inspector.html](https://strig-playground.vercel.app/inspector.html). It has the same three tabs and the same simulation, over the engine compiled to WebAssembly, so there is nothing to install. It reads the same scenario JSON as `strig-inspect`, from a file, a paste or the built-in example (`crates/strig-inspect/examples/scenario.json`).
+
+- **Evaluation:** the decision, the reason, the path, the effective roles, each override and why each grant did or did not apply, over `explain`.
+- **Matrix:** every catalog permission for every subject on one resource. Click a cell to open its evaluation.
+- **Audit:** load a JSON Lines trail, verify the `forensic` chain with `verifyAuditChain` and re-evaluate `detailed` and `forensic` decisions against the current policy, flagging the ones that would change.
+- **Simulation:** turn grants off or add some from a form; a changed decision shows the original beside it, and changed matrix cells are marked.
+
+The page uses the playground's identity, follows the light or dark scheme and works from 360 px wide. The scenario and the trail are read in the page and never leave the browser. To run it locally, see [`playground/README.md`](playground/README.md).
+
 ## Extension points
 
 | Trait | Implement it to |
