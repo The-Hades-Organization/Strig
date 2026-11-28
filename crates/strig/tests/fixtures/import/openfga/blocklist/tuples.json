@@ -1,0 +1,5 @@
+{"tuples": [
+  {"user": "user:anne", "relation": "viewer", "object": "document:plan"},
+  {"user": "user:bob", "relation": "viewer", "object": "document:plan"},
+  {"user": "user:bob", "relation": "blocked", "object": "document:plan"}
+]}

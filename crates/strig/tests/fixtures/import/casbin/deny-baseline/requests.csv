@@ -1,0 +1,6 @@
+sub,obj,act,allowed
+alice,data1,write,false
+alice,data1,read,true
+alice,data2,write,true
+bob,data1,write,true
+bob,data2,read,true

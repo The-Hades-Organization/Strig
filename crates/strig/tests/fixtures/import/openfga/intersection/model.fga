@@ -1,0 +1,12 @@
+model
+  schema 1.1
+
+type user
+
+type document
+  relations
+    define employee: [user]
+    define trained: [user]
+    define can_access: employee and trained
+    define can_audit: (employee and trained) or auditor
+    define auditor: [user]

@@ -1,0 +1,7 @@
+sub,obj,act,sub_attrs,allowed
+alice,data1,read,Age=30,true
+bob,data1,read,Age=18,false
+carl,data1,read,Age=19,true
+dave,data1,read,Age=60,false
+eve,data1,read,Age=59,true
+fay,data1,read,Age=12,false

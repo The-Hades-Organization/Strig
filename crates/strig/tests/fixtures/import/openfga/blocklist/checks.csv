@@ -1,0 +1,5 @@
+user,relation,object,allowed
+user:anne,can_view,document:plan,true
+user:bob,can_view,document:plan,false
+user:bob,viewer,document:plan,true
+user:cara,can_view,document:plan,false

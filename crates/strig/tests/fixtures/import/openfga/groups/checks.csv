@@ -1,0 +1,9 @@
+user,relation,object,allowed
+user:anne,viewer,document:spec,true
+user:bob,viewer,document:spec,true
+user:cara,viewer,document:spec,false
+user:anne,viewer,document:handbook,true
+user:cara,viewer,document:handbook,true
+user:bob,viewer,document:handbook,false
+user:anne,member,group:company,true
+user:bob,member,group:company,false

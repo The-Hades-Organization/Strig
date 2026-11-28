@@ -1,0 +1,17 @@
+user,relation,object,allowed
+user:olga,admin,repo:api,true
+user:olga,reader,repo:api,true
+user:mia,reader,repo:api,true
+user:mia,writer,repo:api,false
+user:mia,admin,repo:api,false
+user:max,writer,repo:api,true
+user:max,admin,repo:api,false
+user:max,reader,repo:api,true
+user:wes,writer,repo:api,true
+user:wes,maintainer,repo:api,false
+user:wes,reader,repo:api,true
+user:wes,triager,repo:api,true
+user:mia,member,organization:acme,true
+user:olga,member,organization:acme,true
+user:mia,owner,organization:acme,false
+user:zed,reader,repo:api,false

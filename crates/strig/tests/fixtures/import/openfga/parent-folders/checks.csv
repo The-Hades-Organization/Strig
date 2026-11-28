@@ -1,0 +1,7 @@
+user,relation,object,allowed
+user:anne,viewer,folder:product,true
+user:anne,viewer,folder:engineering,true
+user:anne,viewer,document:roadmap,true
+user:anne,viewer,document:memo,false
+user:bob,viewer,document:memo,true
+user:bob,viewer,document:roadmap,false
