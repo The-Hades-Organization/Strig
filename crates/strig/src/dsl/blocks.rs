@@ -10,9 +10,9 @@ use crate::dsl::grammar::{
 };
 use crate::dsl::policy::ids;
 use crate::{
-    Anchor, Bypass, Condition, Effect, Grant, InvariantSpec, OverrideRule, OverrideSpec, PermissionDef, RelationSpec,
-    ReserveSpec, Resource, Rewrite, RoleAssignment, RoleSpec, StrategySpec, Subject, SubjectMatcher, TargetSelector,
-    Value,
+    ActionConflict, Anchor, Bypass, Condition, Effect, ExclusiveKind, Grant, InvariantSpec, MutualExclusion,
+    OverrideRule, OverrideSpec, PermissionDef, RelationSpec, ReserveSpec, Resource, Rewrite, RoleAssignment, RoleSpec,
+    StrategySpec, Subject, SubjectMatcher, TargetSelector, Value,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -99,7 +99,7 @@ pub(crate) const STRATEGIES: [&str; 4] = [
     "permit_overrides",
     "first_applicable",
 ];
-const DECLARATIONS: [&str; 13] = [
+const DECLARATIONS: [&str; 15] = [
     "target_kinds",
     "broad_targets",
     "strategy",
@@ -113,8 +113,10 @@ const DECLARATIONS: [&str; 13] = [
     "tuples",
     "override",
     "invariant",
+    "mutually_exclusive",
+    "conflicting_actions",
 ];
-pub(crate) const INVARIANT_KINDS: [&str; 9] = [
+pub(crate) const INVARIANT_KINDS: [&str; 10] = [
     "catalog_conformance",
     "no_self_management",
     "prerequisites",
@@ -124,7 +126,21 @@ pub(crate) const INVARIANT_KINDS: [&str; 9] = [
     "management_only",
     "no_escalation",
     "forbid",
+    "separation_of_duties",
 ];
+
+pub(crate) const EXCLUSIVE: &[FieldSpec] = &[
+    req("of", Kind::Word),
+    req("members", Kind::Words),
+    opt("anchor", Kind::Word),
+];
+pub(crate) const CONFLICT: &[FieldSpec] = &[
+    req("first", Kind::Words),
+    req("then", Kind::Words),
+    opt("history", Kind::Word),
+    opt("distinct_roles", Kind::Bool),
+];
+const SEPARATION_OF_DUTIES: &[FieldSpec] = &[opt("subjects", Kind::Members)];
 
 const REQUIRE_PERMISSION: &[FieldSpec] = &[req("permission", Kind::Word), req("resource", Kind::Path)];
 const NO_LOCKOUT: &[FieldSpec] = &[
@@ -152,6 +168,7 @@ pub(crate) fn invariant_fields(kind: &str) -> Option<&'static [FieldSpec]> {
         "management_only" => MANAGEMENT_ONLY,
         "no_escalation" => NO_ESCALATION,
         "forbid" => FORBID,
+        "separation_of_duties" => SEPARATION_OF_DUTIES,
         _ => return None,
     })
 }
@@ -299,6 +316,8 @@ fn statement(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
         "tuples" => tuples(cur, b, &head),
         "override" => override_block(cur, b),
         "invariant" => invariant(cur, b),
+        "mutually_exclusive" => exclusion(cur, b),
+        "conflicting_actions" => conflict(cur, b),
         other => Err(Raw::new(head.span, format!("unknown declaration `{other}`")).hint(suggest(other, &DECLARATIONS))),
     }
 }
@@ -781,6 +800,63 @@ fn override_block(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     Ok(())
 }
 
+fn exclusion(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
+    let name = cur.word("a set name")?;
+    let id = ids::separation(&name.v);
+    let repeated = duplicate(b, &id, name.span, &format!("separation rule `{}`", name.v));
+    let mut body = scoped(cur, b, &id, name.span, |cur, b| {
+        block_body(cur, b, &id, EXCLUSIVE, "mutually_exclusive", &name)
+    })?;
+    if !repeated && let Some(set) = build_exclusion(b, &name, &mut body) {
+        b.policy.catalog.mutually_exclusive.push(set);
+    }
+    Ok(())
+}
+
+fn conflict(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
+    let name = cur.word("a rule name")?;
+    let id = ids::separation(&name.v);
+    let repeated = duplicate(b, &id, name.span, &format!("separation rule `{}`", name.v));
+    let mut body = scoped(cur, b, &id, name.span, |cur, b| {
+        block_body(cur, b, &id, CONFLICT, "conflicting_actions", &name)
+    })?;
+    if !repeated {
+        b.policy
+            .catalog
+            .conflicting_actions
+            .push(build_conflict(&name, &mut body));
+    }
+    Ok(())
+}
+
+/// A `mutually_exclusive` set from its fields, or nothing once `of` was refused.
+pub(crate) fn build_exclusion(b: &mut Builder, name: &Sp<String>, body: &mut Body) -> Option<MutualExclusion> {
+    let of = body.word("of")?;
+    let kind = match of.v.as_str() {
+        "roles" => ExclusiveKind::Roles,
+        "permissions" => ExclusiveKind::Permissions,
+        other => {
+            b.report(
+                Raw::new(of.span, format!("a set holds `roles` or `permissions`, not `{other}`"))
+                    .hint(suggest(other, &["roles", "permissions"])),
+            );
+            return None;
+        }
+    };
+    let mut set = MutualExclusion::new(name.v.clone(), kind, names(body.words("members")));
+    set.anchor = body.word("anchor").map(|w| w.v);
+    Some(set)
+}
+
+pub(crate) fn build_conflict(name: &Sp<String>, body: &mut Body) -> ActionConflict {
+    let mut rule = ActionConflict::new(name.v.clone(), names(body.words("first")), names(body.words("then")));
+    if let Some(history) = body.word("history") {
+        rule.history = history.v;
+    }
+    rule.distinct_roles = body.flag("distinct_roles");
+    rule
+}
+
 fn invariant(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     let word = cur.word("an invariant kind")?;
     let kind = word.v.replace('-', "_");
@@ -888,6 +964,9 @@ pub(crate) fn build_invariant(
             };
             InvariantSpec::NoEscalation { bypass }
         }
+        "separation_of_duties" => InvariantSpec::SeparationOfDuties {
+            subjects: body.members("subjects").unwrap_or_default(),
+        },
         _ => InvariantSpec::Forbid {
             subject: body.matcher("subject").ok_or_else(|| missing("subject"))?,
             permissions: names(body.words("permissions")),

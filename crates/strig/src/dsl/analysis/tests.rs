@@ -402,3 +402,66 @@ fn a_removed_permission_narrows_with_unknown_permission() {
         "{found:?}"
     );
 }
+
+fn separated(extra: &str) -> String {
+    format!(
+        "{HEAD}{}role maker {{\n}}\n\nrole checker {{\n}}\n\nmutually_exclusive duties {{\n  of = roles\n  members = [maker, checker]\n}}\n\n{extra}",
+        perm("doc.read")
+    )
+}
+
+#[test]
+fn a_subject_holding_two_members_of_a_set_is_reported() {
+    let text = separated("subject user:ana {\n  assign maker {\n  }\n  assign checker {\n  }\n}\n\n");
+    let built = build(&text);
+    let found: Vec<_> = lint(&built.policy, Some(&built.origins), &LintOptions::default())
+        .into_iter()
+        .filter(|f| f.code == "L009")
+        .collect();
+    let [finding] = found.as_slice() else {
+        panic!("{found:?}");
+    };
+    assert_eq!(finding.code, "L009");
+    assert_eq!(finding.name, "separation-violated");
+    assert_eq!(finding.element, "subject:user:ana");
+    assert!(finding.message.contains("`checker` and `maker`") || finding.message.contains("`maker`"));
+    assert!(finding.message.contains("duties"), "{}", finding.message);
+    assert!(finding.line.is_some());
+}
+
+#[test]
+fn a_subject_holding_one_member_is_not_reported() {
+    let text =
+        separated("subject user:ana {\n  assign maker {\n  }\n}\n\nsubject user:bia {\n  assign checker {\n  }\n}\n\n");
+    assert_eq!(
+        codes(&text).iter().filter(|c| c.starts_with("L009")).count(),
+        0,
+        "{:?}",
+        codes(&text)
+    );
+}
+
+#[test]
+fn a_set_of_permissions_given_to_one_role_is_reported_on_the_grant() {
+    let text = format!(
+        "{HEAD}{}{}role r {{\n}}\n\nmutually_exclusive both {{\n  of = permissions\n  members = [doc.read, doc.write]\n}}\n\n{}{}",
+        perm("doc.read"),
+        perm("doc.write"),
+        grant("g-read", "allow", "role r", "doc.read", ""),
+        grant("g-write", "allow", "role r", "doc.write", ""),
+    );
+    let found: Vec<String> = codes(&text).into_iter().filter(|c| c.starts_with("L009")).collect();
+    assert_eq!(found.len(), 1, "{found:?}");
+}
+
+#[test]
+fn the_separation_finding_can_be_ignored() {
+    let text = separated("subject user:ana {\n  assign maker {\n  }\n  assign checker {\n  }\n}\n\n");
+    let built = build(&text);
+    let options = LintOptions::default().ignoring("separation-violated");
+    assert!(
+        lint(&built.policy, Some(&built.origins), &options)
+            .iter()
+            .all(|f| f.code != "L009")
+    );
+}

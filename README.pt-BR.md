@@ -333,6 +333,45 @@ await flow.revoke('e1', ana, grants, { reason: 'terminei', persist: (r) => saveG
 await flow.closeReview('e2', caio, 'uso legítimo', grants); // depois de um break-glass
 ```
 
+### Separação de funções
+
+O catálogo declara o que ninguém acumula e o que ninguém faz duas vezes no mesmo recurso.
+
+```rust
+let catalog = Catalog::builder()
+    .target_kinds(["org", "payment"])
+    .permission(PermissionDef::new("payment.create").targets(["payment"]))
+    .permission(PermissionDef::new("payment.approve").targets(["payment"]))
+    // estática: ninguém tem os dois papéis dentro da mesma org
+    .mutually_exclusive(MutualExclusion::new("payment_duties", ExclusiveKind::Roles, ["maker", "checker"]).per_anchor("org"))
+    // dinâmica: quem criou o pagamento não o aprova
+    .conflicting_actions(ActionConflict::new("four_eyes", ["payment.create"], ["payment.approve"]))
+    .build()?;
+let governance = Governance::new().with(SeparationOfDuties::new());
+```
+
+**Estática.** Um conjunto `mutually_exclusive` lista papéis ou permissões, com nome e escopo: global, ou
+`per_anchor("org")` para conflitar só dentro do mesmo anchor. O invariante `SeparationOfDuties` recusa a mudança que
+criaria um acúmulo que não existia, seja qual for o caminho até o membro: papel direto, herdado (`RoleGraph`), grant ou
+elevação temporária. A `Violation` nomeia o conjunto e os dois lados. Remover e revogar nunca criam conflito, então um
+conjunto já violado sempre pode ser consertado; um `deny` nunca é lido como tirar um membro. `with_subjects` acrescenta
+sujeitos contra cujas posses um grant adicionado também é julgado. O `Impact` lista em `separation` os conflitos que a
+mudança criaria, com o invariante ligado ou não, e o `strig lint` aponta os conjuntos já violados (`L009`).
+
+**Dinâmica.** Uma regra `conflicting_actions` diz que quem fez uma ação `first` em um recurso não faz uma ação `then`
+nele. O motor avalia em toda decisão, antes dos overrides e sem IO: o histórico é um atributo do recurso (`history` por
+padrão, ou o que a regra nomear) ou do `env`, uma lista de entradas `"<permissão>:<ator>"` (`"payment.create:ana"`). A
+negação vem como `Reason::Override` de nome `separation:<regra>`. Com `distinct_roles`, a entrada também leva os papéis
+com que o autor agiu (`"payment.create:ana|maker"`) e quem tem um deles é recusado também; entrada sem papéis recusa, e
+histórico ilegível também: a regra falha fechada. Listagem e consulta reversa nunca deixam a regra abrir nada: para uma
+permissão de `then` a resposta continua um resíduo.
+
+No fluxo de aprovação, `Approvals::with_distinct_roles()` também recusa o aprovador que divide um papel com o autor,
+além de o autor nunca aprovar o próprio pedido.
+
+Na linguagem de políticas são `mutually_exclusive` e `conflicting_actions` no catálogo e o invariante
+`separation_of_duties`; veja [docs/dsl.pt-BR.md](docs/dsl.pt-BR.md). Uma política que os usa exporta `"schema": 5`.
+
 ### Regras declaradas no catálogo
 
 Algumas regras pertencem a uma permissão, então são declaradas no `PermissionDef` dela:
@@ -1278,7 +1317,7 @@ permissão sem titular, papel sem uso, `implied_by` redundante, condição sempr
 
 ```sh
 strig diff main/policies policies --fail-on allow     # exit 1 se algum acesso ampliou
-strig lint policies/ --json                           # códigos L001..L008, severidade, posição, dica
+strig lint policies/ --json                           # códigos L001..L009, severidade, posição, dica
 ```
 
 ```js

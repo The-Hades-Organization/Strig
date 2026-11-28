@@ -17,6 +17,7 @@ use crate::overrides::Override;
 use crate::rbac::RoleGraph;
 use crate::rebac::{RelationSchema, TupleStore};
 use crate::resource::{Anchor, Resource};
+use crate::separation::SeparationRule;
 use crate::strategy::{Candidate, MostSpecific, Strategy};
 use crate::subject::Subject;
 use crate::validity::ValidityError;
@@ -195,14 +196,23 @@ impl EngineBuilder {
 
 impl Engine {
     pub fn builder(catalog: impl Into<Arc<Catalog>>) -> EngineBuilder {
+        let catalog = catalog.into();
+        let separation = catalog
+            .action_conflicts()
+            .iter()
+            .map(|rule| OverrideEntry {
+                inner: Box::new(SeparationRule::new(rule.clone())),
+                except: Vec::new(),
+            })
+            .collect();
         EngineBuilder {
             engine: Engine {
-                catalog: catalog.into(),
+                catalog,
                 roles: RoleGraph::default(),
                 relations: None,
                 conditions: ConditionRegistry::default(),
                 strategy: Arc::new(MostSpecific),
-                overrides: Vec::new(),
+                overrides: separation,
                 max_relation_depth: DEFAULT_MAX_RELATION_DEPTH,
             },
         }

@@ -148,6 +148,7 @@ struct Merge {
     kinds: HashSet<String>,
     broad: HashSet<String>,
     permissions: HashSet<String>,
+    separations: HashSet<String>,
     roles: HashSet<String>,
     grants: HashSet<String>,
     relations: HashSet<(String, String)>,
@@ -166,6 +167,7 @@ impl Merge {
         let renamed = self.invariants(from);
         self.kinds(from);
         self.permissions(from);
+        self.separations(from);
         self.roles(from);
         self.subjects(from);
         self.grants(from);
@@ -225,6 +227,44 @@ impl Merge {
                     message,
                     "declare each permission in one source only",
                 );
+            }
+        }
+    }
+
+    fn separations(&mut self, from: &Parsed) {
+        let sets = from.policy.catalog.mutually_exclusive.iter().map(|s| &s.name);
+        let rules = from.policy.catalog.conflicting_actions.iter().map(|r| &r.name);
+        for name in sets.chain(rules) {
+            if !self.separations.insert(name.clone()) {
+                let message = format!("the separation rule `{name}` is declared twice");
+                self.clash(
+                    &ids::separation(name),
+                    from,
+                    message,
+                    "declare each separation rule in one source only",
+                );
+            }
+        }
+        for set in &from.policy.catalog.mutually_exclusive {
+            if !self
+                .policy
+                .catalog
+                .mutually_exclusive
+                .iter()
+                .any(|s| s.name == set.name)
+            {
+                self.policy.catalog.mutually_exclusive.push(set.clone());
+            }
+        }
+        for rule in &from.policy.catalog.conflicting_actions {
+            if !self
+                .policy
+                .catalog
+                .conflicting_actions
+                .iter()
+                .any(|r| r.name == rule.name)
+            {
+                self.policy.catalog.conflicting_actions.push(rule.clone());
             }
         }
     }

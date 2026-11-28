@@ -963,6 +963,7 @@ impl<'a> Elevations<'a> {
             policy,
             store: self.store,
             impact: self.impact,
+            distinct_roles: false,
             #[cfg(feature = "audit")]
             call_mode: self.call_mode,
         };

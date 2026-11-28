@@ -158,6 +158,7 @@ pub fn import(model: &str, tuples: &str, options: &Options) -> Result<OpenFgaImp
         target_kinds: kinds,
         broad_targets: Vec::new(),
         permissions,
+        ..CatalogExport::default()
     };
     policy.relations = Some(relations);
     policy.grants = grants;

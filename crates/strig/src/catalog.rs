@@ -208,6 +208,24 @@ pub enum CatalogError {
     DuplicateField { key: String, field: String },
     #[error("'{key}' viola a regra {rule}: {message}")]
     Rule { rule: String, key: String, message: String },
+    #[error("nome de conjunto inválido '{0}': use [a-z0-9_.-]")]
+    InvalidSetName(String),
+    #[error("conjunto '{0}' declarado mais de uma vez")]
+    DuplicateSet(String),
+    #[error("o conjunto '{0}' precisa de ao menos dois membros distintos")]
+    SetTooSmall(String),
+    #[error("o conjunto '{set}' repete o membro '{member}'")]
+    DuplicateSetMember { set: String, member: String },
+    #[error("o conjunto '{set}' cita a permissão inexistente '{member}'")]
+    UnknownSetMember { set: String, member: String },
+    #[error("o conjunto '{set}' usa o escopo '{anchor}', que não é um tipo de alvo do catálogo")]
+    UnknownSetAnchor { set: String, anchor: String },
+    #[error("a regra '{rule}' não declara permissões em '{side}'")]
+    EmptyConflictSide { rule: String, side: String },
+    #[error("a regra '{rule}' cita a permissão inexistente '{permission}'")]
+    UnknownConflictPermission { rule: String, permission: String },
+    #[error("a regra '{rule}' usa o atributo de histórico inválido '{attr}'")]
+    InvalidHistoryAttr { rule: String, attr: String },
 }
 
 /// All the errors of a catalog, at once.
@@ -311,14 +329,137 @@ impl<F: Fn(&PermissionDef) -> Option<String>> CatalogRule for FnRule<F> {
     }
 }
 
+/// What the members of a [`MutualExclusion`] are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ExclusiveKind {
+    Roles,
+    Permissions,
+}
+
+impl ExclusiveKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ExclusiveKind::Roles => "roles",
+            ExclusiveKind::Permissions => "permissions",
+        }
+    }
+}
+
+/// Static separation of duties: nobody holds two members of the set in the same scope. Enforced by
+/// the [`SeparationOfDuties`](crate::SeparationOfDuties) invariant, whichever way the member is
+/// reached: a direct role, an inherited one, a grant or a temporary elevation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct MutualExclusion {
+    pub name: String,
+    pub of: ExclusiveKind,
+    pub members: Vec<String>,
+    /// Scope of the exclusion: the kind of anchor inside which two members clash. `None` is global:
+    /// two members clash wherever each is held.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<String>,
+}
+
+impl MutualExclusion {
+    pub fn new<I, S>(name: impl Into<String>, of: ExclusiveKind, members: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            name: name.into(),
+            of,
+            members: members.into_iter().map(Into::into).collect(),
+            anchor: None,
+        }
+    }
+
+    /// Two members clash only inside the same anchor of this kind.
+    #[must_use]
+    pub fn per_anchor(mut self, kind: impl Into<String>) -> Self {
+        self.anchor = Some(kind.into());
+        self
+    }
+}
+
+/// Attribute of the resource that carries the history a [`ActionConflict`] reads, when the rule
+/// does not name another.
+pub const DEFAULT_HISTORY_ATTR: &str = "history";
+
+/// Dynamic separation of duties: whoever did something in `first` on a resource does not do
+/// anything in `then` on the same resource. The decision reads the history from an attribute of the
+/// resource (or from `env`), a list of `"<permission>:<actor>"` or `"<permission>:<actor>|role,role"`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ActionConflict {
+    pub name: String,
+    pub first: Vec<String>,
+    pub then: Vec<String>,
+    #[serde(default = "default_history_attr", skip_serializing_if = "is_default_history_attr")]
+    pub history: String,
+    /// Also refuses `then` to someone who holds a role the author of `first` acted with.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub distinct_roles: bool,
+}
+
+fn default_history_attr() -> String {
+    DEFAULT_HISTORY_ATTR.to_string()
+}
+
+fn is_default_history_attr(attr: &String) -> bool {
+    attr == DEFAULT_HISTORY_ATTR
+}
+
+impl ActionConflict {
+    pub fn new<F, T, S>(name: impl Into<String>, first: F, then: T) -> Self
+    where
+        F: IntoIterator<Item = S>,
+        T: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            name: name.into(),
+            first: first.into_iter().map(Into::into).collect(),
+            then: then.into_iter().map(Into::into).collect(),
+            history: default_history_attr(),
+            distinct_roles: false,
+        }
+    }
+
+    /// Reads the history from this attribute instead of `history`.
+    #[must_use]
+    pub fn history(mut self, attr: impl Into<String>) -> Self {
+        self.history = attr.into();
+        self
+    }
+
+    /// Also requires the two sides to act with distinct roles.
+    #[must_use]
+    pub fn distinct_roles(mut self) -> Self {
+        self.distinct_roles = true;
+        self
+    }
+}
+
 /// Serializable form of the catalog, to generate frontend types or load from configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct CatalogExport {
     pub target_kinds: Vec<String>,
     #[serde(default)]
     pub broad_targets: Vec<String>,
     pub permissions: Vec<PermissionDef>,
+    /// Sets of roles or permissions nobody accumulates; see [`MutualExclusion`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mutually_exclusive: Vec<MutualExclusion>,
+    /// Dynamic rules "who did A on a resource does not do B on it"; see [`ActionConflict`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conflicting_actions: Vec<ActionConflict>,
 }
 
 #[derive(Default)]
@@ -327,6 +468,8 @@ pub struct CatalogBuilder {
     broad_targets: Vec<String>,
     rules: Vec<Box<dyn CatalogRule>>,
     defs: Vec<PermissionDef>,
+    exclusions: Vec<MutualExclusion>,
+    conflicts: Vec<ActionConflict>,
 }
 
 impl fmt::Debug for CatalogBuilder {
@@ -336,6 +479,8 @@ impl fmt::Debug for CatalogBuilder {
             .field("broad_targets", &self.broad_targets)
             .field("rules", &self.rules.iter().map(|r| r.name()).collect::<Vec<_>>())
             .field("defs", &self.defs.len())
+            .field("exclusions", &self.exclusions.len())
+            .field("conflicts", &self.conflicts.len())
             .finish()
     }
 }
@@ -375,6 +520,18 @@ impl CatalogBuilder {
     /// Adds the permissions of a module at once.
     pub fn permissions(mut self, defs: impl IntoIterator<Item = PermissionDef>) -> Self {
         self.defs.extend(defs);
+        self
+    }
+
+    /// Declares a set of roles or permissions nobody accumulates.
+    pub fn mutually_exclusive(mut self, exclusion: MutualExclusion) -> Self {
+        self.exclusions.push(exclusion);
+        self
+    }
+
+    /// Declares a dynamic rule: whoever did `first` on a resource does not do `then` on it.
+    pub fn conflicting_actions(mut self, conflict: ActionConflict) -> Self {
+        self.conflicts.push(conflict);
         self
     }
 
@@ -463,6 +620,7 @@ impl CatalogBuilder {
                 }
             }
         }
+        validate_separation(&self.exclusions, &self.conflicts, &index, &target_kinds, &mut errors);
         if !errors.is_empty() {
             return Err(CatalogErrors(errors));
         }
@@ -511,7 +669,83 @@ impl CatalogBuilder {
             children,
             target_kinds,
             broad_targets,
+            exclusions: self.exclusions,
+            conflicts: self.conflicts,
         })
+    }
+}
+
+fn valid_set_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '.' | '-'))
+}
+
+fn validate_separation(
+    exclusions: &[MutualExclusion],
+    conflicts: &[ActionConflict],
+    index: &HashMap<String, usize>,
+    target_kinds: &BTreeSet<String>,
+    errors: &mut Vec<CatalogError>,
+) {
+    let mut names = BTreeSet::new();
+    for set in exclusions {
+        if !valid_set_name(&set.name) {
+            errors.push(CatalogError::InvalidSetName(set.name.clone()));
+        } else if !names.insert(set.name.as_str()) {
+            errors.push(CatalogError::DuplicateSet(set.name.clone()));
+        }
+        let mut seen = BTreeSet::new();
+        for member in &set.members {
+            if !seen.insert(member.as_str()) {
+                errors.push(CatalogError::DuplicateSetMember {
+                    set: set.name.clone(),
+                    member: member.clone(),
+                });
+            } else if set.of == ExclusiveKind::Permissions && !index.contains_key(member) {
+                errors.push(CatalogError::UnknownSetMember {
+                    set: set.name.clone(),
+                    member: member.clone(),
+                });
+            }
+        }
+        if seen.len() < 2 {
+            errors.push(CatalogError::SetTooSmall(set.name.clone()));
+        }
+        if let Some(anchor) = set.anchor.as_ref().filter(|a| !target_kinds.contains(*a)) {
+            errors.push(CatalogError::UnknownSetAnchor {
+                set: set.name.clone(),
+                anchor: anchor.clone(),
+            });
+        }
+    }
+    for rule in conflicts {
+        if !valid_set_name(&rule.name) {
+            errors.push(CatalogError::InvalidSetName(rule.name.clone()));
+        } else if !names.insert(rule.name.as_str()) {
+            errors.push(CatalogError::DuplicateSet(rule.name.clone()));
+        }
+        for (side, permissions) in [("first", &rule.first), ("then", &rule.then)] {
+            if permissions.is_empty() {
+                errors.push(CatalogError::EmptyConflictSide {
+                    rule: rule.name.clone(),
+                    side: side.to_string(),
+                });
+            }
+            for permission in permissions.iter().filter(|p| !index.contains_key(*p)) {
+                errors.push(CatalogError::UnknownConflictPermission {
+                    rule: rule.name.clone(),
+                    permission: permission.clone(),
+                });
+            }
+        }
+        if !valid_field(&rule.history) {
+            errors.push(CatalogError::InvalidHistoryAttr {
+                rule: rule.name.clone(),
+                attr: rule.history.clone(),
+            });
+        }
     }
 }
 
@@ -536,6 +770,8 @@ pub struct Catalog {
     children: BTreeMap<String, Vec<String>>,
     target_kinds: BTreeSet<String>,
     broad_targets: BTreeSet<String>,
+    exclusions: Vec<MutualExclusion>,
+    conflicts: Vec<ActionConflict>,
 }
 
 impl Catalog {
@@ -549,6 +785,12 @@ impl Catalog {
         for kind in export.broad_targets {
             builder = builder.broad_target(kind);
         }
+        for set in export.mutually_exclusive {
+            builder = builder.mutually_exclusive(set);
+        }
+        for rule in export.conflicting_actions {
+            builder = builder.conflicting_actions(rule);
+        }
         builder.permissions(export.permissions)
     }
 
@@ -561,7 +803,19 @@ impl Catalog {
             target_kinds: self.target_kinds.iter().cloned().collect(),
             broad_targets: self.broad_targets.iter().cloned().collect(),
             permissions: self.defs.clone(),
+            mutually_exclusive: self.exclusions.clone(),
+            conflicting_actions: self.conflicts.clone(),
         }
+    }
+
+    /// The sets nobody accumulates, in declaration order.
+    pub fn mutual_exclusions(&self) -> &[MutualExclusion] {
+        &self.exclusions
+    }
+
+    /// The dynamic separation rules, in declaration order.
+    pub fn action_conflicts(&self) -> &[ActionConflict] {
+        &self.conflicts
     }
 
     pub fn get(&self, key: &str) -> Option<&PermissionDef> {

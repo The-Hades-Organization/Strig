@@ -33,11 +33,12 @@ use serde::{Deserialize, Serialize};
 use crate::attr::Attributes;
 use crate::decision::{Decision, Request};
 use crate::engine::{Context, Engine};
-use crate::governance::{Mutation, same_subject, with_role_change};
-use crate::grant::{Grant, SubjectMatcher};
+use crate::governance::{Mutation, matcher_subject, same_subject, with_role_change};
+use crate::grant::{Effect, Grant, SubjectMatcher};
 use crate::query::{QueryContext, QueryLimits, SubjectRef};
 use crate::rebac::{TupleIndex, TupleStore};
 use crate::resource::{Anchor, GLOBAL, Resource};
+use crate::separation::{Clash, clashes_of};
 use crate::subject::Subject;
 
 static EMPTY_ENV: Attributes = Attributes::new();
@@ -217,12 +218,32 @@ pub struct Impact {
     pub partial: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
+    /// Separation of duties the change would break: pairs of members of a `mutually_exclusive` set
+    /// that the subject the change touches would hold together and does not hold now. Listed
+    /// whether or not the [`SeparationOfDuties`](crate::SeparationOfDuties) invariant is on, so a
+    /// dry run shows the violation a governance without it would let through.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub separation: Vec<PotentialClash>,
+}
+
+/// A separation clash the change would create, and who would hold it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct PotentialClash {
+    /// `user:alice`, `role:editor`, `principal:authenticated`, `anyone`.
+    pub subject: String,
+    pub clash: Clash,
 }
 
 impl Impact {
     /// Nothing gains, nothing loses, nothing is undecided (and nothing was cut).
     pub fn is_empty(&self) -> bool {
-        self.gained.is_empty() && self.lost.is_empty() && self.indeterminate.is_empty() && !self.partial
+        self.gained.is_empty()
+            && self.lost.is_empty()
+            && self.indeterminate.is_empty()
+            && self.separation.is_empty()
+            && !self.partial
     }
 
     /// Counts and a few examples, for the audit record.
@@ -484,7 +505,53 @@ pub(crate) fn compute(
         classify(&mut impact, probe, &before, &now);
     }
     sort(&mut impact);
+    impact.separation = new_clashes(engine, current, after, mutation, options);
     impact
+}
+
+/// The clashes of the sets of the catalog that `after` has and `current` did not, for the subject
+/// the mutation names, or for what its grant's matcher selects.
+fn new_clashes(
+    engine: &Engine,
+    current: &[Grant],
+    after: &[Grant],
+    mutation: &Mutation,
+    options: &ImpactOptions<'_>,
+) -> Vec<PotentialClash> {
+    if engine.catalog().mutual_exclusions().is_empty() {
+        return Vec::new();
+    }
+    let (label, before_subject, after_subject) = match mutation {
+        Mutation::AssignRole { subject, .. } => match mutation.subject_after() {
+            Some(changed) => (subject_label(subject), subject.clone(), changed),
+            None => return Vec::new(),
+        },
+        Mutation::Add(grant) if grant.effect == Effect::Allow => {
+            let Some(probe) = matcher_subject(&grant.subject) else {
+                return Vec::new();
+            };
+            (matcher_label(&grant.subject), probe.clone(), probe)
+        }
+        _ => return Vec::new(),
+    };
+    let was = clashes_of(engine, &before_subject, current, options.now);
+    clashes_of(engine, &after_subject, after, options.now)
+        .into_iter()
+        .filter(|c| !was.iter().any(|w| w == c))
+        .map(|clash| PotentialClash {
+            subject: label.clone(),
+            clash,
+        })
+        .collect()
+}
+
+fn matcher_label(matcher: &SubjectMatcher) -> String {
+    match matcher {
+        SubjectMatcher::User { id } => format!("user:{id}"),
+        SubjectMatcher::Role { id } => format!("role:{id}"),
+        SubjectMatcher::Principal { name } => format!("principal:{name}"),
+        _ => "anyone".to_string(),
+    }
 }
 
 fn cut(impact: &mut Impact, note: String) {

@@ -1625,6 +1625,7 @@ fn build(
             .values()
             .map(|k| PermissionDef::new(k.clone()).targets([OBJECT]))
             .collect(),
+        ..CatalogExport::default()
     };
     policy.strategy = match def.effect {
         Effect::AllowOnly => StrategySpec::MostSpecific,

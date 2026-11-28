@@ -9,8 +9,10 @@ use crate::catalog::Catalog;
 use crate::condition::{Condition, ConditionRegistry, EvalContext, Operand};
 use crate::dsl::error::Location;
 use crate::dsl::policy::{Origins, Policy, ids};
+use crate::governance::matcher_subject;
 use crate::grant::{Effect, Grant, SubjectMatcher};
 use crate::resource::{GLOBAL, Resource};
+use crate::separation::clashes_of;
 use crate::spec::StrategySpec;
 use crate::subject::Subject;
 
@@ -58,11 +60,14 @@ pub enum LintCode {
     ConditionAlwaysTrue,
     /// A field a permission declares that no `allow` grant ever reaches.
     FieldNeverGranted,
+    /// A subject, or whoever a grant's matcher selects, already holds two members of a
+    /// `mutually_exclusive` set in the same scope.
+    SeparationViolated,
 }
 
 impl LintCode {
     /// Every code, in order.
-    pub const ALL: [LintCode; 8] = [
+    pub const ALL: [LintCode; 9] = [
         LintCode::ShadowedGrant,
         LintCode::UnreachableDeny,
         LintCode::UnheldPermission,
@@ -71,6 +76,7 @@ impl LintCode {
         LintCode::ConditionAlwaysFalse,
         LintCode::ConditionAlwaysTrue,
         LintCode::FieldNeverGranted,
+        LintCode::SeparationViolated,
     ];
 
     /// The stable code: `L001`, `L002`, ...
@@ -84,6 +90,7 @@ impl LintCode {
             LintCode::ConditionAlwaysFalse => "L006",
             LintCode::ConditionAlwaysTrue => "L007",
             LintCode::FieldNeverGranted => "L008",
+            LintCode::SeparationViolated => "L009",
         }
     }
 
@@ -98,6 +105,7 @@ impl LintCode {
             LintCode::ConditionAlwaysFalse => "condition-always-false",
             LintCode::ConditionAlwaysTrue => "condition-always-true",
             LintCode::FieldNeverGranted => "field-never-granted",
+            LintCode::SeparationViolated => "separation-violated",
         }
     }
 
@@ -107,7 +115,8 @@ impl LintCode {
             LintCode::ShadowedGrant
             | LintCode::UnreachableDeny
             | LintCode::ConditionAlwaysFalse
-            | LintCode::FieldNeverGranted => Severity::Warning,
+            | LintCode::FieldNeverGranted
+            | LintCode::SeparationViolated => Severity::Warning,
             LintCode::UnheldPermission
             | LintCode::UnusedRole
             | LintCode::RedundantImpliedBy
@@ -216,6 +225,9 @@ pub fn lint(policy: &Policy, origins: Option<&Origins>, options: &LintOptions) -
     }
     if wanted(LintCode::FieldNeverGranted) {
         cx.fields_never_granted();
+    }
+    if wanted(LintCode::SeparationViolated) {
+        cx.separation_violated();
     }
     let mut found = cx.found.into_inner();
     found.retain(|f| f.lint_code().is_none_or(wanted));
@@ -543,6 +555,70 @@ impl Cx<'_> {
                         def.key
                     ),
                     "name the field in a grant, or remove it from the permission",
+                );
+            }
+        }
+    }
+
+    fn separation_violated(&self) {
+        if self.policy.catalog.mutually_exclusive.is_empty() {
+            return;
+        }
+        let Some(engine) = self
+            .policy
+            .engine_spec()
+            .builder()
+            .ok()
+            .and_then(|builder| builder.build().ok())
+        else {
+            return;
+        };
+        let mut seen: BTreeSet<(String, String, String, String)> = BTreeSet::new();
+        let mut candidates: Vec<(String, String, Subject)> = Vec::new();
+        for subject in &self.policy.subjects {
+            let Some(id) = &subject.id else { continue };
+            candidates.push((
+                ids::subject(&subject.kind, id),
+                format!("{}:{id}", subject.kind),
+                subject.clone(),
+            ));
+        }
+        for grant in self.grants() {
+            let Some(probe) = matcher_subject(&grant.subject) else {
+                continue;
+            };
+            let label = match &grant.subject {
+                SubjectMatcher::User { .. } => continue,
+                SubjectMatcher::Role { id } => format!("role:{id}"),
+                SubjectMatcher::Principal { name } => format!("principal:{name}"),
+                _ => "anyone".to_string(),
+            };
+            candidates.push((ids::grant(&grant.id), label, probe));
+        }
+        for (element, label, subject) in candidates {
+            for clash in clashes_of(&engine, &subject, self.grants(), None) {
+                let key = (
+                    label.clone(),
+                    clash.set.clone(),
+                    clash.first.clone(),
+                    clash.second.clone(),
+                );
+                if !seen.insert(key) {
+                    continue;
+                }
+                self.report(
+                    LintCode::SeparationViolated,
+                    element.clone(),
+                    &element,
+                    format!(
+                        "{label} holds `{}` and `{}` of the {} set `{}`{}",
+                        clash.first,
+                        clash.second,
+                        clash.of.as_str(),
+                        clash.set,
+                        clash.scope.as_deref().map(|s| format!(" in {s}")).unwrap_or_default()
+                    ),
+                    "take one of the two away, or remove the set if the duties may be held together",
                 );
             }
         }

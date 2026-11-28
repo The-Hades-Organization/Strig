@@ -168,6 +168,60 @@ fn catalog_error(error: CatalogError, policy: &Policy, report: &mut Report<'_>) 
             format!("`{key}` breaks the catalog rule {rule}: {message}"),
             None,
         ),
+        CatalogError::InvalidSetName(name) => report.error(
+            &ids::separation(&name),
+            format!("`{name}` is not a valid name for a separation rule"),
+            hint("use lowercase letters, digits, `_`, `.` and `-`"),
+        ),
+        CatalogError::DuplicateSet(name) => report.error(
+            &ids::separation(&name),
+            format!("the separation rule `{name}` is declared twice"),
+            None,
+        ),
+        CatalogError::SetTooSmall(name) => report.error(
+            &ids::separation(&name),
+            format!("`{name}` needs at least two distinct members to separate anything"),
+            hint("list the roles or permissions nobody may hold together"),
+        ),
+        CatalogError::DuplicateSetMember { set, member } => report.error(
+            &ids::separation(&set),
+            format!("`{set}` lists `{member}` twice"),
+            None,
+        ),
+        CatalogError::UnknownSetMember { set, member } => report.error(
+            &ids::separation(&set),
+            format!("`{set}` names the permission `{member}`, which is not in the catalog"),
+            near(&member, permission_keys(policy), hint("declare it or fix the name")),
+        ),
+        CatalogError::UnknownSetAnchor { set, anchor } => report.error(
+            &ids::separation(&set),
+            format!("`{set}` is scoped to `{anchor}`, which is not in target_kinds or broad_targets"),
+            near(
+                &anchor,
+                policy
+                    .catalog
+                    .target_kinds
+                    .iter()
+                    .chain(&policy.catalog.broad_targets)
+                    .map(String::as_str),
+                hint("add it to target_kinds or drop the scope to make the set global"),
+            ),
+        ),
+        CatalogError::EmptyConflictSide { rule, side } => report.error(
+            &ids::separation(&rule),
+            format!("`{rule}` has no permissions in `{side}`"),
+            None,
+        ),
+        CatalogError::UnknownConflictPermission { rule, permission } => report.error(
+            &ids::separation(&rule),
+            format!("`{rule}` names the permission `{permission}`, which is not in the catalog"),
+            near(&permission, permission_keys(policy), hint("declare it or fix the name")),
+        ),
+        CatalogError::InvalidHistoryAttr { rule, attr } => report.error(
+            &ids::separation(&rule),
+            format!("`{attr}` is not a valid attribute name for the history of `{rule}`"),
+            hint("use words of letters, digits and _, joined by dots"),
+        ),
     }
 }
 
@@ -199,13 +253,66 @@ fn roles(policy: &Policy, report: &mut Report<'_>) {
         .map(|r| (r.role.as_str(), r.inherits.iter().map(String::as_str).collect()))
         .collect();
     let order: Vec<&str> = policy.roles.iter().map(|r| r.role.as_str()).collect();
-    for path in find_cycles(&order, &parents) {
+    let cycles = find_cycles(&order, &parents);
+    let acyclic = cycles.is_empty();
+    for path in cycles {
         let head = path.first().copied().unwrap_or_default();
         report.error(
             &ids::role(head),
             format!("roles inherit in a cycle: {}", path.join(" -> ")),
             None,
         );
+    }
+    if acyclic {
+        exclusive_inheritance(policy, &order, &parents, report);
+    }
+}
+
+/// A role that is, or inherits, two members of a set of roles holds both wherever it is given.
+/// One walk up the inheritance per member, so the cost is the size of the set times the roles.
+fn exclusive_inheritance(policy: &Policy, order: &[&str], parents: &HashMap<&str, Vec<&str>>, report: &mut Report<'_>) {
+    let mut children: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (role, inherits) in parents {
+        for parent in inherits {
+            children.entry(parent).or_default().push(role);
+        }
+    }
+    for set in policy
+        .catalog
+        .mutually_exclusive
+        .iter()
+        .filter(|s| s.of == crate::ExclusiveKind::Roles)
+    {
+        let mut reaching: HashMap<&str, Vec<&str>> = HashMap::new();
+        for member in set.members.iter().map(String::as_str) {
+            let mut stack = vec![member];
+            let mut seen: HashSet<&str> = HashSet::new();
+            while let Some(role) = stack.pop() {
+                if !seen.insert(role) {
+                    continue;
+                }
+                if parents.contains_key(role) {
+                    reaching.entry(role).or_default().push(member);
+                }
+                stack.extend(children.get(role).into_iter().flatten().copied());
+            }
+        }
+        for &role in order {
+            let Some(held) = reaching.get(role).filter(|held| held.len() > 1) else {
+                continue;
+            };
+            report.error(
+                &ids::role(role),
+                format!(
+                    "role `{role}` holds `{}` and `{}` of the set `{}`, which nobody may accumulate",
+                    held[0], held[1], set.name
+                ),
+                Some(format!(
+                    "stop `{role}` from inheriting one of them, or take the set `{}` out",
+                    set.name
+                )),
+            );
+        }
     }
 }
 
@@ -679,5 +786,6 @@ pub(crate) fn invariant_kind(spec: &InvariantSpec) -> &'static str {
         InvariantSpec::ManagementOnly { .. } => "management_only",
         InvariantSpec::NoEscalation { .. } => "no_escalation",
         InvariantSpec::Forbid { .. } => "forbid",
+        InvariantSpec::SeparationOfDuties { .. } => "separation_of_duties",
     }
 }

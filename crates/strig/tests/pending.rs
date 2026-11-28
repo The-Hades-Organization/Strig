@@ -326,3 +326,41 @@ fn a_role_change_is_a_request_too_and_keeps_the_subject_to_write() {
     assert_eq!(approved.grants.len(), known.grants.len());
     let _ = scene;
 }
+
+#[test]
+fn distinct_roles_refuse_an_approver_who_shares_a_role_with_the_author() {
+    let scene = Scene::new();
+    let (gov, policy, store) = (governance(), policy(), MemoryPendingStore::new());
+    let flow = Approvals::new(&gov, &policy, &store).with_distinct_roles();
+    flow.propose(&scene.review(T0), &admin("ana"), &add("m-edit"), "r1", None)
+        .unwrap();
+
+    let error = flow.approve(&scene.review(T0), &admin("caio"), "r1").unwrap_err();
+    assert_eq!(violations_of(error), ["distinct_approver_roles"]);
+    assert_eq!(flow.pending(T0).unwrap().len(), 1);
+}
+
+#[test]
+fn distinct_roles_accept_an_approver_with_another_role() {
+    let mut scene = Scene::new();
+    scene
+        .grants
+        .push(role_grant("auditor-manage", "auditor", "org.manage", true, at_org()));
+    let (gov, policy, store) = (governance(), policy(), MemoryPendingStore::new());
+    let flow = Approvals::new(&gov, &policy, &store).with_distinct_roles();
+    flow.propose(&scene.review(T0), &admin("ana"), &add("m-edit"), "r1", None)
+        .unwrap();
+
+    let auditor = Subject::user("caio").with_role_in("auditor", org());
+    assert!(flow.approve(&scene.review(T0), &auditor, "r1").is_ok());
+}
+
+#[test]
+fn without_distinct_roles_two_admins_still_approve_each_other() {
+    let scene = Scene::new();
+    let (gov, policy, store) = (governance(), policy(), MemoryPendingStore::new());
+    let flow = Approvals::new(&gov, &policy, &store);
+    flow.propose(&scene.review(T0), &admin("ana"), &add("m-edit"), "r1", None)
+        .unwrap();
+    assert!(flow.approve(&scene.review(T0), &admin("caio"), "r1").is_ok());
+}

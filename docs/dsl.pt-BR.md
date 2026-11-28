@@ -449,6 +449,7 @@ Códigos de saída: `0` nenhuma mudança casa com `--fail-on`, `1` alguma casa, 
 | `L006` | `condition-always-false` | condição falsa seja qual for o sujeito, o recurso e o ambiente |
 | `L007` | `condition-always-true` | condição verdadeira seja qual for o sujeito, o recurso e o ambiente |
 | `L008` | `field-never-granted` | campo que nenhum grant `allow` alcança |
+| `L009` | `separation-violated` | um sujeito (ou quem um grant seleciona) já acumula dois membros de um conjunto `mutually_exclusive` no mesmo escopo |
 
 Cada achado tem código, nome, severidade (`info`, `warning`, `error`), mensagem, dica, o elemento a que se refere e, na
 CLI, `file:line:column`. Os códigos são estáveis: acrescenta-se um, nunca se muda. Condição só é julgada quando dá para
@@ -664,6 +665,43 @@ invariant forbid {
   permissions = [doc.edit]
 }
 ```
+
+## Separação de funções
+
+Duas declarações do catálogo e um invariante, nas três sintaxes.
+
+```
+# Blocks
+mutually_exclusive payment_duties {
+  of = roles                    # roles ou permissions
+  members = [maker, checker]
+  anchor = org                  # opcional: conflita só dentro da mesma org; ausente é global
+}
+
+conflicting_actions four_eyes {
+  first = [payment.create]
+  then = [payment.approve]
+  history = trail               # opcional, padrão history
+  distinct_roles = true         # opcional
+}
+
+invariant separation_of_duties {
+  subjects = [user:ana]         # opcional: também julgados quando um grant é adicionado
+}
+```
+
+```
+# Rules e Actors (Actors escreve as duas primeiras em `catalog` e a terceira em `governance`)
+mutually-exclusive payment_duties of roles members [maker, checker] anchor org
+conflicting-actions four_eyes first [payment.create] then [payment.approve] history trail distinct_roles true
+always separation-of-duties subjects [user:ana]
+```
+
+O nome é único entre conjuntos e regras, inclusive num projeto. O validador nomeia o conjunto quando um membro não é
+permissão do catálogo (`of = permissions`), o conjunto tem menos de dois membros, o `anchor` não é um tipo de alvo ou uma
+permissão de `then` é desconhecida, com posição e dica. Um papel que herda dois membros de um conjunto de papéis é
+recusado no próprio papel. A semântica (o que conta como possuído, o histórico da regra dinâmica) está no
+[README](../README.pt-BR.md#separação-de-funções). Uma política que usa essas declarações exporta `"schema": 5`.
 
 ## Campos
 

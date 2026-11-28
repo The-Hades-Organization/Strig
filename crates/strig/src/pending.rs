@@ -27,7 +27,7 @@
 //! [`PendingStore::update`] refuses a request that is no longer pending, and a host with several
 //! processes serialises approvals per request (a lock, a transaction) before applying the grants.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
@@ -373,10 +373,12 @@ pub struct Approvals<'a> {
     policy: &'a ApprovalPolicy,
     store: &'a dyn PendingStore,
     impact: Option<&'a ImpactOptions<'a>>,
+    distinct_roles: bool,
     #[cfg(feature = "audit")]
     call_mode: Option<FailMode>,
 }
 
+const DISTINCT_ROLES: &str = "distinct_approver_roles";
 const SELF_APPROVAL: &str = "no_self_approval";
 const APPROVAL_PERMISSION: &str = "require_approval_permission";
 const SYSTEM_KIND: &str = "system";
@@ -389,9 +391,20 @@ impl<'a> Approvals<'a> {
             policy,
             store,
             impact: None,
+            distinct_roles: false,
             #[cfg(feature = "audit")]
             call_mode: None,
         }
+    }
+
+    /// Also refuses an approver who holds a role (or a role that inherits or is inherited by one)
+    /// that the author of the request holds: author and approver act with different roles, the
+    /// dynamic separation of duties applied to the approval. Without it only the person is
+    /// compared, as before.
+    #[must_use]
+    pub fn with_distinct_roles(mut self) -> Self {
+        self.distinct_roles = true;
+        self
     }
 
     /// Computes the [`Impact`] of every change proposed or approved through this flow, over `options`.
@@ -716,6 +729,17 @@ impl<'a> Approvals<'a> {
                 SELF_APPROVAL,
                 "quem propôs a mudança não decide o próprio pedido",
             ));
+        }
+        if self.distinct_roles {
+            let roles = review.engine.roles();
+            let held =
+                |who: &Subject| -> BTreeSet<String> { roles.expand(who.roles_at(&rule.resource, Some(review.now))) };
+            if let Some(shared) = held(approver).intersection(&held(&request.actor)).next() {
+                violations.push(Violation::new(
+                    DISTINCT_ROLES,
+                    format!("quem propôs a mudança e quem a aprova não podem atuar com o mesmo papel ({shared})"),
+                ));
+            }
         }
         let ctx = Context::new(&review.current).at(review.now);
         let ctx = match review.tuples {

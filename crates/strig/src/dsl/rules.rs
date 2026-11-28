@@ -4,8 +4,8 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::dsl::blocks::{
-    Body, STRATEGIES, build_invariant, duplicate, invariant_fields as invariant_schema, names, scoped,
-    value as field_value,
+    Body, CONFLICT, EXCLUSIVE, FieldSpec, STRATEGIES, build_conflict, build_exclusion, build_invariant, duplicate,
+    invariant_fields as invariant_schema, names, scoped, value as field_value,
 };
 use crate::dsl::blocks_print::{self as bp, Printer};
 use crate::dsl::build::Builder;
@@ -21,7 +21,7 @@ use crate::{
 
 type Printed<T> = Result<T, PrintError>;
 
-const STATEMENTS: [&str; 12] = [
+const STATEMENTS: [&str; 14] = [
     "kinds",
     "broad",
     "strategy",
@@ -34,8 +34,10 @@ const STATEMENTS: [&str; 12] = [
     "relations",
     "override",
     "always",
+    "mutually-exclusive",
+    "conflicting-actions",
 ];
-const INVARIANT_WORDS: [&str; 9] = [
+const INVARIANT_WORDS: [&str; 10] = [
     "catalog-conformance",
     "no-self-management",
     "prerequisites",
@@ -45,6 +47,7 @@ const INVARIANT_WORDS: [&str; 9] = [
     "management-only",
     "no-escalation",
     "forbid",
+    "separation-of-duties",
 ];
 const PERMISSION_CLAUSES: [&str; 10] = [
     "implied by",
@@ -161,6 +164,10 @@ fn statement(cur: &mut Cursor, b: &mut Builder, state: &mut State) -> PResult<()
         "always" => {
             cur.advance();
             always(cur, b)
+        }
+        "mutually-exclusive" | "conflicting-actions" => {
+            cur.advance();
+            separation(cur, b, word == "mutually-exclusive")
         }
         "language" => {
             let raw = Raw::new(head.span, "a source declares its language once, on its first line")
@@ -626,6 +633,41 @@ pub(crate) fn override_line(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     Ok(())
 }
 
+/// `name field value field value`: the fields of a block, written on one line.
+fn line_fields(
+    cur: &mut Cursor,
+    b: &mut Builder,
+    id: &str,
+    schema: &[FieldSpec],
+    what: &str,
+    head: &Sp<String>,
+) -> PResult<Body> {
+    let mut body = Body::default();
+    while !cur.at_eof() {
+        let key = cur.word(&format!("a field of the {what}"))?;
+        let Some(spec) = schema.iter().find(|s| s.name == key.v) else {
+            let known: Vec<&str> = schema.iter().map(|s| s.name).collect();
+            return Err(
+                Raw::new(key.span, format!("unknown field `{}` in {what}", key.v)).hint(suggest(&key.v, &known))
+            );
+        };
+        if body.has(spec.name) {
+            return Err(Raw::new(key.span, format!("field `{}` is given twice", key.v)));
+        }
+        let field_id = ids::field(id, spec.name);
+        let read = field_value(cur, b, &field_id, spec.kind, &key)?;
+        b.mark(&field_id, key.span);
+        body.fields.push((spec.name, read));
+    }
+    for needed in schema.iter().filter(|s| s.required) {
+        if !body.has(needed.name) {
+            return Err(Raw::new(head.span, format!("{what} needs `{}`", needed.name))
+                .hint(format!("add: {} <value>", needed.name)));
+        }
+    }
+    Ok(body)
+}
+
 /// `always <kind> name value name value`: the names are the fields of the invariant.
 pub(crate) fn always(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     let word = cur.word("an invariant kind")?;
@@ -636,33 +678,40 @@ pub(crate) fn always(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
     };
     let id = b.next_invariant(&kind);
     let spec = scoped(cur, b, &id, word.span, |cur, b| {
-        let mut body = Body::default();
-        while !cur.at_eof() {
-            let key = cur.word("a field of the invariant")?;
-            let Some(spec) = schema.iter().find(|s| s.name == key.v) else {
-                let known: Vec<&str> = schema.iter().map(|s| s.name).collect();
-                return Err(
-                    Raw::new(key.span, format!("unknown field `{}` in {kind} invariant", key.v))
-                        .hint(suggest(&key.v, &known)),
-                );
-            };
-            if body.has(spec.name) {
-                return Err(Raw::new(key.span, format!("field `{}` is given twice", key.v)));
-            }
-            let field_id = ids::field(&id, spec.name);
-            let read = field_value(cur, b, &field_id, spec.kind, &key)?;
-            b.mark(&field_id, key.span);
-            body.fields.push((spec.name, read));
-        }
-        for needed in schema.iter().filter(|s| s.required) {
-            if !body.has(needed.name) {
-                return Err(Raw::new(word.span, format!("{kind} needs `{}`", needed.name))
-                    .hint(format!("add: {} <value>", needed.name)));
-            }
-        }
+        let mut body = line_fields(cur, b, &id, schema, &format!("{kind} invariant"), &word)?;
         build_invariant(b, &kind, &word, &mut body)
     })?;
     b.policy.invariants.push(spec);
+    Ok(())
+}
+
+/// `mutually-exclusive <name> of roles members a, b anchor org` and
+/// `conflicting-actions <name> first a then b history attr distinct_roles true`.
+pub(crate) fn separation(cur: &mut Cursor, b: &mut Builder, exclusive: bool) -> PResult<()> {
+    let name = cur.word("a name")?;
+    let id = ids::separation(&name.v);
+    let repeated = duplicate(b, &id, name.span, &format!("separation rule `{}`", name.v));
+    let (schema, what) = if exclusive {
+        (EXCLUSIVE, "mutually-exclusive set")
+    } else {
+        (CONFLICT, "conflicting-actions rule")
+    };
+    let mut body = scoped(cur, b, &id, name.span, |cur, b| {
+        line_fields(cur, b, &id, schema, what, &name)
+    })?;
+    if repeated {
+        return Ok(());
+    }
+    if exclusive {
+        if let Some(set) = build_exclusion(b, &name, &mut body) {
+            b.policy.catalog.mutually_exclusive.push(set);
+        }
+    } else {
+        b.policy
+            .catalog
+            .conflicting_actions
+            .push(build_conflict(&name, &mut body));
+    }
     Ok(())
 }
 
@@ -721,6 +770,11 @@ fn lines(p: &mut Printer, policy: &Policy) -> Printed<()> {
         p.leaf(0, &id, &wrap_clauses(&format!("permission {head}"), &clauses), false);
     }
     section = Section::default();
+    for (id, text) in separation_texts(policy)? {
+        section.start(p);
+        p.leaf(0, &id, &text, false);
+    }
+    section = Section::default();
     for role in &policy.roles {
         section.start(p);
         let (id, text) = role_text(role)?;
@@ -767,6 +821,28 @@ fn lines(p: &mut Printer, policy: &Policy) -> Printed<()> {
         p.leaf(0, &id, &format!("always {text}"), false);
     }
     Ok(())
+}
+
+/// `mutually-exclusive name of roles members a, b` and `conflicting-actions name first a then b`,
+/// with the id each one has in the policy.
+pub(crate) fn separation_texts(policy: &Policy) -> Printed<Vec<(String, String)>> {
+    let mut texts = Vec::new();
+    let mut line = |head: &str, name: &str, fields: Vec<(&'static str, String)>| -> Printed<()> {
+        let name = bp::word(name, "name")?;
+        let mut text = format!("{head} {name}");
+        for (field, value) in fields {
+            text.push_str(&format!(" {field} {value}"));
+        }
+        texts.push((ids::separation(name), text));
+        Ok(())
+    };
+    for set in &policy.catalog.mutually_exclusive {
+        line("mutually-exclusive", &set.name, bp::exclusion_fields(set)?)?;
+    }
+    for rule in &policy.catalog.conflicting_actions {
+        line("conflicting-actions", &rule.name, bp::conflict_fields(rule)?)?;
+    }
+    Ok(texts)
 }
 
 pub(crate) fn role_text(role: &RoleSpec) -> Printed<(String, String)> {

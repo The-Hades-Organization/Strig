@@ -10,6 +10,7 @@ mod hostile;
 mod notes;
 mod project;
 mod schema;
+mod separation;
 
 use strig::dsl::Language;
 

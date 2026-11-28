@@ -331,6 +331,11 @@ export type InvariantSpec =
   /** The actor only grants what they hold, unless they hold the bypass. */
   | { kind: 'no_escalation'; bypass?: Bypass }
   | { kind: 'forbid'; subject: SubjectMatcher; permissions: string[] }
+  /**
+   * Nobody accumulates two members of a `mutuallyExclusive` set of the catalog in the same scope, by a direct
+   * role, an inherited one, a grant or a temporary elevation. `subjects` are also judged when a grant is added.
+   */
+  | { kind: 'separation_of_duties'; subjects?: Subject[] }
   /** An invariant registered in the engine's `hooks.invariants`; `name` must be one of them. */
   | { kind: 'custom'; name: string };
 
@@ -375,6 +380,24 @@ export interface Impact {
   checked: number;
   partial: boolean;
   notes?: string[];
+  /** Separation clashes the change would create, listed whether or not `separation_of_duties` is on. */
+  separation?: PotentialClash[];
+}
+
+/** Two members of a `mutuallyExclusive` set that one subject holds in the same scope. */
+export interface SeparationClash {
+  set: string;
+  of: 'roles' | 'permissions';
+  first: string;
+  second: string;
+  /** `null`/absent for a global set; otherwise the anchor (`org:1`, or `org`). */
+  scope?: string;
+}
+
+export interface PotentialClash {
+  /** `user:alice`, `role:editor`, `principal:authenticated`, `anyone`. */
+  subject: string;
+  clash: SeparationClash;
 }
 
 export interface ApplyInput {
@@ -1151,10 +1174,36 @@ export interface PolicyPermission {
   meta?: Record<string, unknown>;
 }
 
+/** Static separation of duties: nobody holds two `members` in the same scope. */
+export interface MutuallyExclusive {
+  name: string;
+  of: 'roles' | 'permissions';
+  members: string[];
+  /** Kind of anchor inside which two members clash; absent is global. */
+  anchor?: string;
+}
+
+/**
+ * Dynamic separation of duties: whoever did a `first` action on a resource does not do a `then` action on it.
+ * The history is an attribute of the resource (or of `env`) holding `"<permission>:<actor>"` entries, with
+ * `"|role,role"` appended when `distinctRoles` is on.
+ */
+export interface ConflictingActions {
+  name: string;
+  first: string[];
+  then: string[];
+  /** Attribute that carries the history; default `history`. */
+  history?: string;
+  /** Also refuses someone who holds a role the author of `first` acted with. */
+  distinctRoles?: boolean;
+}
+
 export interface PolicyCatalog {
   targetKinds: string[];
   broadTargets: string[];
   permissions: PolicyPermission[];
+  mutuallyExclusive?: MutuallyExclusive[];
+  conflictingActions?: ConflictingActions[];
 }
 
 export type PolicyStrategy = 'most_specific' | 'deny_overrides' | 'permit_overrides' | 'first_applicable';
