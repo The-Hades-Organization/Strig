@@ -56,6 +56,7 @@ pub mod strategy;
 pub mod subject;
 pub mod template;
 pub mod validity;
+pub mod why_not;
 
 pub use attr::{Attributes, Value};
 #[cfg(feature = "audit")]
@@ -111,3 +112,4 @@ pub use strategy::{
 pub use subject::{ANONYMOUS, AUTHENTICATED, RoleAssignment, Subject};
 pub use template::{Materialized, RoleTemplate, TemplateGrant};
 pub use validity::{Validity, ValidityError, next_boundary};
+pub use why_not::{Cause, Caveat, Change, Remedies, Remedy, WhyNotOptions};

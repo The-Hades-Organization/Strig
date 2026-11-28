@@ -295,6 +295,26 @@ impl JsEngine {
             .map_err(err)
     }
 
+    /// The verified changes that would allow a denied request (`null` if it is allowed).
+    #[napi]
+    pub fn why_not(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        request: Unknown<'_>,
+        now: Option<Unknown<'_>>,
+        options: Option<Unknown<'_>>,
+    ) -> Result<Value> {
+        self.inner
+            .why_not(
+                &ctx.inner,
+                json(env, request)?,
+                now_of(env, now)?,
+                optional(env, options)?,
+            )
+            .map_err(err)
+    }
+
     #[napi]
     pub fn allowed_fields(
         &self,

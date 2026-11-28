@@ -3,8 +3,8 @@
 use std::fmt::Write;
 
 use strig::{
-    AuditRecord, ConditionTrace, Effect, Explanation, GrantTrace, OverrideOutcome, Reason, SubjectMatcher, TraceResult,
-    Verdict,
+    AuditRecord, Cause, Caveat, Change, ConditionTrace, Effect, Explanation, GrantTrace, OverrideOutcome, Reason,
+    Remedies, SubjectMatcher, TraceResult, Verdict,
 };
 
 use crate::inspector::Matrix;
@@ -126,6 +126,85 @@ fn write_condition(out: &mut String, node: &ConditionTrace, depth: usize) {
     }
 }
 
+fn cause(cause: &Cause) -> String {
+    match cause {
+        Cause::Override { name } => format!("override {name} decided: no change of grants or roles undoes it"),
+        Cause::Deny {
+            grant_id, permission, ..
+        } => format!("deny {grant_id} ({permission}) decided"),
+        Cause::NoApplicableGrant => "no grant applied".into(),
+        Cause::UnknownPermission => "the permission is not in the catalog".into(),
+        Cause::OverrideOnlyPermission => "the permission only holds through an override".into(),
+        Cause::MissingPrerequisite {
+            prerequisite,
+            cause: inner,
+        } => {
+            format!("prerequisite {prerequisite} is not allowed: {}", self::cause(inner))
+        }
+        _ => "not classified by this version".into(),
+    }
+}
+
+fn change(change: &Change) -> String {
+    match change {
+        Change::AssignRole { role, scope } => match scope {
+            Some(scope) => format!("assign role {role} within {scope}"),
+            None => format!("assign role {role}"),
+        },
+        Change::AddGrant { grant } => format!(
+            "add allow {} for {} on {}",
+            grant.permission,
+            matcher(&grant.subject),
+            match &grant.target.id {
+                Some(id) => format!("{}:{id}", grant.target.kind),
+                None => grant.target.kind.clone(),
+            }
+        ),
+        Change::RemoveDeny { grant_id, .. } => format!("remove deny {grant_id}"),
+        Change::NarrowDeny { grant_id, field } => format!("take field {field} out of deny {grant_id}"),
+        Change::SatisfyCondition {
+            grant_id,
+            failed,
+            unresolved,
+        } => {
+            let all: Vec<&str> = failed.iter().chain(unresolved).map(String::as_str).collect();
+            format!("make the condition of {grant_id} hold: {}", all.join("; "))
+        }
+        _ => "change not classified by this version".into(),
+    }
+}
+
+fn caveat(caveat: &Caveat) -> &'static str {
+    match caveat {
+        Caveat::OverrideOnly => "override only",
+        Caveat::ManagementOnly => "management roles only",
+        Caveat::NonDelegable => "non-delegable",
+        Caveat::AffectsOthers => "affects other subjects",
+        _ => "other",
+    }
+}
+
+/// "Why not" in text: the cause and each verified remedy, smallest first.
+pub fn remedies(r: &Remedies) -> String {
+    let mut out = format!("WHY NOT — {}\n", cause(&r.cause));
+    if r.remedies.is_empty() {
+        out.push_str("  no single change would allow it\n");
+    }
+    for (i, remedy) in r.remedies.iter().enumerate() {
+        let notes: Vec<&str> = remedy.caveats.iter().map(caveat).collect();
+        let notes = if notes.is_empty() {
+            String::new()
+        } else {
+            format!(" [{}]", notes.join(", "))
+        };
+        let _ = writeln!(out, "  {}. {}{notes}", i + 1, change(&remedy.change));
+    }
+    if r.partial {
+        out.push_str("  (partial: limit reached)\n");
+    }
+    out
+}
+
 /// Rastro completo em texto, para o terminal.
 pub fn explanation(e: &Explanation) -> String {
     let mut out = String::new();
@@ -239,5 +318,17 @@ mod tests {
         assert!(text.contains(r#"✘ subject.plan ("free") = "pro""#));
         let text = explanation(&inspector.explain_named("ben", "document.view", "secret").unwrap());
         assert!(text.contains("★ no-secret deny"));
+    }
+
+    #[test]
+    fn text_why_not_lists_verified_remedies_and_names_the_cause() {
+        let inspector = inspector();
+        let denied = inspector
+            .why_not_named("ben", "project.edit", "roadmap")
+            .unwrap()
+            .expect("denied");
+        let text = remedies(&denied);
+        assert!(text.starts_with("WHY NOT — "), "{text}");
+        assert!(text.contains("  1. "), "{text}");
     }
 }

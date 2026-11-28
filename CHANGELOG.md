@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- "Why not?" with a suggestion: `Engine::why_not(ctx, request, &WhyNotOptions)` answers a denial with its cause (`Cause`: an override, the deciding `deny`, no applicable grant, a missing prerequisite, an unknown or `override_only` permission) and the smallest changes that would make it an `allow` (`Remedies`): the condition that failed or could not be evaluated (`SatisfyCondition`, no value invented), an `allow` on the most specific step of the path (`AddGrant`, checked with `validate_grant`, fields included), the deciding `deny` narrowed or removed (`NarrowDeny`, `RemoveDeny`) and a role with an applicable `allow` (`AssignRole`). Each remedy is verified by deciding again on a copy and the ones that do not come out `allow` are dropped; known catalog governance (`management_only`, `non_delegable`, `override_only`) and edits that reach other subjects are marked as `Caveat`s. An override is named and offers no remedy; grants of other subjects are never listed. `QueryLimits::max_decisions` and `max_remedies` bound the work and mark the answer `partial`. Additive: `Engine::explain` is unchanged. JavaScript and Python (`engine.whyNot`, `engine.why_not`, typed in `index.d.ts` and the stub), the Wasm ABI operation `whyNot`, and `strig-inspect explain` after a denial. The window and the browser inspector do not show it yet.
+
 ### Fixed
 
 - The Python sdist and wheels did not build in the release: `maturin-action` received `pyproject.toml` as `--manifest-path`. The release now passes `crates/strig-python/Cargo.toml`, and a new `python-build` workflow builds the sdist and a Linux wheel with the same arguments on pull requests that touch `crates/strig-python/**`, the workspace manifests or either workflow (also runnable by hand).
