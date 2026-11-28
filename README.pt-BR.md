@@ -28,7 +28,7 @@ O núcleo não faz IO, não precisa de runtime assíncrono e compila para WebAss
 cargo add strig                             # Rust
 cargo add strig --features dsl              # Rust, com a linguagem de políticas
 npm install @the-hades-organization/strig   # Node, Bun e navegador
-pip install strig-authz                     # Python (import strig)
+pip install strig-auth                     # Python (import strig)
 ```
 
 Features do crate `strig`:
@@ -113,7 +113,7 @@ Todos os crates, menos `strig-inspect`, `strig-node` e `strig-python`, estão no
 | `strig-server` | Servidor HTTP de decisão, e um cliente Rust que nega quando não recebe resposta | `axum`, `hyper-util` (cliente) |
 | `strig-macros` | `policy!` e `include_policy!`: a política é validada em tempo de compilação | `strig` |
 | `strig-node` | O pacote npm: módulo nativo (N-API) para Node e Bun, WebAssembly para navegador | `napi` ou `wasm-bindgen` |
-| `strig-python` | O pacote PyPI `strig-authz` (`import strig`): extensão nativa (PyO3, abi3) sobre o mesmo núcleo do `strig-node` | `pyo3` |
+| `strig-python` | O pacote PyPI `strig-auth` (`import strig`): extensão nativa (PyO3, abi3) sobre o mesmo núcleo do `strig-node` | `pyo3` |
 | `strig-inspect` | Visualizador: rastro das decisões, simulação de grants, matriz de acesso, trilha de auditoria. Janela desktop e comandos de terminal | `gpui-pre`, `gpui-component` |
 
 ```toml
@@ -887,10 +887,10 @@ Os testes de unidade conferem o objeto que cada adapter monta, e um oráculo rod
 
 ## Python
 
-`strig-authz` é o binding Python sobre o mesmo motor e o mesmo JSON `EngineSpec` das APIs Rust e JavaScript: uma extensão nativa (PyO3), com um wheel `abi3` por plataforma para Python 3.9 em diante e type stubs (`py.typed`).
+`strig-auth` é o binding Python sobre o mesmo motor e o mesmo JSON `EngineSpec` das APIs Rust e JavaScript: uma extensão nativa (PyO3), com um wheel `abi3` por plataforma para Python 3.9 em diante e type stubs (`py.typed`).
 
 ```sh
-pip install strig-authz
+pip install strig-auth
 ```
 
 ```python

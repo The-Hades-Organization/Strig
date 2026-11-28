@@ -1,4 +1,4 @@
-# strig-authz
+# strig-auth
 
 Python binding for [Strig](https://github.com/The-Hades-Organization/Strig): the same engine and the same JSON
 `EngineSpec` as the Rust and JavaScript APIs, as a native extension (PyO3, `abi3`, Python 3.9+).

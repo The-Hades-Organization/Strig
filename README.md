@@ -28,7 +28,7 @@ The core does no IO, needs no async runtime and compiles to WebAssembly. Real ti
 cargo add strig                             # Rust
 cargo add strig --features dsl              # Rust, with the policy language
 npm install @the-hades-organization/strig   # Node, Bun and the browser
-pip install strig-authz                     # Python (import strig)
+pip install strig-auth                     # Python (import strig)
 ```
 
 Features of the `strig` crate:
@@ -113,7 +113,7 @@ All crates except `strig-inspect`, `strig-node` and `strig-python` are on crates
 | `strig-server` | HTTP decision server, and a Rust client that denies when it gets no answer | `axum`, `hyper-util` (client) |
 | `strig-macros` | `policy!` and `include_policy!`: the policy is validated at compile time | `strig` |
 | `strig-node` | The npm package: native module (N-API) for Node and Bun, WebAssembly for the browser | `napi` or `wasm-bindgen` |
-| `strig-python` | The PyPI package `strig-authz` (`import strig`): native extension (PyO3, abi3) over the same core as `strig-node` | `pyo3` |
+| `strig-python` | The PyPI package `strig-auth` (`import strig`): native extension (PyO3, abi3) over the same core as `strig-node` | `pyo3` |
 | `strig-inspect` | Inspector: decision traces, grant simulation, access matrix, audit trail. Desktop window and terminal commands | `gpui-pre`, `gpui-component` |
 
 ```toml
@@ -887,10 +887,10 @@ The unit tests check the object each adapter builds, and an oracle runs every sc
 
 ## Python
 
-`strig-authz` is the Python binding over the same engine and the same JSON `EngineSpec` as the Rust and JavaScript APIs: a native extension (PyO3), one `abi3` wheel per platform for Python 3.9 and later, with type stubs (`py.typed`).
+`strig-auth` is the Python binding over the same engine and the same JSON `EngineSpec` as the Rust and JavaScript APIs: a native extension (PyO3), one `abi3` wheel per platform for Python 3.9 and later, with type stubs (`py.typed`).
 
 ```sh
-pip install strig-authz
+pip install strig-auth
 ```
 
 ```python

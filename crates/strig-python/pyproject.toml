@@ -3,7 +3,7 @@ requires = ["maturin>=1.7,<2"]
 build-backend = "maturin"
 
 [project]
-name = "strig-authz"
+name = "strig-auth"
 description = "Strig authorization engine for Python: the same engine and the same JSON spec as the Rust and JavaScript APIs."
 readme = "README.md"
 license = { text = "MIT" }
