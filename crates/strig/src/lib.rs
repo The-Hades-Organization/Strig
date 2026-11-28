@@ -44,6 +44,8 @@ pub mod exclusive_conformance;
 pub mod explain;
 pub mod governance;
 pub mod grant;
+#[cfg(feature = "audit")]
+pub mod merkle;
 pub mod overrides;
 pub mod pending;
 pub mod query;
@@ -53,6 +55,8 @@ pub mod resource;
 pub mod spec;
 pub mod strategy;
 pub mod subject;
+#[cfg(feature = "timestamp")]
+pub mod timestamp;
 pub mod template;
 pub mod validity;
 
