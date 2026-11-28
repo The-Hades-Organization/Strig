@@ -737,6 +737,8 @@ fn action_text(action: &AuditAction) -> &'static str {
         AuditAction::MutationApprove => "change approved",
         AuditAction::MutationReject => "change refused by an approver",
         AuditAction::MutationExpire => "pending change expired",
+        AuditAction::ElevationReview => "break-glass review closed",
+        _ => "other action",
     }
 }
 

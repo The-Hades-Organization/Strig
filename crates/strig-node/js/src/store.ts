@@ -253,6 +253,14 @@ export class JsonFileStore {
         if (stored.status.state !== 'pending') throw new PendingStoreError('PENDING_NOT_PENDING', `request "${request.id}" is no longer pending`);
         (data.pending as PendingRequest[])[at] = structuredClone(request);
       }),
+    annotate: (request) =>
+      this.mutate((data) => {
+        const at = (data.pending ?? []).findIndex((r) => r.id === request.id);
+        const stored = data.pending?.[at];
+        if (!stored) throw new PendingStoreError('PENDING_UNKNOWN', `request "${request.id}" does not exist`);
+        if (stored.status.state !== request.status.state) throw new PendingStoreError('PENDING_NOT_PENDING', `request "${request.id}" was decided differently`);
+        (data.pending as PendingRequest[])[at] = structuredClone(request);
+      }),
     list: async () =>
       structuredClone([...((await this.fresh()).pending ?? [])].sort((a, b) => a.requestedAt - b.requestedAt || (a.id < b.id ? -1 : 1))),
   };

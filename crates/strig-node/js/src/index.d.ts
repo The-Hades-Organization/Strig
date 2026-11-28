@@ -609,7 +609,82 @@ export interface PendingRequest {
   status: PendingStatus;
   /** The impact when the request was proposed, when `ProposeInput.impact` asked for it. */
   impact?: Impact;
+  /** Present when the request is a temporary elevation (see `ElevateInput`). */
+  elevation?: ElevationInfo;
 }
+
+/** What an elevation gives: a role, or a permission on a target. */
+export type ElevationTarget =
+  | { kind: 'role'; role: string; scope?: { kind: string; id?: string } }
+  | { kind: 'permission'; permission: string; target: { kind: string; id?: string }; scope?: { kind: string; id?: string } };
+
+/** How a role or permission may be elevated. */
+export interface ElevationRule {
+  key: { role: string } | { permission: string };
+  /** The longest an approved elevation lasts, in milliseconds. */
+  maxDurationMs: number;
+  /** What an approver, a reviewer of a break-glass or whoever revokes must hold... */
+  approverPermission: string;
+  /** ...and on which resource. */
+  approverResource: Resource;
+  /** A request without a justification is refused. */
+  requireJustification?: boolean;
+  /** Present when the actor may elevate themselves in an emergency. */
+  breakGlass?: { maxDurationMs: number };
+}
+
+export interface ElevationRequest {
+  id: string;
+  /** Who gets the elevation. Must have an `id`. */
+  actor: Subject;
+  target: ElevationTarget;
+  /** How long it lasts once approved, in milliseconds. The window opens at the approval. */
+  durationMs: number;
+  justification?: string;
+  /** The actor approves it themselves, as an emergency. Needs a policy that allows it and a `forensic` auditor. */
+  breakGlass?: boolean;
+}
+
+export type ReviewState = { state: 'pending' } | { state: 'closed'; by: string; at: number; note: string };
+
+export interface ElevationInfo {
+  target: ElevationTarget;
+  durationMs: number;
+  justification?: string;
+  breakGlass: boolean;
+  /** The instant (ms, exclusive) the elevation stops applying, once it is approved. */
+  validUntil?: number;
+  /** The review of a break-glass elevation; closed by someone other than the actor. */
+  review?: ReviewState;
+  revoked?: { by: string; at: number; reason?: string };
+}
+
+/**
+ * One step of the elevation flow, as `Engine.elevate` takes it. `op: 'request'` needs `elevationRequest`; the other
+ * operations act on the stored `request` as `by`.
+ */
+export interface ElevateInput extends ApprovalFlowInput {
+  op: 'request' | 'approve' | 'reject' | 'revoke' | 'close_review';
+  elevation: ElevationRule[];
+  elevationRequest?: ElevationRequest;
+  request?: PendingRequest;
+  by?: Subject;
+  /** The reason of `reject` and `revoke`, or the note of `close_review`. */
+  reason?: string;
+  expiresAt?: number | bigint;
+}
+
+/**
+ * `request`: `applied: false` waits for an approver; `applied: true` is a break-glass already in force, with its `grants`.
+ * `approve` and `revoke` carry the `grants` to persist (and the elevation of a role is in `request.mutation`).
+ */
+export type ElevateResult = ApprovalAudit &
+  (
+    | { ok: true; request: PendingRequest; applied?: boolean; grants?: Grant[]; proposedImpact?: Impact }
+    | { ok: false; code: 'REFUSED'; violations: Violation[] }
+    | { ok: false; code: 'EXPIRED'; request: PendingRequest }
+    | { ok: false; code: 'NOT_PENDING' | 'UNKNOWN' | 'DUPLICATE' }
+  );
 
 /** What `propose`, `resolve` and `expire` share with `apply`: the state they judge against and the audit. */
 export interface ApprovalFlowInput {
@@ -961,6 +1036,8 @@ export declare class Engine<P extends string = string> {
   propose(input: ProposeInput): ProposeResult;
   /** Approves or refuses `request`. The author never decides their own request; an approval judges the change again over `current`. */
   resolve(input: ResolveInput): ResolveResult;
+  /** Requests, approves, refuses, revokes or reviews a temporary elevation, break-glass included. Nothing is stored: see `Elevations` in `@the-hades-organization/strig/approvals`. */
+  elevate(input: ElevateInput): ElevateResult;
   /** Closes the requests whose expiry has come and returns them. */
   expire(input: ExpireInput): ExpireResult;
   /** Tries to write the records waiting in the retry queue now and returns its counters. */

@@ -101,6 +101,7 @@ impl fmt::Display for AuditLevel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum AuditAction {
     GrantAdd,
     GrantRemove,
@@ -126,6 +127,8 @@ pub enum AuditAction {
     MutationReject,
     /// A pending request ran out of time before anyone decided it.
     MutationExpire,
+    /// Another actor closed the review of a break-glass elevation (`pending::elevation`).
+    ElevationReview,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

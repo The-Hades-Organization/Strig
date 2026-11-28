@@ -5,6 +5,10 @@
 import type {
   ApplyInput,
   ApprovalRule,
+  ElevateInput,
+  ElevateResult,
+  ElevationRequest,
+  ElevationRule,
   ExpireInput,
   ExpireResult,
   Grant,
@@ -39,6 +43,11 @@ export interface PendingStore {
   update(request: PendingRequest): Promise<void> | void;
   /** Every request, whatever its status, oldest first. */
   list(): Promise<PendingRequest[]> | PendingRequest[];
+  /**
+   * Rewrites a request whatever its status, keeping the decision: an elevation keeps its revocation and the closing of its
+   * review this way. Needed by `Elevations`, not by `Approvals`.
+   */
+  annotate?(request: PendingRequest): Promise<void> | void;
 }
 
 /** The three calls of the engine the flow needs. `Engine` has them. */
@@ -67,6 +76,13 @@ export class MemoryPendingStore implements PendingStore {
     const stored = this.requests.get(request.id);
     if (!stored) throw new PendingStoreError('PENDING_UNKNOWN', `request "${request.id}" does not exist`);
     if (stored.status.state !== 'pending') throw new PendingStoreError('PENDING_NOT_PENDING', `request "${request.id}" is no longer pending`);
+    this.requests.set(request.id, structuredClone(request));
+  }
+
+  annotate(request: PendingRequest): void {
+    const stored = this.requests.get(request.id);
+    if (!stored) throw new PendingStoreError('PENDING_UNKNOWN', `request "${request.id}" does not exist`);
+    if (stored.status.state !== request.status.state) throw new PendingStoreError('PENDING_NOT_PENDING', `request "${request.id}" was decided differently`);
     this.requests.set(request.id, structuredClone(request));
   }
 
@@ -213,6 +229,150 @@ export class Approvals {
   private follow(audits: Array<Record<string, unknown>>): void {
     const hash = audits.at(-1)?.hash;
     if (typeof hash === 'string') this.head = hash;
+  }
+
+  private clock(): number {
+    return this.options.now?.() ?? Date.now();
+  }
+}
+
+/** The one call of the engine the elevation flow needs. `Engine` has it. */
+export interface ElevationEngine {
+  elevate(input: ElevateInput): ElevateResult;
+}
+
+export interface ElevationsOptions {
+  /** What can be elevated and how: maximum duration, approver permission, justification and break-glass. Without a rule, the request is refused. */
+  elevation: ElevationRule[];
+  invariants?: InvariantSpec[];
+  /** The audit of every step. Break-glass needs `level: 'forensic'`; its record is written in `closed` mode whatever `failMode` says. */
+  audit?: ApplyInput['audit'];
+  impact?: ImpactOptions;
+  now?: () => number;
+}
+
+export interface ElevationPersistOptions extends CallOptions {
+  /** Runs after the engine accepts the step and before the store keeps it: persist the grants (and the roles) here. A throw leaves the store as it was. */
+  persist?: (result: Extract<ElevateResult, { ok: true }>) => Promise<void> | void;
+}
+
+/**
+ * Temporary elevation and break-glass over a `PendingStore` that has `annotate`. The window opens at the approval and
+ * lasts the requested duration, never past the policy's maximum; the author never approves their own request; a
+ * break-glass is in force at once, audited as `forensic`, and leaves a review that someone else closes.
+ */
+export class Elevations {
+  private head: string | undefined;
+
+  constructor(
+    private readonly engine: ElevationEngine,
+    readonly store: PendingStore,
+    private readonly options: ElevationsOptions,
+  ) {
+    this.head = options.audit?.prevHash;
+  }
+
+  /** Asks for an elevation. A break-glass request that is accepted is already in force: `result.applied` is `true` and `persist` runs. */
+  async request(request: ElevationRequest, current: Grant[], options: ElevationPersistOptions & { expiresAt?: number } = {}): Promise<ElevateResult> {
+    if (await this.store.get(request.id)) throw new PendingStoreError('PENDING_DUPLICATE', `request "${request.id}" already exists`);
+    const result = this.step({ op: 'request', elevationRequest: request, ...(options.expiresAt === undefined ? {} : { expiresAt: options.expiresAt }) }, current, options);
+    if (result.ok) {
+      if (result.applied === true && options.persist) await options.persist(result);
+      await this.store.put(result.request);
+    }
+    return result;
+  }
+
+  /** Approves `id`: the window opens now. The invariants judge the change again over `current`. */
+  async approve(id: string, approver: Subject, current: Grant[], options: ElevationPersistOptions = {}): Promise<ElevateResult> {
+    const request = await this.load(id);
+    const result = this.step({ op: 'approve', request, by: approver }, current, options);
+    if (result.ok) {
+      if (options.persist) await options.persist(result);
+      await this.requireStore().update(result.request);
+    } else if (result.code === 'EXPIRED') {
+      await this.requireStore().update(result.request);
+    }
+    return result;
+  }
+
+  async reject(id: string, approver: Subject, reason: string, current: Grant[], options: CallOptions = {}): Promise<ElevateResult> {
+    const request = await this.load(id);
+    const result = this.step({ op: 'reject', request, by: approver, reason }, current, options);
+    if (result.ok) await this.requireStore().update(result.request);
+    return result;
+  }
+
+  /** Takes an approved elevation back before its time: by the actor or by someone who holds the approver permission. `persist` removes the grant or the role. */
+  async revoke(id: string, by: Subject, current: Grant[], options: ElevationPersistOptions & { reason?: string } = {}): Promise<ElevateResult> {
+    const request = await this.load(id);
+    const result = this.step({ op: 'revoke', request, by, ...(options.reason === undefined ? {} : { reason: options.reason }) }, current, options);
+    if (result.ok) {
+      if (options.persist) await options.persist(result);
+      await this.annotate(result.request);
+    }
+    return result;
+  }
+
+  /** Closes the review of a break-glass with a note; the reviewer is someone other than the actor. */
+  async closeReview(id: string, reviewer: Subject, note: string, current: Grant[], options: CallOptions = {}): Promise<ElevateResult> {
+    const request = await this.load(id);
+    const result = this.step({ op: 'close_review', request, by: reviewer, reason: note }, current, options);
+    if (result.ok) await this.annotate(result.request);
+    return result;
+  }
+
+  /** The elevations approved, not revoked and inside their window at `now`. */
+  async active(now: number = this.clock()): Promise<PendingRequest[]> {
+    return (await this.store.list()).filter((r) => {
+      const info = r.elevation;
+      return (
+        info !== undefined &&
+        r.status.state === 'approved' &&
+        now >= r.status.at &&
+        info.revoked === undefined &&
+        info.validUntil !== undefined &&
+        now < info.validUntil
+      );
+    });
+  }
+
+  /** The break-glass elevations nobody reviewed yet. */
+  async pendingReviews(): Promise<PendingRequest[]> {
+    return (await this.store.list()).filter((r) => r.elevation?.breakGlass === true && r.elevation.review?.state === 'pending');
+  }
+
+  private step(input: Pick<ElevateInput, 'op'> & Partial<ElevateInput>, current: Grant[], options: CallOptions): ElevateResult {
+    const now = options.now ?? this.options.now?.();
+    const result = this.engine.elevate({
+      current,
+      elevation: this.options.elevation,
+      ...(this.options.invariants ? { invariants: this.options.invariants } : {}),
+      ...(this.options.impact ? { impact: this.options.impact } : {}),
+      ...(this.options.audit ? { audit: { ...this.options.audit, ...(this.head === undefined ? {} : { prevHash: this.head }) } } : {}),
+      ...(options.meta ? { meta: options.meta } : {}),
+      ...(options.tuples ? { tuples: options.tuples } : {}),
+      ...(now === undefined ? {} : { now }),
+      ...input,
+    });
+    const hash = result.audits.at(-1)?.hash;
+    if (typeof hash === 'string') this.head = hash;
+    return result;
+  }
+
+  private async load(id: string): Promise<PendingRequest> {
+    const request = await this.store.get(id);
+    if (!request) throw new PendingStoreError('PENDING_UNKNOWN', `request "${id}" does not exist`);
+    return request;
+  }
+
+  private requireStore(): PendingStore {
+    return this.store;
+  }
+
+  private async annotate(request: PendingRequest): Promise<void> {
+    if (!this.store.annotate) throw new TypeError('the pending store has no annotate: an elevation needs it to keep a revocation or a review');
+    await this.store.annotate(request);
   }
 
   private clock(): number {

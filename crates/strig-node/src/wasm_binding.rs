@@ -528,6 +528,15 @@ impl WasmEngine {
         )
     }
 
+    pub fn elevate(&self, input: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .elevate(from_js(input)?, crate::millis("now", js_sys::Date::now()))
+                .map_err(err)?,
+        )
+    }
+
     pub fn expire(&self, input: JsValue) -> Result<JsValue, JsFailure> {
         to_js(
             &self

@@ -112,6 +112,41 @@ impl PgTables {
         })
     }
 
+    /// Rewrites the data of a request without touching its decision: the row is changed only while
+    /// its state is the one `request` carries, in one statement. It is how an elevation keeps its
+    /// revocation and the closing of its review after the request was decided.
+    ///
+    /// # Errors
+    ///
+    /// [`PendingError::Unknown`] when there is no such request, [`PendingError::Store`] when its state
+    /// is no longer the one given or the query fails.
+    pub async fn annotate_pending<C: GenericClient>(
+        &self,
+        client: &C,
+        request: &PendingRequest,
+    ) -> Result<(), PendingError> {
+        let data = serde_json::to_string(request).map_err(store_error)?;
+        let table = self.qualified(&self.pending);
+        let sql = format!("UPDATE {table} SET data = $3::text::jsonb WHERE id = $1 AND state = $2");
+        let changed = client
+            .execute(&sql, &[&request.id, &state_of(request), &data])
+            .await
+            .map_err(store_error)?;
+        if changed > 0 {
+            return Ok(());
+        }
+        let exists = client
+            .query_opt(&format!("SELECT 1 FROM {table} WHERE id = $1"), &[&request.id])
+            .await
+            .map_err(store_error)?
+            .is_some();
+        Err(if exists {
+            store_error("the request was decided differently meanwhile")
+        } else {
+            PendingError::Unknown(request.id.clone())
+        })
+    }
+
     /// Every request, oldest first.
     ///
     /// # Errors
@@ -177,6 +212,7 @@ enum Op {
     Insert(PendingRequest),
     Get(String),
     Update(PendingRequest),
+    Annotate(PendingRequest),
     List,
     Due(u64),
 }
@@ -305,6 +341,7 @@ async fn run(tables: &PgTables, client: &Client, op: Op) -> Result<Reply, Pendin
         Op::Insert(request) => tables.insert_pending(client, &request).await.map(|()| Reply::Done),
         Op::Get(id) => tables.get_pending(client, &id).await.map(|r| Reply::One(Box::new(r))),
         Op::Update(request) => tables.update_pending(client, &request).await.map(|()| Reply::Done),
+        Op::Annotate(request) => tables.annotate_pending(client, &request).await.map(|()| Reply::Done),
         Op::List => tables.list_pending(client).await.map(Reply::Many),
         Op::Due(now) => tables.due_pending(client, now).await.map(Reply::Many),
     }
@@ -324,6 +361,10 @@ impl PendingStore for PgPendingStore {
 
     fn update(&self, request: PendingRequest) -> Result<(), PendingError> {
         self.call(Op::Update(request)).map(|_| ())
+    }
+
+    fn annotate(&self, request: PendingRequest) -> Result<(), PendingError> {
+        self.call(Op::Annotate(request)).map(|_| ())
     }
 
     fn list(&self) -> Result<Vec<PendingRequest>, PendingError> {
