@@ -526,6 +526,17 @@ if client.check(&request).await.is_allowed() {
 }
 ```
 
+### AuthZEN
+
+`DecisionServer::new(source).with_authzen(AuthzenConfig::default())` serve também a [Authorization API 1.0 da OpenID AuthZEN](https://openid.net/specs/authorization-api-1_0.html) (Final, janeiro de 2026) ao lado do `/v1`, para que gateways e plataformas que falam o padrão consultem o Strig sem adaptador: `POST /access/v1/evaluation`, `/access/v1/evaluations` (com os três `evaluations_semantic`), `/access/v1/search/subject`, `/access/v1/search/action`, `/access/v1/search/resource` (com um `ResourceCatalog`) e `GET /.well-known/authzen-configuration` (com um issuer). As `subject.properties` viram atributos, com as propriedades `roles` e `principals` para papéis e principals; os passos mais amplos do caminho do recurso vêm de uma propriedade `path` ou de um `PathResolver` do servidor; `context` é o `env`. Falha fechado como o `/v1`: pedido malformado é `400`, permissão fora do catálogo é `{"decision": false}` e servidor que não consegue decidir responde `500`. O mapeamento e o que ficou de fora estão em [`crates/strig-server/API.md`](crates/strig-server/API.md#authzen-authorization-api).
+
+```rust
+let config = AuthzenConfig::default()
+    .with_issuer("https://pdp.example.com")?
+    .with_path_resolver(Arc::new(MyOrgTree));
+let router = DecisionServer::new(source).with_authzen(config).router();
+```
+
 ## Observabilidade
 
 Todo crate tem uma feature `tracing` opcional, desligada por padrão. Ela traz spans pelo [`tracing`](https://docs.rs/tracing) e métricas pela fachada [`metrics`](https://docs.rs/metrics), então o backend é escolha sua: Prometheus, OpenTelemetry ou um recorder próprio. As features se encadeiam (`strig-sync/tracing` liga `strig/tracing`, `strig-postgres/tracing` e `strig-redis/tracing` ligam `strig-sync/tracing`, `strig-server/tracing` liga `strig/tracing`).
