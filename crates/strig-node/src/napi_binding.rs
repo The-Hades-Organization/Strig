@@ -706,6 +706,21 @@ pub fn verify_audit_chain(env: &Env, records: Unknown<'_>, anchors: Option<Unkno
     crate::verify_audit_chain(json(env, records)?, optional(env, anchors)?).map_err(err)
 }
 
+#[napi]
+pub fn verify_merkle_inclusion(env: &Env, input: Unknown<'_>) -> Result<Value> {
+    crate::verify_merkle_inclusion(json(env, input)?).map_err(err)
+}
+
+#[napi]
+pub fn verify_merkle_consistency(env: &Env, input: Unknown<'_>) -> Result<Value> {
+    crate::verify_merkle_consistency(json(env, input)?).map_err(err)
+}
+
+#[napi]
+pub fn verify_timestamp(env: &Env, input: Unknown<'_>) -> Result<Value> {
+    crate::verify_timestamp(json(env, input)?).map_err(err)
+}
+
 /// Um argumento da linguagem: o que não é JSON vira o `INVALID_ARGUMENT` do envelope.
 fn dsl_arg(env: &Env, arg: Unknown<'_>) -> std::result::Result<Value, crate::dsl::DslFailure> {
     json(env, arg).map_err(|e| BindingError::invalid_argument("argumento", &e.reason).into())

@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Audit verifiable by third parties, without changing the record or its hash. `strig::merkle` (feature `audit`) builds an RFC 6962 / RFC 9162 Merkle tree over a stretch of records (`MerkleTree`, leaf hash `SHA-256(0x00 || record line)`, node hash with prefix `0x01`) with inclusion and consistency proofs and pure verifiers. `strig::timestamp` (new feature `timestamp`, off by default, pulls `rsa`, `p256`, `p384` and `sha2` 0.10 only when on) builds the RFC 3161 `TimeStampReq` for a chain head and verifies the `TimeStampResp` (imprint, nonce, policy, CMS signature, certificate chain to roots you supply, time-stamping key usage; fails closed, no revocation check, no IO). `strig::audit_report::ConformanceReport` summarizes a JSON Lines trail (period, records per action and outcome, changes per actor, refusals per invariant, chain breaks, anchors, stamps). `examples/timestamp_http.rs` sends a request through `curl`. Test vectors from RFC 6962 and a real `freetsa.org` response, documented in `docs/audit-format.md`.
+- `strig audit report <trail.jsonl> [--json] [--anchor-head <hash>] [--anchor-start <hash>] [--timestamp <resp.tsr>]... [--root <ca.pem>]...`: the conformance report for people or as JSON; exit `0` conforming, `1` not, `2` usage.
+- JS binding: `verifyMerkleInclusion`, `verifyMerkleConsistency` and `verifyTimestamp` (native and wasm, no network) with their types in `index.d.ts`. The wasm build links `getrandom` with its `js` feature so the RSA and ECDSA crates build for `wasm32-unknown-unknown`; verification never draws random numbers.
+
 ### Fixed
 
 - The Python sdist and wheels did not build in the release: `maturin-action` received `pyproject.toml` as `--manifest-path`. The release now passes `crates/strig-python/Cargo.toml`, and a new `python-build` workflow builds the sdist and a Linux wheel with the same arguments on pull requests that touch `crates/strig-python/**`, the workspace manifests or either workflow (also runnable by hand).

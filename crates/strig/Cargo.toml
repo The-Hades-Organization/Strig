@@ -24,6 +24,8 @@ tracing = ["dep:tracing", "dep:metrics"]
 exclusive = []
 ## `strig::exclusive_conformance`, the battery every `ExclusiveStore` must pass. For the tests of store adapters; not part of the stable API.
 conformance = ["exclusive"]
+## RFC 3161 time-stamp requests and verification of `TimeStampResp` (DER, CMS signature, certificate chain against roots you supply). Pure (no IO, no clock); the HTTP exchange with the TSA is yours. Off by default: the core without it gains no dependency.
+timestamp = ["audit", "dep:rsa", "dep:p256", "dep:p384", "dep:sha2-rustcrypto-010"]
 ## Policy language: lexer, validator, Blocks syntax, `Project` and the canonical JSON. Pure (no IO, no clock) and wasm-friendly.
 dsl = []
 ## File access for the policy language (read a file, read a directory into a `Project`, write a file). Not for wasm.
@@ -35,6 +37,10 @@ serde_json.workspace = true
 chrono = { version = "0.4", default-features = false, optional = true }
 chrono-tz = { version = "0.10", default-features = false, optional = true }
 sha2 = { version = "0.11", optional = true }
+rsa = { version = "0.9", default-features = false, features = ["std"], optional = true }
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"], optional = true }
+p384 = { version = "0.13", default-features = false, features = ["ecdsa", "std"], optional = true }
+sha2-rustcrypto-010 = { package = "sha2", version = "0.10", default-features = false, features = ["oid"], optional = true }
 thiserror.workspace = true
 tracing = { workspace = true, optional = true }
 metrics = { workspace = true, optional = true }
@@ -89,3 +95,15 @@ required-features = ["audit"]
 [[test]]
 name = "pending_audit"
 required-features = ["audit"]
+
+[[test]]
+name = "audit_report"
+required-features = ["audit"]
+
+[[test]]
+name = "timestamp"
+required-features = ["timestamp"]
+
+[[example]]
+name = "timestamp_http"
+required-features = ["timestamp"]
