@@ -229,6 +229,7 @@ pub struct PendingRef {
 
 /// One record of the trail. The optional fields appear depending on the level.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct AuditRecord {
     /// Milliseconds since the Unix epoch.
     pub at: u64,

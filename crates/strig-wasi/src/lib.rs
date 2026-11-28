@@ -193,6 +193,8 @@ fn run(reg: &mut Registry, op: &str, input: &Value) -> BindingResult<Value> {
         }),
         "catalog" => engine_only(reg, input, |e| Ok(e.catalog())),
         "apply" => engine_only(reg, input, |e| e.apply(input_of(input)?, clock_of(input))),
+        "impact" => engine_only(reg, input, |e| e.impact(input_of(input)?, clock_of(input))),
+        "reviewImpact" => engine_only(reg, input, |e| e.review_impact(input_of(input)?, clock_of(input))),
         "propose" => engine_only(reg, input, |e| e.propose(input_of(input)?, clock_of(input))),
         "resolve" => engine_only(reg, input, |e| e.resolve(input_of(input)?, clock_of(input))),
         "expire" => engine_only(reg, input, |e| e.expire(input_of(input)?, clock_of(input))),

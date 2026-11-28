@@ -116,6 +116,7 @@ pub enum PendingStatus {
 /// A change waiting for another actor.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct PendingRequest {
     pub id: String,
     /// Whoever proposed the change. The invariants judge the change as this actor, at proposal and at approval.
@@ -134,6 +135,37 @@ pub struct PendingRequest {
 }
 
 impl PendingRequest {
+    /// A pending request with no expiry and no impact.
+    pub fn new(id: impl Into<String>, actor: Subject, mutation: Mutation, requested_at: u64) -> Self {
+        Self {
+            id: id.into(),
+            actor,
+            mutation,
+            requested_at,
+            expires_at: None,
+            status: PendingStatus::Pending,
+            impact: None,
+        }
+    }
+
+    #[must_use]
+    pub fn expiring_at(mut self, expires_at: Option<u64>) -> Self {
+        self.expires_at = expires_at;
+        self
+    }
+
+    #[must_use]
+    pub fn with_status(mut self, status: PendingStatus) -> Self {
+        self.status = status;
+        self
+    }
+
+    #[must_use]
+    pub fn with_impact(mut self, impact: Impact) -> Self {
+        self.impact = Some(impact);
+        self
+    }
+
     pub fn is_pending(&self) -> bool {
         self.status == PendingStatus::Pending
     }
@@ -281,6 +313,7 @@ pub enum Proposed {
 /// A request approved and applied: the grants to persist (unchanged for a role change; the subject to
 /// write comes from [`Mutation::subject_after`] of the request) and the request as it now stands.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Approved {
     pub grants: Vec<Grant>,
     /// The request as it now stands; its `impact` is the one recomputed at the approval.

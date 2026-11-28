@@ -26,9 +26,9 @@ use strig::ChainError;
 use strig::audit::{AuditLevel, AuditRecord, AuditStatus, FailMode, MemoryAuditLog, chain_head, verify_chain_anchored};
 use strig::{
     ApprovalError, ApprovalPolicy, ApprovalRule, Approvals, Attributes, CapabilitySet, Context, Engine, EngineSpec,
-    Governance, Grant, InMemorySubjects, InMemoryTuples, InvariantSpec, MemoryPendingStore, Mutation, PathLayout,
-    PendingError, PendingRequest, PendingStore, Proposed, QueryContext, QueryLimits, Request, Resource, Review,
-    RoleTemplate, Subject, Tuple,
+    Governance, Grant, ImpactOptions, ImpactSource, InMemorySubjects, InMemoryTuples, InvariantSpec,
+    MemoryPendingStore, Mutation, PathLayout, PendingError, PendingRequest, PendingStore, Proposed, QueryContext,
+    QueryLimits, Request, Resource, Review, RoleTemplate, Subject, Tuple,
 };
 
 pub use error::{BindingError, BindingResult};
@@ -412,6 +412,46 @@ fn worst_status(items: &[(AuditRecord, AuditStatus)]) -> Option<AuditStatus> {
     items.iter().map(|(_, s)| *s).max_by_key(rank)
 }
 
+/// Tetos de uma consulta de impacto: `{ maxParties?, maxDecisions? }`; o que falta fica no padrão.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ImpactLimits {
+    max_parties: Option<usize>,
+    max_decisions: Option<usize>,
+}
+
+/// O que o impacto de uma mudança se calcula sobre: de onde vêm sujeitos e recursos, o ambiente e os tetos.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ImpactInput {
+    #[serde(default = "ImpactSource::derived")]
+    source: ImpactSource,
+    #[serde(default)]
+    env: Attributes,
+    #[serde(default)]
+    limits: ImpactLimits,
+}
+
+impl ImpactInput {
+    fn options<'a>(&'a self, tuples: Option<&'a InMemoryTuples>, now: u64) -> ImpactOptions<'a> {
+        let mut limits = QueryLimits::default();
+        if let Some(parties) = self.limits.max_parties {
+            limits = limits.with_max_parties(parties);
+        }
+        if let Some(decisions) = self.limits.max_decisions {
+            limits = limits.with_max_decisions(decisions);
+        }
+        let options = ImpactOptions::new(self.source.clone())
+            .with_env(&self.env)
+            .with_limits(limits)
+            .at(now);
+        match tuples {
+            Some(tuples) => options.with_tuples(tuples),
+            None => options,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ApplyInput {
@@ -428,6 +468,8 @@ struct ApplyInput {
     meta: Attributes,
     #[serde(default)]
     now: Option<Value>,
+    #[serde(default)]
+    impact: Option<ImpactInput>,
 }
 
 /// Entrada comum do fluxo de pedido pendente: o estado contra o qual se julga, as invariantes, a
@@ -449,6 +491,8 @@ struct FlowInput {
     now: Option<Value>,
     #[serde(default)]
     approval: Vec<ApprovalRule>,
+    #[serde(default)]
+    impact: Option<ImpactInput>,
 }
 
 #[derive(Deserialize)]
@@ -472,6 +516,14 @@ struct ResolveInput {
     decision: String,
     #[serde(default)]
     reason: Option<String>,
+    #[serde(flatten)]
+    flow: FlowInput,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReviewImpactInput {
+    request: PendingRequest,
     #[serde(flatten)]
     flow: FlowInput,
 }
@@ -949,20 +1001,39 @@ impl EngineHandle {
             Some(mode) => at.fail_mode(mode),
             None => at,
         };
-        let result = at.apply_with(
-            &self.engine,
-            &input.actor,
-            &input.current,
-            &input.mutation,
-            governed.store(),
-            governed.meta,
-        );
+        let impact_options = input.impact.as_ref().map(|i| i.options(governed.tuples.as_ref(), now));
+        let result = match &impact_options {
+            Some(options) => at
+                .apply_with_impact(
+                    &self.engine,
+                    &input.actor,
+                    &input.current,
+                    &input.mutation,
+                    governed.store(),
+                    governed.meta,
+                    options,
+                )
+                .map(|applied| (applied.grants, Some(applied.impact))),
+            None => at
+                .apply_with(
+                    &self.engine,
+                    &input.actor,
+                    &input.current,
+                    &input.mutation,
+                    governed.store(),
+                    governed.meta,
+                )
+                .map(|grants| (grants, None)),
+        };
         let items = capture.take();
         let status = worst_status(&items);
         let audit = items.last().map(|(r, _)| to_value(r));
         Ok(match result {
-            Ok(grants) => {
+            Ok((grants, impact)) => {
                 let mut out = out!({ "ok": true, "grants": grants, "audit": audit, "auditStatus": status });
+                if let Some(impact) = impact {
+                    out["impact"] = to_value(&impact);
+                }
                 if let Some(subject) = input.mutation.subject_after() {
                     out["subject"] = to_value(&subject);
                 }
@@ -970,6 +1041,46 @@ impl EngineHandle {
             }
             Err(violations) => out!({ "ok": false, "violations": violations, "audit": audit, "auditStatus": status }),
         })
+    }
+
+    /// O impacto de uma mudança sobre o acesso, sem aplicá-la nem gravar auditoria: quem ganha, quem
+    /// perde e o que não se decide. A entrada é a do `apply` e `impact` diz de onde vêm sujeitos e
+    /// recursos (padrão: derivados das consultas reversas). Devolve `{ ok: true, impact }` ou
+    /// `{ ok: false, violations }` quando as invariantes recusam a mudança.
+    pub fn impact(&self, input: Value, clock: BindingResult<u64>) -> BindingResult<Value> {
+        host::forbid_reentry()?;
+        let mut input = input;
+        let custom = host::take_custom(&mut input)?;
+        let input: ApplyInput = parse("impact", input)?;
+        let now = match &input.now {
+            Some(v) if !v.is_null() => millis_value("now", v)?,
+            _ => clock?,
+        };
+        let governed = Governed {
+            invariants: &input.invariants,
+            host: &self.host,
+            custom: &custom,
+            audit: None,
+            tuples: input.tuples.map(|t| t.into_iter().collect()),
+            meta: &input.meta,
+            now,
+        };
+        let governance = governed.governance(None)?;
+        let spec = input.impact.unwrap_or_else(|| ImpactInput {
+            source: ImpactSource::derived(),
+            env: Attributes::new(),
+            limits: ImpactLimits::default(),
+        });
+        let options = spec.options(governed.tuples.as_ref(), now);
+        Ok(
+            match governance
+                .at(now)
+                .impact(&self.engine, &input.actor, &input.current, &input.mutation, &options)
+            {
+                Ok(impact) => out!({ "ok": true, "impact": impact }),
+                Err(violations) => out!({ "ok": false, "violations": violations }),
+            },
+        )
     }
 
     /// Materializa um template em grants comuns, sem vínculo com ele: o resultado é só uma cópia
@@ -1120,7 +1231,14 @@ impl EngineHandle {
             _ => None,
         };
         let store = MemoryPendingStore::new();
-        let approvals = self.approvals(&governance, &policy, &store, input.flow.audit.as_ref());
+        let impact_options = input.flow.impact.as_ref().map(|i| i.options(tuples.as_ref(), now));
+        let approvals = self.approvals(
+            &governance,
+            &policy,
+            &store,
+            input.flow.audit.as_ref(),
+            impact_options.as_ref(),
+        );
         let review = Review {
             engine: &self.engine,
             current: &input.flow.current,
@@ -1161,7 +1279,14 @@ impl EngineHandle {
         let id = input.request.id.clone();
         let store = MemoryPendingStore::new();
         seed(&store, std::slice::from_ref(&input.request))?;
-        let approvals = self.approvals(&governance, &policy, &store, input.flow.audit.as_ref());
+        let impact_options = input.flow.impact.as_ref().map(|i| i.options(tuples.as_ref(), now));
+        let approvals = self.approvals(
+            &governance,
+            &policy,
+            &store,
+            input.flow.audit.as_ref(),
+            impact_options.as_ref(),
+        );
         let review = Review {
             engine: &self.engine,
             current: &input.flow.current,
@@ -1176,6 +1301,9 @@ impl EngineHandle {
                     let mut extra = serde_json::json!({"grants": to_value(&approved.grants), "request": request_json(&approved.request)});
                     if let Some(subject) = approved.request.mutation.subject_after() {
                         extra["subject"] = to_value(&subject);
+                    }
+                    if let Some(proposed) = &approved.proposed_impact {
+                        extra["proposedImpact"] = to_value(proposed);
                     }
                     flow_reply(&capture, true, extra)
                 }
@@ -1197,6 +1325,41 @@ impl EngineHandle {
         })
     }
 
+    /// O impacto do `request` pendente como foi proposto e como seria agora sobre `current`, para o
+    /// aprovador ver antes de decidir: `{ ok: true, proposed, current, changed }`. Nada se grava.
+    pub fn review_impact(&self, input: Value, clock: BindingResult<u64>) -> BindingResult<Value> {
+        host::forbid_reentry()?;
+        let mut input = input;
+        let custom = host::take_custom(&mut input)?;
+        let mut input: ReviewImpactInput = parse("reviewImpact", input)?;
+        let (now, governance, _capture, policy, tuples) = self.flow_parts(&mut input.flow, &custom, clock)?;
+        let id = input.request.id.clone();
+        let store = MemoryPendingStore::new();
+        seed(&store, std::slice::from_ref(&input.request))?;
+        let spec = input.flow.impact.take().unwrap_or_else(|| ImpactInput {
+            source: ImpactSource::derived(),
+            env: Attributes::new(),
+            limits: ImpactLimits::default(),
+        });
+        let options = spec.options(tuples.as_ref(), now);
+        let approvals = self.approvals(&governance, &policy, &store, None, Some(&options));
+        let review = Review {
+            engine: &self.engine,
+            current: &input.flow.current,
+            tuples: tuples.as_ref().map(|s| s as &dyn strig::TupleStore),
+            now,
+            meta: &input.flow.meta,
+        };
+        Ok(match approvals.review_impact(&review, &id) {
+            Ok(reviewed) => {
+                let mut out = to_value(&reviewed);
+                out["ok"] = Value::Bool(true);
+                out
+            }
+            Err(error) => refused_reply(&Capture::default(), error, None)?,
+        })
+    }
+
     /// Fecha os pedidos pendentes cujo prazo chegou em `now` e devolve `{ ok, expired, audits }`, com os
     /// pedidos já expirados para o chamador gravar.
     pub fn expire(&self, input: Value, clock: BindingResult<u64>) -> BindingResult<Value> {
@@ -1207,7 +1370,7 @@ impl EngineHandle {
         let (now, governance, capture, policy, _) = self.flow_parts(&mut input.flow, &custom, clock)?;
         let store = MemoryPendingStore::new();
         seed(&store, &input.requests)?;
-        let approvals = self.approvals(&governance, &policy, &store, input.flow.audit.as_ref());
+        let approvals = self.approvals(&governance, &policy, &store, input.flow.audit.as_ref(), None);
         Ok(match approvals.expire_due(now, &input.flow.meta) {
             Ok(expired) => {
                 let expired: Vec<Value> = expired.iter().map(request_json).collect();
@@ -1223,8 +1386,13 @@ impl EngineHandle {
         policy: &'a ApprovalPolicy,
         store: &'a MemoryPendingStore,
         audit: Option<&AuditInput>,
+        impact: Option<&'a ImpactOptions<'a>>,
     ) -> Approvals<'a> {
         let approvals = Approvals::new(governance, policy, store);
+        let approvals = match impact {
+            Some(options) => approvals.with_impact(options),
+            None => approvals,
+        };
         match audit.and_then(|a| a.fail_mode) {
             Some(mode) => approvals.fail_mode(mode),
             None => approvals,
@@ -1555,6 +1723,45 @@ mod tests {
             engine.apply(json!({"actor": 5}), Ok(T0)).unwrap_err().code,
             "INVALID_INPUT"
         );
+    }
+
+    #[test]
+    fn impact_reports_who_gains_before_apply() {
+        let engine = EngineHandle::new(spec()).unwrap();
+        let mine = allow("a", ana_matcher(), "project.edit", json!({}));
+        let bob = json!({"kind": "user", "id": "bob"});
+        let input = json!({
+            "actor": ana(),
+            "current": [mine],
+            "mutation": {"add": allow("b", bob.clone(), "project.edit", json!({}))},
+            "invariants": [{"kind": "no_escalation"}],
+            "impact": {"source": {"kind": "sample", "subjects": [bob.clone()], "resources": [project("p1")]}},
+            "now": T0
+        });
+        let preview = engine.impact(input.clone(), Ok(T0)).unwrap();
+        assert_eq!(preview["ok"], true);
+        assert_eq!(preview["impact"]["gained"][0]["subject"], "user:bob");
+        assert_eq!(preview["impact"]["lost"], json!([]));
+
+        let applied = engine.apply(input, Ok(T0)).unwrap();
+        assert_eq!(applied["ok"], true);
+        assert_eq!(
+            applied["impact"], preview["impact"],
+            "apply returns the impact it computed"
+        );
+
+        let refused = engine
+            .impact(
+                json!({
+                    "actor": ana(),
+                    "current": [],
+                    "mutation": {"add": allow("b", bob, "project.edit", json!({}))},
+                    "invariants": [{"kind": "no_escalation"}]
+                }),
+                Ok(T0),
+            )
+            .unwrap();
+        assert_eq!(refused["ok"], false, "a refused change has no impact");
     }
 
     #[test]

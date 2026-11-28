@@ -522,6 +522,22 @@ impl PyEngine {
         out(py, &result)
     }
 
+    fn impact<'py>(&self, py: Python<'py>, input: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        let result = self
+            .inner
+            .impact(json(py, "input", input)?, clock_ms(std::time::SystemTime::now()))
+            .map_err(|e| fail(py, e))?;
+        out(py, &result)
+    }
+
+    fn review_impact<'py>(&self, py: Python<'py>, input: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        let result = self
+            .inner
+            .review_impact(json(py, "input", input)?, clock_ms(std::time::SystemTime::now()))
+            .map_err(|e| fail(py, e))?;
+        out(py, &result)
+    }
+
     fn propose<'py>(&self, py: Python<'py>, input: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let result = self
             .inner

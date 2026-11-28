@@ -279,6 +279,9 @@ type Delivery = Option<AuditStatus>;
 #[cfg(not(feature = "audit"))]
 type Delivery = Option<std::convert::Infallible>;
 
+/// What a governed change came to: the grants after it and its impact, or the violations.
+type Applied = Result<(Vec<Grant>, Option<Impact>), Vec<Violation>>;
+
 /// A change applied together with what it does to access, from [`Governance::apply_with_impact`].
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -393,6 +396,7 @@ impl Governance {
     /// [`Governance::apply_with`] that also computes the impact before applying and returns it. With an
     /// auditor at `detailed` or `forensic`, the record of the change carries a summary of it (counts and
     /// a few examples). A refused change records no impact.
+    #[allow(clippy::too_many_arguments)]
     pub fn apply_with_impact(
         &self,
         engine: &Engine,
@@ -457,7 +461,7 @@ impl Governance {
         meta: &Attributes,
         call: CallMode,
         options: Option<&ImpactOptions<'_>>,
-    ) -> (Result<(Vec<Grant>, Option<Impact>), Vec<Violation>>, Delivery) {
+    ) -> (Applied, Delivery) {
         crate::obs::mutation(
             || {
                 let evaluated = self.evaluate_inner(engine, actor, current, mutation, scene, true);
@@ -663,6 +667,7 @@ impl GovernanceAt<'_> {
     }
 
     /// Like [`Governance::apply_with_impact`], at the instant.
+    #[allow(clippy::too_many_arguments)]
     pub fn apply_with_impact(
         &self,
         engine: &Engine,

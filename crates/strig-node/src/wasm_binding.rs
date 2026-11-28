@@ -475,6 +475,25 @@ impl WasmEngine {
         )
     }
 
+    pub fn impact(&self, input: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .impact(from_js(input)?, crate::millis("now", js_sys::Date::now()))
+                .map_err(err)?,
+        )
+    }
+
+    #[wasm_bindgen(js_name = reviewImpact)]
+    pub fn review_impact(&self, input: JsValue) -> Result<JsValue, JsFailure> {
+        to_js(
+            &self
+                .inner
+                .review_impact(from_js(input)?, crate::millis("now", js_sys::Date::now()))
+                .map_err(err)?,
+        )
+    }
+
     pub fn propose(&self, input: JsValue) -> Result<JsValue, JsFailure> {
         to_js(
             &self

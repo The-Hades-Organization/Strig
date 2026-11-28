@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Change impact before apply: `Governance::impact` (and `GovernanceAt::impact`) returns an `Impact` for a `Mutation` without applying it: who gains and who loses access, to which permissions, on which resources and fields, by comparing the decisions over the grants before and after. The subjects and resources come from an explicit sample (`ImpactSource::Sample(SampleSpec)`) or are derived from the reverse queries restricted to the permissions the change touches, including those implied by them (`implied_by`), those that depend on them (`depends_on`) and fields. `QueryLimits` apply and a cut marks the impact `partial` with a note; a decision that could not be settled (a condition or an override that cannot be evaluated) is `indeterminate`, never a gain. `apply_with_impact` applies and returns the impact (`AppliedWithImpact`), the existing `apply` is unchanged.
+- Approvals: `Approvals::with_impact` keeps the impact in the `PendingRequest` at `propose`, `approve` recomputes it over the grants of that moment (`Approved::proposed_impact` has the proposed one) and `Approvals::review_impact` returns both and whether they differ, for the approver. Stores keep the request whole, so the Postgres store and the JSON store of the JS binding need no migration and older requests read as without impact.
+- Audit: at `detailed` and `forensic`, the record of a change applied with its impact carries the optional field `impact` (`gained`, `lost`, `indeterminate`, `partial`, up to 10 `examples`), documented as field 17b in `docs/audit-format.md`. Records without it keep the canonical form and the hash they had.
+- Bindings: `engine.impact(input)` and `engine.reviewImpact(input)` in JavaScript (native and wasm), `impact` in the input of `apply`, `propose` and `resolve` (`result.impact`, `request.impact`, `proposedImpact`), `Approvals` option `impact` and `Approvals.reviewImpact`, with the types `Impact`, `AccessChange`, `ImpactOptions` and `ImpactSource`; `impact` and `review_impact` in `strig-python`, and `Impact`/`ReviewImpact` in the Go and JVM bindings. See Seeing the impact of a change before it applies in the README.
+
+### Breaking
+
+- Rust only. `PendingRequest`, `Approved` and `AuditRecord` gain a public `impact` field (`proposed_impact` for `Approved`) and are now `#[non_exhaustive]`, so that a field added later is no longer a breaking change. What to do: build a `PendingRequest` with `PendingRequest::new(..)` and its builders (`expiring_at`, `with_status`, `with_impact`) instead of a struct literal; `Approved` and `AuditRecord` come from `Approvals` and the auditor, so only code that built them by hand changes; and add `..` to any pattern that destructures them. Reading and serialising the fields is unchanged, and stored requests and records without `impact` still load.
+
 ## [0.9.0] - 2026-11-28
 
 ### Added
