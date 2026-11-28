@@ -29,6 +29,8 @@ mod obs;
 pub mod attr;
 #[cfg(feature = "audit")]
 pub mod audit;
+#[cfg(feature = "audit")]
+pub mod audit_report;
 pub mod catalog;
 pub mod condition;
 pub mod decision;
@@ -45,6 +47,8 @@ pub mod explain;
 pub mod field;
 pub mod governance;
 pub mod grant;
+#[cfg(feature = "audit")]
+pub mod merkle;
 pub mod overrides;
 pub mod pending;
 pub mod query;
@@ -55,6 +59,8 @@ pub mod spec;
 pub mod strategy;
 pub mod subject;
 pub mod template;
+#[cfg(feature = "timestamp")]
+pub mod timestamp;
 pub mod validity;
 pub mod why_not;
 

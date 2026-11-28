@@ -11,6 +11,7 @@ import './batch.js';
 import './fields.js';
 import './why-not.js';
 import './audit.js';
+import './audit-proofs.js';
 import './dsl.js';
 import './types-gen.js';
 import './web-core.js';

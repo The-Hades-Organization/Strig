@@ -11,6 +11,7 @@ macro_rules! out {
     };
 }
 
+mod audit_proof;
 #[cfg(any(feature = "napi", feature = "wasm", feature = "dsl", test))]
 pub mod dsl;
 mod error;
@@ -31,6 +32,9 @@ use strig::{
     RoleTemplate, Subject, Tuple,
 };
 
+#[cfg(feature = "timestamp")]
+pub use audit_proof::verify_timestamp;
+pub use audit_proof::{verify_merkle_consistency, verify_merkle_inclusion};
 pub use error::{BindingError, BindingResult};
 pub use exclusive::ExclusiveHandle;
 pub use host::{AuditPolicy, HostCallbacks, HostFn, Redaction};

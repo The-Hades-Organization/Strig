@@ -666,6 +666,89 @@ export type ChainVerification =
       message: string;
     };
 
+/** Why a Merkle proof was refused. */
+export type MerkleVerification =
+  | { ok: true }
+  | {
+      ok: false;
+      code: 'INDEX_OUT_OF_RANGE' | 'PROOF_LENGTH' | 'ROOT_MISMATCH' | 'SIZES' | 'INVALID_PROOF';
+      message: string;
+    };
+
+/** Inclusion of one record (or leaf hash) in a tree of `size` leaves with root `root` (RFC 9162 §2.1.3). */
+export interface MerkleInclusionInput {
+  /** The audit record; its leaf hash is computed as in `docs/audit-format.md`. Give this or `leaf`. */
+  record?: Record<string, unknown>;
+  /** The leaf hash, hex, for an auditor that holds only the hash. Give this or `record`. */
+  leaf?: string;
+  /** Position of the leaf, from 0. */
+  index: number;
+  /** Number of leaves of the tree the root belongs to. */
+  size: number;
+  /** The audit path, hex hashes from the leaf up. */
+  proof: string[];
+  /** The published tree head, hex. */
+  root: string;
+}
+
+/** The tree of `second` leaves extends the tree of `first` leaves (RFC 9162 §2.1.4). */
+export interface MerkleConsistencyInput {
+  first: number;
+  second: number;
+  firstRoot: string;
+  secondRoot: string;
+  /** The consistency proof, hex hashes. */
+  proof: string[];
+}
+
+/** An RFC 3161 time stamp of an audit chain head, to verify without network. */
+export interface TimestampInput {
+  /** The `TimeStampResp`, DER, base64. */
+  response: string;
+  /** The chain head that was stamped, hex (the `hash` of the last record). */
+  head: string;
+  /** PEM text with the CA certificates you trust. With none, every response is refused. */
+  roots: string;
+  /** PEM text with more certificates to complete the chain, when the response did not embed them. */
+  certificates?: string;
+  /** The nonce sent in the request, hex, up to 16 characters; the response must echo it. */
+  nonce?: string;
+  /** The policy OID the response must state. */
+  policy?: string;
+}
+
+export type TimestampVerification =
+  | {
+      ok: true;
+      /** Time the TSA states, seconds since the Unix epoch. */
+      genTime: number;
+      /** `genTime` as `YYYY-MM-DDTHH:MM:SSZ`. */
+      time: string;
+      serial: string;
+      policy: string;
+      algorithm: 'sha256' | 'sha384' | 'sha512';
+      imprint: string;
+      nonce: string | null;
+      /** DER subject of the signer certificate, hex. */
+      signerSubject: string;
+    }
+  | {
+      ok: false;
+      code:
+        | 'MALFORMED'
+        | 'NOT_GRANTED'
+        | 'IMPRINT_MISMATCH'
+        | 'NONCE_MISMATCH'
+        | 'POLICY_MISMATCH'
+        | 'UNSUPPORTED'
+        | 'BAD_SIGNATURE'
+        | 'MISSING_SIGNER'
+        | 'UNTRUSTED_CHAIN'
+        | 'CERTIFICATE_NOT_VALID'
+        | 'SIGNER_USAGE';
+      message: string;
+    };
+
 /**
  * What a `hooks.conditions` function gets: the operands of the `call` condition, already resolved
  * (`{ attr: 'subject.dept' }` becomes the attribute's value). It returns a boolean; anything else, or
@@ -1048,6 +1131,12 @@ export interface Strig extends PolicyLanguageApi {
    * (`docs/audit-format.md`). Never throws for a bad chain: it answers `{ ok: false, code }`.
    */
   verifyAuditChain(records: Record<string, unknown>[], anchors?: ChainAnchors): ChainVerification;
+  /** Checks a Merkle inclusion proof (`docs/audit-format.md`). Never throws for a bad proof: it answers `{ ok: false, code }`. */
+  verifyMerkleInclusion(input: MerkleInclusionInput): MerkleVerification;
+  /** Checks that a later tree head extends an earlier one. Never throws for a bad proof. */
+  verifyMerkleConsistency(input: MerkleConsistencyInput): MerkleVerification;
+  /** Verifies an RFC 3161 time stamp of a chain head against the roots you trust, without network. */
+  verifyTimestamp(input: TimestampInput): TimestampVerification;
   backend: 'native' | 'wasm';
 }
 

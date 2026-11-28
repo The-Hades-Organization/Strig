@@ -725,6 +725,21 @@ pub fn verify_audit_chain(records: JsValue, anchors: JsValue) -> Result<JsValue,
     to_js(&crate::verify_audit_chain(from_js(records)?, optional(anchors)?).map_err(err)?)
 }
 
+#[wasm_bindgen(js_name = verifyMerkleInclusion)]
+pub fn verify_merkle_inclusion(input: JsValue) -> Result<JsValue, JsFailure> {
+    to_js(&crate::verify_merkle_inclusion(from_js(input)?).map_err(err)?)
+}
+
+#[wasm_bindgen(js_name = verifyMerkleConsistency)]
+pub fn verify_merkle_consistency(input: JsValue) -> Result<JsValue, JsFailure> {
+    to_js(&crate::verify_merkle_consistency(from_js(input)?).map_err(err)?)
+}
+
+#[wasm_bindgen(js_name = verifyTimestamp)]
+pub fn verify_timestamp(input: JsValue) -> Result<JsValue, JsFailure> {
+    to_js(&crate::verify_timestamp(from_js(input)?).map_err(err)?)
+}
+
 /// Um argumento da linguagem: o que não é JSON vira o `INVALID_ARGUMENT` do envelope.
 fn dsl_arg(value: JsValue) -> Result<Value, crate::dsl::DslFailure> {
     Strict::deserialize(serde_wasm_bindgen::Deserializer::from(value))

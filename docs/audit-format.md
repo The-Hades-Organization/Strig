@@ -191,3 +191,169 @@ An approval writes `mutation_approve` first and then the `grant_add`/`grant_remo
 change itself, with the author as `actor` and the approver in `meta.approved_by` and the request id in
 `meta.request_id` (kept from `detailed`). A request whose approval record exists and whose change record does
 not was never applied.
+
+## Merkle tree over a stretch of records
+
+The chain proves the whole log is intact, but only to someone who holds all of it. To hand an auditor
+**one record**, or a **stretch**, without the rest, the records are also the leaves of a Merkle tree
+as in RFC 6962 (Certificate Transparency), restated by RFC 9162. The hash chain and the record hash
+are unchanged; the tree is computed from records as they are written.
+
+- **Leaf.** `leaf = SHA-256( 0x00 || line )`, where `line` is the record exactly as written,
+  **including** its `hash` member (the compact JSON of the canonical form above, UTF-8, no trailing
+  newline). Including `hash` binds the leaf to the chain.
+- **Node.** `node = SHA-256( 0x01 || left || right )` over the two 32-byte child hashes. The distinct
+  prefixes keep a leaf from ever being read as a node.
+- **Shape.** A tree of `n > 1` leaves splits at `k`, the largest power of two smaller than `n`: the
+  left subtree holds the first `k` leaves, the right one the rest. A tree of one leaf has the leaf
+  hash as its root. The root of zero leaves is `SHA-256("")`. A tree head is `(size, root)`.
+- **Inclusion proof** (RFC 9162 §2.1.3): the sibling hashes from the leaf up to the root, so a
+  tree of `size` leaves gives at most `ceil(log2 size)` hashes. The verifier needs the record, its
+  `index`, the `size`, the proof and a root it trusts.
+- **Consistency proof** (RFC 9162 §2.1.4): proves the tree of `second` leaves extends the tree of
+  `first` leaves, so a published older head stays valid and nothing before it was rewritten.
+
+Publish the tree head like the chain head (see Anchoring above); a stamp over the **root** or over
+the chain head both work, since each commits to every record before it.
+
+| API | Builds | Verifies |
+|---|---|---|
+| Rust `strig::merkle` (feature `audit`) | `MerkleTree::from_records`, `inclusion_proof`, `consistency_proof`, `root_at` | `verify_inclusion`, `verify_consistency` |
+| JS | | `verifyMerkleInclusion({ record \| leaf, index, size, proof, root })`, `verifyMerkleConsistency({ first, second, firstRoot, secondRoot, proof })` |
+
+The JS functions answer `{ ok: true }` or `{ ok: false, code }` with `code` one of
+`INDEX_OUT_OF_RANGE`, `PROOF_LENGTH`, `ROOT_MISMATCH`, `SIZES`; input that is not hex or not a record
+throws `INVALID_INPUT`. Hashes are lowercase hex in JSON.
+
+### Test vectors
+
+The RFC 6962 reference leaves, as hex bytes: `""`, `00`, `10`, `2021`, `3031`, `40414243`,
+`5051525354555657`, `606162636465666768696a6b6c6d6e6f`. Their leaf hashes make these trees:
+
+| Leaves | Root |
+|---:|---|
+| 1 | `6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d` |
+| 3 | `aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77` |
+| 8 | `5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328` |
+| 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+
+Leaf 5 (hash `4271a26be0d8a84f0bd54c8c302e7cb3a3b5d1fa6780a40bcce2873477dab658`) in the tree of 8 has
+this inclusion proof, in order:
+
+```
+bc1a0643b12e4d2d7c77918f44e0f4f79a838b6cf9ec5b5c283e1f4d88599e6b
+ca854ea128ed050b41b35ffc1b87b8eb2bde461e9e3b5596ece6b9d5975a0ae0
+d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7
+```
+
+The consistency proof from the tree of 3 to the tree of 8:
+
+```
+0298d122906dcfc10892cb53a73992fc5b9f493ea4c9badb27b791b4127a7fe7
+07506a85fd9dd2f120eb694f86011e5bb4662e5c415a62917033d4a9624487e7
+fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125
+6b47aaf29ee3c2af9af889bc1fb9254dabd31177f16232dd6aab035ca39bf6e4
+```
+
+And for a record, the leaf of the record of the hash vector above, written with its hash
+(`…"prev_hash":"aaaa…aaaa","hash":"087dbffd…4cb5"}`), is:
+
+```
+2ae4dc94737c2493a65e7d7329ed18b0a441951dbe14e3f3b5bef172a6a2e658
+```
+
+The vectors are pinned by the tests `the_documented_proof_vectors` and
+`the_audit_vector_record_has_the_documented_leaf` (Rust) and by `test/audit-proofs.ts` (JS). A
+reference in Python, for another language to check against:
+
+```python
+import hashlib
+H = lambda b: hashlib.sha256(b).digest()
+leaf = lambda data: H(b"\x00" + data)
+node = lambda l, r: H(b"\x01" + l + r)
+
+def split(n):                       # largest power of two smaller than n
+    k = 1
+    while k * 2 < n: k *= 2
+    return k
+
+def root(ls):
+    if not ls: return H(b"")
+    if len(ls) == 1: return ls[0]
+    k = split(len(ls))
+    return node(root(ls[:k]), root(ls[k:]))
+
+def path(i, ls):                    # inclusion proof of leaf i
+    if len(ls) <= 1: return []
+    k = split(len(ls))
+    if i < k: return path(i, ls[:k]) + [root(ls[k:])]
+    return path(i - k, ls[k:]) + [root(ls[:k])]
+
+def sub(m, ls, whole):              # consistency proof of the first m leaves
+    n = len(ls)
+    if m == n: return [] if whole else [root(ls)]
+    k = split(n)
+    if m <= k: return sub(m, ls[:k], whole) + [root(ls[k:])]
+    return sub(m - k, ls[k:], False) + [root(ls[:k])]   # consistency proof = sub(m, leaves, True)
+```
+
+## RFC 3161 time stamp of the chain head
+
+A Merkle root or a chain head says what the log held; a time-stamping authority (TSA) says **when**,
+signed by someone other than the host. The stamp covers the head, so every record up to it existed
+by that time and cannot have been rewritten after it.
+
+- **Request** (`TimeStampReq`, RFC 3161 §2.4.1). `messageImprint` is SHA-256 with the digest being
+  the **32 bytes the head's 64 hex characters spell** (not the hex text). `certReq` is true so the
+  response carries the TSA certificates; a nonce is optional. Rust: `strig::timestamp::TimestampRequest::for_chain_head(head, nonce)`
+  and `to_der()` (feature `timestamp`). POST it with `Content-Type: application/timestamp-query`
+  and keep the response, `application/timestamp-reply`; the core does no IO (`examples/timestamp_http.rs`
+  shows one way).
+- **Verification.** `verify_response` (Rust) and `verifyTimestamp` (JS, no network) fail closed
+  unless all hold: the status is granted and a token is present; the `TSTInfo` imprint equals the
+  digest and its algorithm; the nonce and the policy match when you give them; the CMS signature over
+  the signed attributes is valid and the `messageDigest` covers the `TSTInfo`; and the certificate
+  chain from the signer leads to a **root you supply**, with every signature checked, each
+  certificate valid at the time the TSA states, intermediates marked as CAs, and the signer's
+  extended key usage `id-kp-timeStamping`. With no root, every response is refused. Revocation
+  (CRL, OCSP) is not consulted. RSA PKCS#1 v1.5 and ECDSA P-256/P-384 with SHA-256/384/512 are
+  supported; BER indefinite lengths and any other algorithm are refused as `MALFORMED` or
+  `UNSUPPORTED`.
+- **Codes.** `MALFORMED`, `NOT_GRANTED`, `IMPRINT_MISMATCH`, `NONCE_MISMATCH`, `POLICY_MISMATCH`,
+  `UNSUPPORTED`, `BAD_SIGNATURE`, `MISSING_SIGNER`, `UNTRUSTED_CHAIN`, `CERTIFICATE_NOT_VALID`,
+  `SIGNER_USAGE`.
+- **JS input**: `{ response (base64 of the DER), head (hex), roots (PEM text), certificates?, nonce? (hex), policy? }`.
+  The answer is `{ ok: true, genTime, time, serial, policy, algorithm, imprint, nonce, signerSubject }`
+  or `{ ok: false, code, message }`.
+
+### Test vector
+
+`crates/strig/tests/fixtures/timestamp/` holds a real exchange with the public TSA `freetsa.org`:
+`data.txt` (the 24 bytes `strig-audit-head-fixture`), `req.tsq` (made by `openssl ts -query -sha256
+-cert -nonce`), `resp.tsr` (the answer, DER), `tsa.crt` and `cacert.pem` (the root to trust).
+Reproduce it with:
+
+```
+openssl ts -reply -in resp.tsr -text
+openssl ts -verify -in resp.tsr -queryfile req.tsq -CAfile cacert.pem
+```
+
+which must show SHA-256 imprint `3d5d76d9dea880c2fa7862f7588753877decdd439d905fbae145618888973b95`
+(the SHA-256 of `data.txt`), nonce `0x589FA81CDE1D083C`, serial `0x0AC20A6C`, policy `1.2.3.4.1` and
+time `2026-11-28T12:18:00Z` (`1795868280`). Treating that digest as a chain head, `verifyTimestamp`
+with `head = 3d5d76d9…3b95` and `nonce = 589fa81cde1d083c` answers `ok`; any other head answers
+`IMPRINT_MISMATCH`. Revocation of the TSA certificate is not checked, so keep the stamp with the
+time you verified it.
+
+## Conformance report
+
+`strig audit report <trail.jsonl>` (and `strig::audit_report::ConformanceReport`, feature `audit`)
+reads a JSON Lines trail and summarizes what an auditor asks first: the period; records per action and
+outcome; applied changes per actor; refusals per invariant; every chain break (`unchained`, `broken`,
+`tampered`) with the record position; the anchors given, compared with the trail; and each time stamp
+verified against the chain head. Options: `--anchor-head <hash>`, `--anchor-start <hash>`,
+`--timestamp <resp.tsr>` (repeatable) with `--root <ca.pem>` (repeatable, required with a stamp),
+`--json` for the report as JSON. The exit status is `0` when the trail conforms (every line read, the
+chain intact, every anchor matched, every stamp verified), `1` when it does not and `2` for a usage
+error. An empty trail does not conform. The report is data (`serde::Serialize`) with maps ordered by
+key, so the same trail gives the same JSON.
