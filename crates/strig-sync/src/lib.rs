@@ -13,6 +13,7 @@
 
 pub mod cache;
 pub mod change;
+pub mod elevation;
 pub mod hub;
 mod obs;
 pub mod protocol;
@@ -22,6 +23,7 @@ pub mod transport;
 
 pub use cache::{CapabilityCache, TtlCache};
 pub use change::{Change, ChangeKind};
+pub use elevation::elevation_change;
 pub use hub::{ChangeSink, Hub, HubBuilder, RelayHandle};
 pub use protocol::{ClientMessage, ServerMessage, scope_from_str, scope_to_string};
 pub use provider::{BoxError, CapabilityProvider, Clock, EngineProvider, Evaluation, GrantLoader};
