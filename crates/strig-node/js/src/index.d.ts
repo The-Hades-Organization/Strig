@@ -129,6 +129,11 @@ export interface Grant {
   validFrom?: number;
   /** Milliseconds since the Unix epoch. The grant stops counting at this instant (exclusive). */
   validUntil?: number;
+  /**
+   * Fields of the resource the grant is restricted to (`title`, `address.street`). Absent or empty:
+   * the whole resource. A `deny` with fields takes away only those fields.
+   */
+  fields?: string[];
 }
 
 export type Reason =
@@ -153,6 +158,8 @@ export type Verdict =
   | { kind: 'outside_window' }
   /** The grant, or the requested permission, is `override_only`: grants are ignored. */
   | { kind: 'override_only' }
+  /** A question about one field: the grant names fields and this one is not among them. */
+  | { kind: 'field_not_covered' }
   | { kind: 'not_reached' };
 
 export interface Decision {
@@ -165,6 +172,8 @@ export interface Decision {
 export interface Explanation {
   subject: Subject;
   permission: string;
+  /** The field the question was about; absent for the resource as a whole. */
+  field?: string;
   resource: Resource;
   effective: string[];
   path: Array<{ kind: string; id?: string }>;
@@ -192,6 +201,42 @@ export interface ConditionTrace {
 export interface CapabilitySet {
   subject: Subject;
   grants: Grant[];
+  /**
+   * Present when some grant is field-restricted: the real grants, while `grants` holds the form an
+   * older reader decides safely (a restricted `allow` left out, a restricted `deny` whole). Pass the
+   * set back as received.
+   */
+  withFields?: Grant[];
+}
+
+/**
+ * The fields a subject may use for a permission on a resource: `all`, `all_except` (only when the
+ * catalog does not declare the permission's fields), `only` or `none`.
+ */
+export type FieldSet =
+  | { kind: 'all' }
+  | { kind: 'all_except'; fields: string[] }
+  | { kind: 'only'; fields: string[] }
+  | { kind: 'none' };
+
+/** Why one field came out allowed or denied. */
+export interface FieldVerdict {
+  /** Absent for the rest: every field no grant and no catalog entry names. */
+  field?: string;
+  allowed: boolean;
+  reason: Reason;
+  /** Ids of the `allow` grants that applied to the field. */
+  grantedBy?: string[];
+  /** Ids of the `deny` grants that applied to the field. */
+  deniedBy?: string[];
+}
+
+export interface FieldExplanation {
+  permission: string;
+  allowed: FieldSet;
+  /** The override that decided every field alike; `fields` is empty then. */
+  overriddenBy?: string;
+  fields: FieldVerdict[];
 }
 
 /** Strict when `P` is given (a union of ids), any string at the default. */
@@ -201,6 +246,8 @@ export interface DecisionRequest<P extends string = string> {
   subject: Subject;
   permission: PermissionArg<P>;
   resource: Resource;
+  /** Asks about one field of the resource. Absent: the resource as a whole. */
+  field?: string;
 }
 
 export interface RoleAssignment {
@@ -685,6 +732,13 @@ export declare class Engine<P extends string = string> {
   /** A decisão com o rastro: overrides, destino de cada grant e árvore das condições. */
   explain(context: Context, request: DecisionRequest<P>, now?: number | bigint): Explanation;
   /**
+   * The fields of the request's resource the subject may use for its permission. The `field` of the
+   * request, if any, is ignored. A condition that cannot be evaluated never opens a field.
+   */
+  allowedFields(context: Context, request: DecisionRequest<P>, now?: number | bigint): FieldSet;
+  /** `allowedFields` with the grants that gave and the ones that took away each field. */
+  explainFields(context: Context, request: DecisionRequest<P>, now?: number | bigint): FieldExplanation;
+  /**
    * `check` of every request in one crossing of the boundary, against one `Context` and one instant:
    * one boolean per request, in order. A request that cannot be read throws and decides none.
    */
@@ -803,6 +857,12 @@ export interface PolicyPermission {
   label?: string;
   description?: string;
   impliedBy?: string[];
+  /**
+   * Fields a grant of this permission may be restricted to. Empty: the permission is not
+   * field-aware. When declared, a grant naming another field is refused and a request for one is
+   * denied.
+   */
+  fields?: string[];
   dependsOn?: string[];
   nonDelegable?: boolean;
   managementOnly?: boolean;

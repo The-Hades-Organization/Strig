@@ -61,6 +61,7 @@ const PERMISSION: &[FieldSpec] = &[
     req("targets", Kind::Words),
     opt("implied_by", Kind::Words),
     opt("depends_on", Kind::Words),
+    opt("fields", Kind::Words),
     opt("non_delegable", Kind::Bool),
     opt("management_only", Kind::Bool),
     opt("override_only", Kind::Bool),
@@ -84,6 +85,7 @@ const GRANT: &[FieldSpec] = &[
     req("target", Kind::Target),
     opt("scope", Kind::Anchor),
     opt("when", Kind::Cond),
+    opt("fields", Kind::Words),
     opt("valid_from", Kind::Date),
     opt("valid_until", Kind::Date),
 ];
@@ -551,6 +553,7 @@ fn permission(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
         management_only: body.flag("management_only"),
         override_only: body.flag("override_only"),
         meta: body.kv("meta").unwrap_or_default(),
+        fields: names(body.words("fields")),
     };
     b.policy.catalog.permissions.push(def);
     Ok(())
@@ -643,6 +646,7 @@ fn grant(cur: &mut Cursor, b: &mut Builder) -> PResult<()> {
         condition: body.cond("when"),
         valid_from: body.date("valid_from").map(|d| d.v),
         valid_until: body.date("valid_until").map(|d| d.v),
+        fields: names(body.words("fields")),
     });
     Ok(())
 }

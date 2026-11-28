@@ -111,6 +111,11 @@ pub struct Grant {
     /// End of the validity window, in milliseconds since the Unix epoch (exclusive).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub valid_until: Option<u64>,
+    /// Fields of the resource the grant is restricted to. Empty means the whole resource. A `deny`
+    /// with fields takes away only those fields; an `allow` with fields gives only those. See
+    /// [`crate::field`] for how they combine with the strategies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<String>,
 }
 
 impl Grant {
@@ -131,6 +136,7 @@ impl Grant {
             condition: None,
             valid_from: None,
             valid_until: None,
+            fields: Vec::new(),
         }
     }
 
@@ -150,6 +156,27 @@ impl Grant {
         target: TargetSelector,
     ) -> Self {
         Self::new(id, Effect::Deny, subject, permission, target)
+    }
+
+    /// Restricts the grant to these fields of the resource.
+    #[must_use]
+    pub fn fields<I, S>(mut self, fields: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.fields.extend(fields.into_iter().map(Into::into));
+        self
+    }
+
+    /// Does the grant name fields, instead of covering the whole resource?
+    pub fn is_field_restricted(&self) -> bool {
+        !self.fields.is_empty()
+    }
+
+    /// Does the grant reach `field`? A grant without fields reaches every field.
+    pub fn covers_field(&self, field: &str) -> bool {
+        self.fields.is_empty() || self.fields.iter().any(|f| f == field)
     }
 
     pub fn scoped(mut self, scope: Anchor) -> Self {

@@ -1,0 +1,11 @@
+language rules
+
+kinds document
+
+// An editor changes the text, never the status.
+permission document.edit on document fields title, body, status
+
+role editor
+
+g-edit: allow role editor to document.edit on document fields title, body
+g-freeze: deny anyone to document.edit on document:contract fields body

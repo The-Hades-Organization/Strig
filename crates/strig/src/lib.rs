@@ -42,6 +42,7 @@ pub mod exclusive;
 #[path = "exclusive_conformance.rs"]
 pub mod exclusive_conformance;
 pub mod explain;
+pub mod field;
 pub mod governance;
 pub mod grant;
 pub mod overrides;
@@ -79,6 +80,7 @@ pub use explain::{
     ConditionTrace, Explanation, GrantTrace, OverrideOutcome, OverrideStep, PrerequisiteStep, TraceResult, Verdict,
     trace_condition, trace_condition_at,
 };
+pub use field::{FieldExplanation, FieldSet, FieldVerdict};
 pub use governance::{
     Bypass, CatalogConformance, Forbid, Governance, GovernanceAt, Invariant, ManagementOnly, Mutation, MutationKind,
     NoEscalation, NoLockout, NoSelfManagement, NonDelegable, Prerequisites, Proposal, RequirePermission, Suggestion,

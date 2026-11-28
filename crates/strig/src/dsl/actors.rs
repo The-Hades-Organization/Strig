@@ -8,7 +8,9 @@ use crate::dsl::blocks::{duplicate, scoped};
 use crate::dsl::blocks_print::{self as bp, Printer};
 use crate::dsl::build::Builder;
 use crate::dsl::error::{PResult, PrintError, Raw, Span};
-use crate::dsl::grammar::{Cursor, anchor, assignment, closest, condition, describe, matcher, pairs, suggest, target};
+use crate::dsl::grammar::{
+    Cursor, Sp, anchor, assignment, closest, condition, describe, matcher, pairs, suggest, target,
+};
 use crate::dsl::lex::Tok;
 use crate::dsl::policy::{Policy, ids};
 use crate::dsl::rules;
@@ -478,10 +480,16 @@ fn grant_body(
     let target = target(cur)?;
     let (mut when, mut from, mut until, mut name) = (None, None, None, None);
     let (mut when_at, mut until_at) = (None, None);
+    let mut fields: Option<Vec<Sp<String>>> = None;
     while !cur.at_eof() {
-        let clause = cur.word("when, from, until or as")?;
+        let clause = cur.word("fields, when, from, until or as")?;
         let twice = || Raw::new(clause.span, format!("`{}` is given twice", clause.v));
         match clause.v.as_str() {
+            "fields" => {
+                if fields.replace(rules::comma_words(cur, "a field")?).is_some() {
+                    return Err(twice());
+                }
+            }
             "when" => {
                 when_at = Some(cur.span());
                 if when.replace(condition(cur)?).is_some() {
@@ -512,7 +520,7 @@ fn grant_body(
             }
             other => {
                 return Err(Raw::new(clause.span, format!("unexpected `{other}`"))
-                    .hint("a rule takes: when <condition> from <date> until <date> as <id>"));
+                    .hint("a rule takes: fields <names> when <condition> from <date> until <date> as <id>"));
             }
         }
     }
@@ -534,6 +542,10 @@ fn grant_body(
     if let Some(at) = until_at {
         mark(b, "valid_until", at);
     }
+    let fields = fields.unwrap_or_default();
+    for word in &fields {
+        mark(b, &format!("fields.{}", word.v), word.span);
+    }
     let effect = if effect == "allow" { Effect::Allow } else { Effect::Deny };
     Ok(Some(Grant {
         id: name.v,
@@ -545,6 +557,7 @@ fn grant_body(
         condition: when,
         valid_from: from,
         valid_until: until,
+        fields: fields.into_iter().map(|w| w.v).collect(),
     }))
 }
 
@@ -789,6 +802,9 @@ fn rule_lines(p: &mut Printer, run: &[Grant]) -> Printed<()> {
             id: g.target.id.clone(),
         })?;
         let mut text = format!("{effect} {} on {target}", bp::word(&g.permission, "permission")?);
+        if !g.fields.is_empty() {
+            text.push_str(&format!(" fields {}", rules::list(&g.fields, "field")?));
+        }
         if let Some(when) = &g.condition {
             text.push_str(&format!(" when {}", bp::condition(when, 0)?));
         }
