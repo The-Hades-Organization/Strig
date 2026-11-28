@@ -17,6 +17,7 @@ use crate::subject::Subject;
 /// rest comes from the attribute map.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum Operand {
     Attr { attr: String },
     Lit(Value),
@@ -35,6 +36,7 @@ impl Operand {
 /// Serializable ABAC condition, stored together with the grant.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Condition {
     Eq {
         left: Operand,
@@ -402,6 +404,7 @@ impl Condition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ConditionError {
     #[error("atributo ausente: {0}")]
     MissingAttribute(String),

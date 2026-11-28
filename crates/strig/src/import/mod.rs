@@ -101,6 +101,7 @@ impl fmt::Display for Report {
 
 /// An import that could not be completed: the [`Report`] holds what was converted and what was not.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ImportError {
     /// What was converted and what was not.
     pub report: Report,

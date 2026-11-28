@@ -175,11 +175,13 @@ impl<'de> Deserialize<'de> for ErrorCode {
 
 /// `{"error": {"code": "...", "message": "..."}}`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ErrorBody {
     pub error: ErrorDetail,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ErrorDetail {
     pub code: ErrorCode,
     pub message: String,
@@ -196,6 +198,7 @@ impl ErrorBody {
 
 /// An error that becomes the stable body and its status.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ApiError {
     pub code: ErrorCode,
 }

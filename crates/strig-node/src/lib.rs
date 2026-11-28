@@ -414,6 +414,7 @@ fn worst_status(items: &[(AuditRecord, AuditStatus)]) -> Option<AuditStatus> {
         AuditStatus::Written => 0,
         AuditStatus::Pending => 1,
         AuditStatus::Dropped => 2,
+        _ => 3,
     };
     items.iter().map(|(_, s)| *s).max_by_key(rank)
 }
@@ -675,6 +676,7 @@ fn refused_reply(capture: &Capture, error: ApprovalError, request: Option<&Pendi
         ApprovalError::Store(PendingError::Store(message)) => {
             return Err(BindingError::invalid_input("pending", message));
         }
+        _ => return Err(BindingError::unsupported("approval")),
     })
 }
 
@@ -1397,6 +1399,7 @@ impl EngineHandle {
                     true,
                     serde_json::json!({"applied": false, "request": request_json(&request)}),
                 ),
+                Ok(_) => return Err(BindingError::unsupported("propose")),
                 Err(error) => refused_reply(&capture, error, None)?,
             },
         )
@@ -1818,6 +1821,7 @@ pub fn verify_audit_chain(records: Value, anchors: Option<Value>) -> BindingResu
                     ChainError::Unchained { index } => ("UNCHAINED", Some(*index)),
                     ChainError::AnchorMismatch => ("ANCHOR_MISMATCH", None),
                     ChainError::HeadMismatch => ("HEAD_MISMATCH", None),
+                    _ => ("TAMPERED", None),
                 };
                 out!({"ok": false, "code": code, "index": index, "message": error.to_string()})
             }

@@ -1,0 +1,71 @@
+{
+  "catalog": {
+    "targetKinds": [
+      "doc"
+    ],
+    "broadTargets": [],
+    "permissions": [
+      {
+        "key": "doc.read",
+        "targets": [
+          "doc"
+        ],
+        "label": "Read a document"
+      }
+    ]
+  },
+  "roles": [
+    {
+      "role": "editor",
+      "inherits": []
+    }
+  ],
+  "strategy": "first_applicable",
+  "overrides": [
+    {
+      "kind": "resource_owner",
+      "attr": "owner"
+    }
+  ],
+  "grants": [
+    {
+      "id": "g-deny",
+      "subject": {
+        "kind": "role",
+        "id": "editor"
+      },
+      "permission": "doc.read",
+      "target": {
+        "kind": "doc"
+      },
+      "effect": "deny"
+    },
+    {
+      "id": "g-allow",
+      "subject": {
+        "kind": "role",
+        "id": "editor"
+      },
+      "permission": "doc.read",
+      "target": {
+        "kind": "doc"
+      },
+      "effect": "allow"
+    }
+  ],
+  "notes": [
+    {
+      "text": "A deny wins by coming first.",
+      "anchor": {
+        "element": "grant:g-deny",
+        "placement": "before"
+      },
+      "origin": {
+        "file": "overrides",
+        "language": "blocks",
+        "line": 14,
+        "column": 1
+      }
+    }
+  ]
+}

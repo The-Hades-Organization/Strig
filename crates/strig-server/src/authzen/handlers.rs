@@ -49,6 +49,7 @@ fn reason_code(reason: &Reason) -> &'static str {
         Reason::NoApplicableGrant => "no_applicable_grant",
         Reason::UnknownPermission => "unknown_permission",
         Reason::MissingPrerequisite { .. } => "missing_prerequisite",
+        _ => "other",
     }
 }
 

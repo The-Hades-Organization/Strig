@@ -1,0 +1,134 @@
+{
+  "catalog": {
+    "targetKinds": [
+      "doc",
+      "org"
+    ],
+    "broadTargets": [],
+    "permissions": [
+      {
+        "key": "doc.read",
+        "targets": [
+          "doc"
+        ]
+      }
+    ]
+  },
+  "roles": [
+    {
+      "role": "reviewer",
+      "inherits": [
+        "viewer"
+      ]
+    },
+    {
+      "role": "viewer",
+      "inherits": []
+    }
+  ],
+  "relations": [],
+  "strategy": "most_specific",
+  "subjects": [
+    {
+      "kind": "user",
+      "id": "bob",
+      "roles": [
+        {
+          "role": "viewer",
+          "scope": {
+            "kind": "org",
+            "id": "acme"
+          },
+          "valid_from": 1767225600000
+        },
+        {
+          "role": "reviewer"
+        }
+      ],
+      "principals": [
+        "bob"
+      ],
+      "attrs": {
+        "dept": "it"
+      }
+    },
+    {
+      "kind": "team",
+      "id": "ops"
+    }
+  ],
+  "grants": [
+    {
+      "id": "g-read",
+      "subject": {
+        "kind": "role",
+        "id": "viewer"
+      },
+      "permission": "doc.read",
+      "target": {
+        "kind": "doc"
+      },
+      "effect": "allow",
+      "scope": {
+        "kind": "org",
+        "id": "acme"
+      }
+    }
+  ],
+  "invariants": [
+    {
+      "kind": "no_lockout",
+      "permissions": [
+        "doc.read"
+      ],
+      "members": [
+        {
+          "kind": "user",
+          "id": "bob",
+          "roles": [
+            {
+              "role": "viewer",
+              "scope": {
+                "kind": "org",
+                "id": "acme"
+              },
+              "valid_from": 1767225600000,
+              "valid_until": 1798675200000
+            }
+          ],
+          "principals": [
+            "bob"
+          ],
+          "attrs": {
+            "dept": "it"
+          }
+        }
+      ],
+      "resource": {
+        "path": [
+          {
+            "kind": "doc",
+            "id": "d1"
+          }
+        ],
+        "attrs": {
+          "owner": "bob",
+          "tier": 2
+        }
+      },
+      "reserve": {
+        "adminRole": {
+          "role": "viewer",
+          "valid_from": 1769904000000,
+          "valid_until": 1795996800000
+        },
+        "subjects": [
+          {
+            "kind": "user",
+            "id": "bob"
+          }
+        ]
+      }
+    }
+  ]
+}

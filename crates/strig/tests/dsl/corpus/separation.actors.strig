@@ -1,0 +1,16 @@
+language actors
+
+role checker
+
+role maker
+
+catalog
+  kinds org, payment
+  payment.create on payment
+  payment.approve on payment
+  mutually-exclusive payment_duties of roles members [maker, checker] anchor org
+  mutually-exclusive create_or_approve of permissions members [payment.create, payment.approve]
+  conflicting-actions four_eyes first [payment.create] then [payment.approve] history trail distinct_roles true
+
+governance
+  separation-of-duties subjects [user:ana]

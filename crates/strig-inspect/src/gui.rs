@@ -749,6 +749,7 @@ fn outcome_label(t: Tokens, outcome: &AuditOutcome) -> Div {
         AuditOutcome::Allowed => label(Some("check"), "allowed", t.effect(Effect::Allow)),
         AuditOutcome::Denied => label(Some("x"), "denied", t.effect(Effect::Deny)),
         AuditOutcome::Pending => label(None, "pending", t.effect(Effect::Allow)),
+        _ => label(None, "other", t.effect(Effect::Deny)),
     }
 }
 
@@ -2037,7 +2038,8 @@ fn condition_rows(t: Tokens, node: &ConditionTrace, depth: usize, out: &mut Vec<
     let (glyph, color) = match node.result {
         TraceResult::True => ("check", t.allow),
         TraceResult::False => ("x", t.deny),
-        TraceResult::Error(_) => ("alert", t.caution_ink),
+        TraceResult::Skipped => ("dot", t.comment),
+        _ => ("alert", t.caution_ink),
         TraceResult::Skipped => ("dot", t.comment),
     };
     let skipped = matches!(node.result, TraceResult::Skipped);

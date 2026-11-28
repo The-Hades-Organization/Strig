@@ -73,6 +73,7 @@ impl Failure {
 
 /// The outcome of a check: what the server decided, or the deny the client made up for it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum ClientDecision {
     /// The server's answer, allow or deny.
     Remote(CheckResponse),

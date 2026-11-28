@@ -1,0 +1,17 @@
+{"error":{"code":"malformed_json","message":"the request body is not valid JSON"}}
+{"error":{"code":"invalid_request","message":"the request does not match the schema of this route"}}
+{"error":{"code":"batch_too_large","message":"the batch has more checks than the server accepts"}}
+{"error":{"code":"too_many_resources","message":"the request names more resources than the server accepts"}}
+{"error":{"code":"body_too_large","message":"the request body is larger than the server accepts"}}
+{"error":{"code":"unsupported_media_type","message":"the request body must be application/json"}}
+{"error":{"code":"not_found","message":"no such route"}}
+{"error":{"code":"method_not_allowed","message":"method not allowed on this route"}}
+{"error":{"code":"source_unavailable","message":"the grant source is unavailable; access is denied"}}
+{"error":{"code":"query_limit_exceeded","message":"the query is over the server limits; access is denied"}}
+{"error":{"code":"relation_depth_exceeded","message":"a relation chain is too deep to read; access is denied"}}
+{"error":{"code":"deadline_exceeded","message":"the deadline passed before an answer was ready; access is denied"}}
+{"error":{"code":"overloaded","message":"the server is at capacity; access is denied"}}
+{"error":{"code":"clock_unavailable","message":"the server clock is unavailable; access is denied"}}
+{"error":{"code":"revision_not_reached","message":"the server has not reached the required revision; access is denied"}}
+{"error":{"code":"revision_mismatch","message":"the required revision cannot be compared with the server data; access is denied"}}
+{"error":{"code":"internal","message":"internal error; access is denied"}}

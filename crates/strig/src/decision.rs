@@ -36,6 +36,7 @@ impl<'a> Request<'a> {
 /// Why the decision came out the way it did.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Reason {
     /// An override decided before the grants.
     Override { name: String },
@@ -56,6 +57,7 @@ pub enum Reason {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Decision {
     pub effect: Effect,
     pub reason: Reason,

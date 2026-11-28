@@ -50,6 +50,7 @@ use elevation::ElevationInfo;
 
 /// Who may approve a kind of change: whoever holds `permission` on `resource`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ApprovalRule {
     pub kind: MutationKind,
     pub permission: String,
@@ -213,6 +214,7 @@ impl PendingRequest {
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PendingError {
     #[error("o pedido {0} já existe")]
     Duplicate(String),
@@ -306,6 +308,7 @@ impl PendingStore for MemoryPendingStore {
 }
 
 #[derive(Debug, thiserror::Error, PartialEq)]
+#[non_exhaustive]
 pub enum ApprovalError {
     /// The invariants, the approval rule or the audit refused. The request, if any, stays as it was.
     #[error("recusado: {}", .0.iter().map(ToString::to_string).collect::<Vec<_>>().join("; "))]
@@ -336,6 +339,7 @@ pub struct Review<'a> {
 /// The outcome of [`Approvals::propose`].
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
+#[non_exhaustive]
 pub enum Proposed {
     /// The policy asks no approval for this kind of change: it went through the governance and these are
     /// the grants after it.

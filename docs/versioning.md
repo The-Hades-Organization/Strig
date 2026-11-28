@@ -6,6 +6,62 @@ a feature is deprecated before it is removed.
 
 All crates, the npm package, the Python package, the Go module tag and the Java artifact share one version number. A release bumps them together.
 
+## The promise from 1.0
+
+From `1.0.0-rc.1` the public API below is frozen. Anything that breaks it needs a new **major** version, a line under
+**Breaking** in the [changelog](../CHANGELOG.md) and a section in [migration.md](migration.md). Minor versions add
+features and deprecations; patches only fix. Four gates in CI keep the promise, so it does not rest on review alone:
+
+| Gate | What it locks | Fails when |
+|---|---|---|
+| `cargo semver-checks` (`semver` job) | The public Rust API of `strig`, `strig-sync`, `strig-redis`, `strig-postgres`, `strig-axum`, `strig-server` and `strig-macros` against the last version on crates.io | An item is removed, renamed or changed without the crate version carrying a major. While the workspace version is `0.x` the job runs with `--release-type major` (the break is declared and only reported); from `1.0.0-rc.1` it infers the type from the version. The job reads the version from `Cargo.toml` |
+| API snapshots | `crates/strig-node/js/api/strig.d.ts.snap` (every published `.d.ts`) and `crates/strig-python/api/strig.pyi.snap` | The JS or Python surface changes and the snapshot was not updated. Update with `node scripts/api-snapshot.mjs --update` in `crates/strig-node/js` (after compiling the TypeScript, as the CI job does) and `python3 scripts/api_snapshot.py --update` in `crates/strig-python`; the diff is then part of the review |
+| Frozen fixtures | `DSL_SCHEMA` (policy JSON: text to JSON to text for every supported schema), `AUDIT_FORMAT` (a serialized audit record and the chain hash), the sync protocol version 2 (one fixture per message) and the `strig-server` wire (one per request and error body) | The output changes by one byte. `STRIG_UPDATE_FROZEN=1 cargo test` rewrites them; a rewritten fixture is a break unless the change is additive and documented |
+| `errorCode` lists | The closed lists below | A code is removed or changed |
+
+Frozen values at 1.0: `DSL_SCHEMA` = 5, `AUDIT_FORMAT` = 1, client and sync protocol version 2. Readers keep reading
+every schema and format they read at 1.0. A change to one of them is a major version, with a documented migration of
+stored data.
+
+**Declaring an intentional break (from 1.0, a major).** Bump the major in `[workspace.package]`, list the change under
+**Breaking** in the changelog, write the migration, and update the snapshots and fixtures in the same pull request.
+The `semver` job passes when the crate version already carries the break. Never silence the check, exclude a crate or
+regenerate a fixture to get past a red job.
+
+**Types that can grow.** Public enums that may gain variants and public structs the library produces are
+`#[non_exhaustive]`: a `match` on them needs a `_` arm, and a result struct is read, not built with a literal. Adding a
+variant or a field is then not breaking. A few enums are closed on purpose: `Effect` (allow or deny), `PendingStatus`,
+`TupleSubject`, and `Mutation` and `SubjectMatcher`, which every store matches exhaustively so that a new variant fails
+at compile time instead of dropping a write silently. Adding a variant to those is a major change. Structs you
+construct to configure or feed the library (`Review`, `Resource`, `Anchor`, `Lease`, `SessionOptions`,
+`RetryPolicy`, `Proposal`, `EvalContext` and similar input records) are still open to a struct literal today
+and become `#[non_exhaustive]`, with a constructor or builder, before `1.0.0-rc.1`.
+
+**Error codes, closed lists.** A code is added, never changed or reused.
+
+- **JavaScript, Python, Go, Java and Wasm** (`ErrorCode`, the same list everywhere): `INVALID_ARGUMENT`,
+  `INVALID_INPUT`, `INVALID_SPEC`, `INVALID_GRANT`, `UNKNOWN_SUBJECT`, `QUERY_LIMIT_EXCEEDED`,
+  `RELATION_DEPTH_EXCEEDED`, `QUERY_ERROR`, `EXCLUSIVE_ZERO_TTL`, `EXCLUSIVE_NOT_HELD`, `EXCLUSIVE_NOT_HOLDER`,
+  `EXCLUSIVE_ANONYMOUS_SUBJECT`, `EXCLUSIVE_UNIDENTIFIED_RESOURCE`, `EXCLUSIVE_TTL_TOO_LONG`, `EXCLUSIVE_DENIED`,
+  `EXCLUSIVE_UNKNOWN_PERMISSION`, `EXCLUSIVE_STORE`, `EXCLUSIVE_ERROR`, `UNKNOWN_INVARIANT`, `REENTRANT_CALL`,
+  `DSL_PARSE`, `DSL_VALIDATE`, `DSL_CONFLICT`, `DSL_UNREPRESENTABLE`, `DSL_UNSUPPORTED`, `DSL_LIMIT`,
+  `DSL_DUPLICATE_SOURCE`, `DSL_IO`, `INTERNAL`. A Rust error variant added later maps to `INTERNAL` (or the
+  `*_ERROR` rest code of its family) until it gets a code of its own, which is an addition.
+- **`strig-server` and the JS `/remote` client** (`error.code` in the body): `malformed_json`, `invalid_request`,
+  `batch_too_large`, `too_many_resources`, `not_found`, `method_not_allowed`, `body_too_large`,
+  `unsupported_media_type`, `source_unavailable`, `query_limit_exceeded`, `overloaded`, `relation_depth_exceeded`,
+  `deadline_exceeded`, `clock_unavailable`, `revision_not_reached`, `revision_mismatch`, `internal`. A client treats a
+  code it does not know as `internal`.
+- **Rust**: error enums (`EngineError`, `SpecError`, `PendingError`, `ApprovalError`, `AuditError`, `ChainError`,
+  `ExclusiveError`, `StoreError`, `QueryError` and the others) are `#[non_exhaustive]`; their variants are the codes,
+  and the mapping above is part of the contract.
+
+**Left out of the public surface at 1.0.** `strig-node` and `strig-inspect` stay `publish = false`: the npm package is
+the surface of `strig-node`, and `strig-inspect` is an application covered only by its command line. `strig-lsp` is
+also `publish = false` (it ships inside the editor extension); its protocol is the Language Server Protocol and its
+Rust items are not API. `strig-cli` is covered by its subcommands, flags and exit codes. None of these crates is
+checked by `cargo semver-checks`.
+
 ## What is public API
 
 | Surface | What is covered |

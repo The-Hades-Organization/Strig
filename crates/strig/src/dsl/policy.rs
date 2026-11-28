@@ -108,6 +108,7 @@ pub struct Note {
 /// the canonical JSON, the same for every syntax.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[non_exhaustive]
 pub struct Policy {
     pub catalog: CatalogExport,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

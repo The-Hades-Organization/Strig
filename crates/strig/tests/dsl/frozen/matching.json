@@ -1,0 +1,239 @@
+{
+  "schema": 3,
+  "catalog": {
+    "targetKinds": [
+      "document"
+    ],
+    "broadTargets": [],
+    "permissions": [
+      {
+        "key": "document.view",
+        "targets": [
+          "document"
+        ]
+      },
+      {
+        "key": "document.edit",
+        "targets": [
+          "document"
+        ]
+      }
+    ]
+  },
+  "strategy": "most_specific",
+  "subjects": [
+    {
+      "kind": "user",
+      "id": "ana",
+      "principals": [
+        "ana"
+      ],
+      "attrs": {
+        "ip": "10.1.2.3",
+        "tags": [
+          "a",
+          "b"
+        ],
+        "team": "docs"
+      }
+    }
+  ],
+  "grants": [
+    {
+      "id": "g-names",
+      "subject": {
+        "kind": "principal",
+        "name": "ana"
+      },
+      "permission": "document.view",
+      "target": {
+        "kind": "document"
+      },
+      "effect": "allow",
+      "condition": {
+        "op": "all",
+        "of": [
+          {
+            "op": "starts_with",
+            "left": {
+              "attr": "resource.name"
+            },
+            "right": "draft-"
+          },
+          {
+            "op": "ends_with",
+            "left": {
+              "attr": "resource.name"
+            },
+            "right": ".md"
+          },
+          {
+            "op": "contains",
+            "left": {
+              "attr": "resource.name"
+            },
+            "right": "-v"
+          }
+        ]
+      }
+    },
+    {
+      "id": "g-sets",
+      "subject": {
+        "kind": "principal",
+        "name": "ana"
+      },
+      "permission": "document.edit",
+      "target": {
+        "kind": "document"
+      },
+      "effect": "allow",
+      "condition": {
+        "op": "all",
+        "of": [
+          {
+            "op": "any_in",
+            "left": {
+              "attr": "subject.tags"
+            },
+            "right": [
+              "a",
+              "z"
+            ]
+          },
+          {
+            "op": "all_in",
+            "left": {
+              "attr": "subject.tags"
+            },
+            "right": [
+              "a",
+              "b",
+              "c"
+            ]
+          },
+          {
+            "op": "contains",
+            "left": {
+              "attr": "subject.tags"
+            },
+            "right": "b"
+          }
+        ]
+      }
+    },
+    {
+      "id": "g-night",
+      "subject": {
+        "kind": "principal",
+        "name": "ana"
+      },
+      "permission": "document.view",
+      "target": {
+        "kind": "document",
+        "id": "runbook"
+      },
+      "effect": "allow",
+      "condition": {
+        "op": "any",
+        "of": [
+          {
+            "op": "time_between",
+            "from": "22:00",
+            "until": "06:00",
+            "tz": "America/Sao_Paulo"
+          },
+          {
+            "op": "ip_in",
+            "item": {
+              "attr": "env.ip"
+            },
+            "set": "192.168.0.0/16"
+          }
+        ]
+      }
+    },
+    {
+      "id": "g-network",
+      "subject": {
+        "kind": "any"
+      },
+      "permission": "document.edit",
+      "target": {
+        "kind": "document",
+        "id": "ledger"
+      },
+      "effect": "deny",
+      "condition": {
+        "op": "any",
+        "of": [
+          {
+            "op": "not",
+            "cond": {
+              "op": "ip_in",
+              "item": {
+                "attr": "env.ip"
+              },
+              "set": [
+                "10.0.0.0/8",
+                "2001:db8::/32"
+              ]
+            }
+          },
+          {
+            "op": "not",
+            "cond": {
+              "op": "all",
+              "of": [
+                {
+                  "op": "time_between",
+                  "from": "09:00",
+                  "until": "17:30"
+                },
+                {
+                  "op": "weekday_in",
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri"
+                  ],
+                  "tz": "Europe/Lisbon"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "notes": [
+    {
+      "text": "Names, tags and addresses.",
+      "anchor": {
+        "element": "grant:g-names",
+        "placement": "before"
+      },
+      "origin": {
+        "file": "matching",
+        "language": "blocks",
+        "line": 22,
+        "column": 1
+      }
+    },
+    {
+      "text": "Office network, working hours, weekdays only.",
+      "anchor": {
+        "element": "grant:g-network",
+        "placement": "before"
+      },
+      "origin": {
+        "file": "matching",
+        "language": "blocks",
+        "line": 47,
+        "column": 1
+      }
+    }
+  ]
+}

@@ -7,6 +7,7 @@ use tokio::sync::broadcast;
 use crate::change::Change;
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum TransportError {
     #[error("conexão: {0}")]
     Connection(String),

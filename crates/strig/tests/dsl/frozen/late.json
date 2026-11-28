@@ -1,0 +1,60 @@
+{
+  "catalog": {
+    "targetKinds": [
+      "doc"
+    ],
+    "broadTargets": [],
+    "permissions": [
+      {
+        "key": "doc.read",
+        "targets": [
+          "doc"
+        ]
+      }
+    ]
+  },
+  "roles": [
+    {
+      "role": "editor",
+      "inherits": []
+    }
+  ],
+  "strategy": "most_specific",
+  "subjects": [
+    {
+      "kind": "user",
+      "id": "ana",
+      "roles": [
+        {
+          "role": "editor"
+        }
+      ]
+    }
+  ],
+  "grants": [
+    {
+      "id": "g-first",
+      "subject": {
+        "kind": "user",
+        "id": "ana"
+      },
+      "permission": "doc.read",
+      "target": {
+        "kind": "doc"
+      },
+      "effect": "allow"
+    },
+    {
+      "id": "g-second",
+      "subject": {
+        "kind": "role",
+        "id": "editor"
+      },
+      "permission": "doc.read",
+      "target": {
+        "kind": "doc"
+      },
+      "effect": "allow"
+    }
+  ]
+}

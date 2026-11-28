@@ -84,6 +84,7 @@ impl Lease {
 
 /// Priority and duration of a claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Terms {
     /// Higher wins. Compared only against the current holder's priority.
     pub priority: i64,
@@ -100,6 +101,7 @@ impl Terms {
 
 /// Request to own `resource` on behalf of `holder`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Claim {
     pub resource: ObjectRef,
     pub holder: ObjectRef,
@@ -119,6 +121,7 @@ impl Claim {
 
 /// Whether [`ExclusiveRegistry::acquire`] may take a resource from a lower-priority holder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Preemption {
     Forbidden,
     Allowed,
@@ -126,6 +129,7 @@ pub enum Preemption {
 
 /// Outcome of an acquisition.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Acquisition {
     /// The claimant holds the resource now: it was free, its lease had run out, or the claimant
     /// already held it (the lease is replaced).
@@ -184,6 +188,7 @@ impl OwnedChange {
 pub struct StoreError(pub String);
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ExclusiveError {
     #[error("o prazo da posse precisa ser maior que zero")]
     ZeroTtl,

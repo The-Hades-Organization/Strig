@@ -51,6 +51,7 @@ impl std::error::Error for InstantOutOfRange {}
 
 /// A parenthesised boolean SQL expression and the value to bind to its placeholder, if it has one.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct WindowPredicate {
     pub sql: String,
     /// Bind this as parameter `param_index`. `None` when the predicate has no placeholder.

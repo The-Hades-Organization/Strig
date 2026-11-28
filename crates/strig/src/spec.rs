@@ -23,6 +23,7 @@ use crate::strategy::{DenyOverrides, FirstApplicable, MostSpecific, PermitOverri
 use crate::subject::{RoleAssignment, Subject};
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum SpecError {
     #[error(transparent)]
     Catalog(#[from] CatalogErrors),
@@ -34,6 +35,7 @@ pub enum SpecError {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[non_exhaustive]
 pub struct EngineSpec {
     pub catalog: CatalogExport,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -52,6 +54,7 @@ pub struct EngineSpec {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct RoleSpec {
     pub role: String,
     pub inherits: Vec<String>,
@@ -59,6 +62,7 @@ pub struct RoleSpec {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct RelationSpec {
     pub kind: String,
     pub relation: String,
@@ -67,6 +71,7 @@ pub struct RelationSpec {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum StrategySpec {
     #[default]
     MostSpecific,
@@ -77,6 +82,7 @@ pub enum StrategySpec {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum OverrideRule {
     /// [`ResourceOwner`]: the subject's id is in the resource's `attr` attribute.
     ResourceOwner { attr: String },
@@ -138,6 +144,7 @@ impl EngineSpec {
 /// Ready-made governance invariants, in declarative form.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum InvariantSpec {
     CatalogConformance,
     NoSelfManagement,
@@ -183,6 +190,7 @@ pub enum InvariantSpec {
 /// Reserve of [`InvariantSpec::NoLockout`]: the administrator role and the subjects that may receive it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ReserveSpec {
     pub admin_role: RoleAssignment,
     pub subjects: Vec<Subject>,

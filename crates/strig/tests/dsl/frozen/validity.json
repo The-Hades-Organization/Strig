@@ -1,0 +1,99 @@
+{
+  "catalog": {
+    "targetKinds": [
+      "project"
+    ],
+    "broadTargets": [],
+    "permissions": [
+      {
+        "key": "project.view",
+        "targets": [
+          "project"
+        ]
+      }
+    ]
+  },
+  "roles": [
+    {
+      "role": "auditor",
+      "inherits": []
+    }
+  ],
+  "strategy": "most_specific",
+  "subjects": [
+    {
+      "kind": "user",
+      "id": "carla",
+      "roles": [
+        {
+          "role": "auditor",
+          "scope": {
+            "kind": "project",
+            "id": "apollo"
+          },
+          "valid_from": 1767225600000,
+          "valid_until": 1798761599000
+        }
+      ]
+    }
+  ],
+  "grants": [
+    {
+      "id": "g-window",
+      "subject": {
+        "kind": "role",
+        "id": "auditor"
+      },
+      "permission": "project.view",
+      "target": {
+        "kind": "project"
+      },
+      "effect": "allow",
+      "validFrom": 1772353800000,
+      "validUntil": 1782777600000
+    },
+    {
+      "id": "g-open",
+      "subject": {
+        "kind": "user",
+        "id": "carla"
+      },
+      "permission": "project.view",
+      "target": {
+        "kind": "project",
+        "id": "apollo"
+      },
+      "effect": "allow",
+      "validUntil": 1798761600000
+    }
+  ],
+  "notes": [
+    {
+      "text": "renewed yearly",
+      "anchor": {
+        "element": "grant:g-open",
+        "placement": "inside"
+      },
+      "origin": {
+        "file": "validity",
+        "language": "blocks",
+        "line": 35,
+        "column": 29,
+        "field": "valid_until"
+      }
+    },
+    {
+      "text": "A temporary assignment.",
+      "anchor": {
+        "element": "subject:user:carla",
+        "placement": "before"
+      },
+      "origin": {
+        "file": "validity",
+        "language": "blocks",
+        "line": 12,
+        "column": 1
+      }
+    }
+  ]
+}

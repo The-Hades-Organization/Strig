@@ -33,6 +33,33 @@ jobs:
       - run: cargo clippy -p strig-server --features envoy,tracing --all-targets -- -D warnings
       - run: cargo test -p strig-server --features envoy,tracing
 
+  semver:
+    name: semver (public Rust API against the last release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Compares the public API of every published library crate with the latest version on crates.io.
+      # Pre-1.0 window: while `[workspace.package].version` is `0.x`, the break is declared as a major
+      # (`--release-type major`): the check runs and reports, but a declared break does not fail. From
+      # `1.0.0-rc.1` the version is no longer `0.x`, so the release type is inferred from the crate version
+      # and an undeclared break fails the job. The condition reads Cargo.toml; there is no flag to remember.
+      # To declare an intentional break after 1.0, bump the major (see docs/versioning.md); never silence the
+      # check or exclude a crate to get past it.
+      - uses: taiki-e/install-action@cargo-semver-checks
+      - name: cargo semver-checks
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          case "$version" in
+            0.*) release_type="--release-type major" ;;
+            *) release_type="" ;;
+          esac
+          echo "workspace version $version; semver-checks args: ${release_type:-(inferred)}"
+          cargo semver-checks $release_type \
+            -p strig -p strig-sync -p strig-redis -p strig-postgres -p strig-axum -p strig-server -p strig-macros
+
   msrv:
     name: MSRV (1.88)
     runs-on: ubuntu-latest
@@ -87,6 +114,9 @@ jobs:
       - name: Type-check, compile and run the JavaScript tests
         working-directory: crates/strig-node/js
         run: npm test
+      - name: Public API snapshot (.d.ts)
+        working-directory: crates/strig-node/js
+        run: node scripts/api-snapshot.mjs --check
 
   playground:
     name: playground build
@@ -160,6 +190,9 @@ jobs:
           .venv/bin/maturin develop
           .venv/bin/mypy --strict python/strig
           .venv/bin/python -m pytest -q tests
+      - name: Public API snapshot (.pyi)
+        working-directory: crates/strig-python
+        run: python scripts/api_snapshot.py --check
 
   go:
     name: go binding

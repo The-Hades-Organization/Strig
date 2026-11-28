@@ -1,0 +1,143 @@
+{
+  "catalog": {
+    "targetKinds": [
+      "doc",
+      "org"
+    ],
+    "broadTargets": [],
+    "permissions": [
+      {
+        "key": "doc.read",
+        "targets": [
+          "doc"
+        ]
+      }
+    ]
+  },
+  "roles": [
+    {
+      "role": "viewer",
+      "inherits": []
+    }
+  ],
+  "relations": [
+    {
+      "kind": "doc",
+      "relation": "owner",
+      "rewrite": {
+        "rewrite": "this"
+      }
+    },
+    {
+      "kind": "doc",
+      "relation": "viewer",
+      "rewrite": {
+        "rewrite": "union",
+        "of": [
+          {
+            "rewrite": "this"
+          },
+          {
+            "rewrite": "computed",
+            "relation": "owner"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "org",
+      "relation": "member",
+      "rewrite": {
+        "rewrite": "this"
+      }
+    }
+  ],
+  "strategy": "most_specific",
+  "maxRelationDepth": 4,
+  "grants": [
+    {
+      "id": "g-read",
+      "subject": {
+        "kind": "relation",
+        "relation": "viewer"
+      },
+      "permission": "doc.read",
+      "target": {
+        "kind": "doc"
+      },
+      "effect": "allow"
+    }
+  ],
+  "tuples": [
+    {
+      "object": {
+        "kind": "org",
+        "id": "acme"
+      },
+      "relation": "member",
+      "subject": {
+        "object": {
+          "kind": "user",
+          "id": "ana"
+        }
+      }
+    },
+    {
+      "object": {
+        "kind": "doc",
+        "id": "d1"
+      },
+      "relation": "owner",
+      "subject": {
+        "object": {
+          "kind": "user",
+          "id": "bob"
+        }
+      }
+    },
+    {
+      "object": {
+        "kind": "doc",
+        "id": "d1"
+      },
+      "relation": "viewer",
+      "subject": {
+        "userset": [
+          {
+            "kind": "org",
+            "id": "acme"
+          },
+          "member"
+        ]
+      }
+    }
+  ],
+  "notes": [
+    {
+      "text": "Owners and viewers of a document.",
+      "anchor": {
+        "element": "relation:doc#owner",
+        "placement": "before"
+      },
+      "origin": {
+        "file": "relations",
+        "language": "blocks",
+        "line": 13,
+        "column": 1
+      }
+    },
+    {
+      "text": "the whole organization",
+      "anchor": {
+        "element": "tuple:doc:d1#viewer@org:acme#member",
+        "placement": "inline"
+      },
+      "origin": {
+        "file": "relations",
+        "language": "blocks",
+        "line": 28,
+        "column": 34
+      }
+    }
+  ]
+}

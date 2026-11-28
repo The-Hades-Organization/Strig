@@ -534,6 +534,7 @@ pub enum FilterShape {
 
 /// What an [`AccessFilter`] knows about one resource.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FilterOutcome {
     Allowed,
     Denied,
@@ -543,6 +544,7 @@ pub enum FilterOutcome {
 
 /// Result of [`AccessFilter::resolve`].
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct FilterResolution {
     /// Ids of the resources the filter allows.
     pub allowed: Vec<String>,
@@ -1476,6 +1478,7 @@ pub enum AccessVia {
 
 /// Decision of [`Engine::check_for`], with the path that led to it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct CheckAnswer {
     pub subject: SubjectRef,
     pub decision: Decision,
@@ -1491,6 +1494,7 @@ impl CheckAnswer {
 
 /// A party that holds the permission, and how.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct WhoCanEntry {
     pub subject: SubjectRef,
     pub via: AccessVia,
@@ -1498,6 +1502,7 @@ pub struct WhoCanEntry {
 
 /// Two parties that each hold the permission but are denied when one subject is both.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct WhoCanExcept {
     pub allowed: SubjectRef,
     pub with: SubjectRef,
@@ -1514,6 +1519,7 @@ pub struct WhoCanExcept {
 /// A deny conditioned on `subject.<attr>` is therefore not seen, and [`WhoCan::except`] only covers
 /// pairs of parties named by deny grants, not the decisions of an override.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct WhoCan {
     pub permission: String,
     pub resource: Option<Resource>,
@@ -1566,6 +1572,7 @@ impl WhoCan {
 
 /// What a subject can do on a resource, from [`Engine::access_of`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PartyAccess {
     pub subject: SubjectRef,
     pub permissions: BTreeSet<String>,

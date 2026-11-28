@@ -2,6 +2,7 @@ use crate::grant::{Effect, Grant};
 
 /// Grant applicable to the request, with the position of the step where it matched (0 = most specific).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Candidate {
     pub grant: Grant,
     pub rank: usize,

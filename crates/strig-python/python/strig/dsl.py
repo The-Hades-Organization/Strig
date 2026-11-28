@@ -18,6 +18,7 @@ __all__ = [
     "is_formatted",
     "load_project",
     "load_project_dir",
+    "run_tests",
 ]
 
 

@@ -1,0 +1,78 @@
+{
+  "schema": 5,
+  "catalog": {
+    "targetKinds": [
+      "org",
+      "payment"
+    ],
+    "broadTargets": [],
+    "permissions": [
+      {
+        "key": "payment.create",
+        "targets": [
+          "payment"
+        ]
+      },
+      {
+        "key": "payment.approve",
+        "targets": [
+          "payment"
+        ]
+      }
+    ],
+    "mutuallyExclusive": [
+      {
+        "name": "payment_duties",
+        "of": "roles",
+        "members": [
+          "maker",
+          "checker"
+        ],
+        "anchor": "org"
+      },
+      {
+        "name": "create_or_approve",
+        "of": "permissions",
+        "members": [
+          "payment.create",
+          "payment.approve"
+        ]
+      }
+    ],
+    "conflictingActions": [
+      {
+        "name": "four_eyes",
+        "first": [
+          "payment.create"
+        ],
+        "then": [
+          "payment.approve"
+        ],
+        "history": "trail",
+        "distinctRoles": true
+      }
+    ]
+  },
+  "roles": [
+    {
+      "role": "checker",
+      "inherits": []
+    },
+    {
+      "role": "maker",
+      "inherits": []
+    }
+  ],
+  "strategy": "most_specific",
+  "invariants": [
+    {
+      "kind": "separation_of_duties",
+      "subjects": [
+        {
+          "kind": "user",
+          "id": "ana"
+        }
+      ]
+    }
+  ]
+}

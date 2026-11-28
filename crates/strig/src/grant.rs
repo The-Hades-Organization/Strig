@@ -50,6 +50,7 @@ impl SubjectMatcher {
 
 /// Where a grant is anchored in the resource path. Without `id`, it matches any instance of the kind.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TargetSelector {
     pub kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

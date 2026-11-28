@@ -28,9 +28,14 @@ use crate::rebac::Tuple;
 use crate::resource::{Anchor, ObjectRef, Resource};
 use crate::subject::{RoleAssignment, Subject};
 
+/// Version of the audit record format: the canonical form and the hash of the chain fixed in
+/// `docs/audit-format.md`. It is frozen at 1; a change to either is a new major version of the crates.
+pub const AUDIT_FORMAT: u32 = 1;
+
 /// How much of each change is recorded. Each level includes everything from the previous one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum AuditLevel {
     /// Who, when, what (object id) and whether it was applied.
     Minimal,
@@ -139,6 +144,7 @@ pub enum AuditAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum AuditOutcome {
     Applied,
     Rejected,
@@ -150,6 +156,7 @@ pub enum AuditOutcome {
 
 /// Summary of a decision, kept from [`AuditLevel::Standard`] upward.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct DecisionSummary {
     pub permission: String,
     /// Resource path as text (`document:d1/project:p1`).
@@ -173,6 +180,7 @@ fn path_text(resource: &Resource) -> String {
 
 /// Summary of a grant, kept from [`AuditLevel::Standard`] upward.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct GrantSummary {
     pub permission: String,
     pub subject: SubjectMatcher,
@@ -199,6 +207,7 @@ impl From<&Grant> for GrantSummary {
 
 /// Recorded role assignment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RoleChange {
     /// Subject id, or `<kind>:<anonymous>` when it has no id.
     pub subject: String,
@@ -222,6 +231,7 @@ impl RoleChange {
 
 /// The pending request an approval-flow record is about, kept from [`AuditLevel::Standard`] upward.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PendingRef {
     pub id: String,
     /// Actor id of whoever proposed the change, or its kind when anonymous.
@@ -326,6 +336,7 @@ pub struct AuditRecord {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum AuditError {
     #[error("falha ao gravar auditoria: {0}")]
     Sink(String),
@@ -359,6 +370,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// the auditor's default ([`Auditor::with_fail_mode`]), then [`FailMode::Closed`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum FailMode {
     /// No record, no change: the change is refused with the `audit` violation.
     #[default]
@@ -370,6 +382,7 @@ pub enum FailMode {
 /// Where a record ended up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum AuditStatus {
     /// The sink took it.
     Written,
@@ -382,6 +395,7 @@ pub enum AuditStatus {
 
 /// A record the retry queue could not keep.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct DroppedRecord {
     pub record: AuditRecord,
 }
@@ -423,6 +437,7 @@ impl fmt::Debug for RetryPolicy {
 
 /// Counters of the retry queue, for a metric or a health check.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct AuditStats {
     /// Records waiting for the sink.
     pub pending: usize,
@@ -608,6 +623,7 @@ impl PendingQueue {
 
 /// A record and where it ended up.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Emitted {
     pub record: AuditRecord,
     pub status: AuditStatus,
@@ -1284,6 +1300,7 @@ pub fn record_hash(record: &AuditRecord) -> Result<String, AuditError> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ChainError {
     #[error("registro {index}: hash não confere")]
     Tampered { index: usize },

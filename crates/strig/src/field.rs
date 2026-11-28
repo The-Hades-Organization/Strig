@@ -87,6 +87,7 @@ impl FieldSet {
 
 /// Why one field came out allowed or denied.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct FieldVerdict {
     /// The field, or `None` for every field no grant and no catalog entry names ("the rest").
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -103,6 +104,7 @@ pub struct FieldVerdict {
 
 /// The per-field trace of [`crate::Engine::explain_fields`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct FieldExplanation {
     pub permission: String,
     pub allowed: FieldSet,

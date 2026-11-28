@@ -12,6 +12,7 @@ use crate::resource::{Anchor, Resource};
 use crate::subject::Subject;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Explanation {
     pub subject: Subject,
     pub permission: String,
@@ -38,6 +39,7 @@ pub struct Explanation {
 
 /// A prerequisite consulted in a decision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PrerequisiteStep {
     pub permission: String,
     /// The prerequisite is allowed on the same resource.
@@ -63,6 +65,7 @@ impl Explanation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct OverrideStep {
     pub name: String,
     pub outcome: OverrideOutcome,
@@ -70,6 +73,7 @@ pub struct OverrideStep {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum OverrideOutcome {
     /// The permission is in the override's exceptions; it was not even consulted.
     Excepted,
@@ -134,6 +138,7 @@ impl Verdict {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct GrantTrace {
     pub grant: Grant,
     pub verdict: Verdict,
@@ -148,6 +153,7 @@ pub struct GrantTrace {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum TraceResult {
     True,
     False,
@@ -158,6 +164,7 @@ pub enum TraceResult {
 
 /// Evaluation of a condition, node by node, with the resolved values in the label.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ConditionTrace {
     pub label: String,
     pub result: TraceResult,

@@ -1,0 +1,37 @@
+language blocks
+
+target_kinds = [org, payment]
+
+permission payment.create {
+  targets = [payment]
+}
+
+permission payment.approve {
+  targets = [payment]
+}
+
+mutually_exclusive payment_duties {
+  of = roles
+  members = [maker, checker]
+  anchor = org
+}
+
+mutually_exclusive create_or_approve {
+  of = permissions
+  members = [payment.create, payment.approve]
+}
+
+conflicting_actions four_eyes {
+  first = [payment.create]
+  then = [payment.approve]
+  history = trail
+  distinct_roles = true
+}
+
+role maker {}
+
+role checker {}
+
+invariant separation_of_duties {
+  subjects = [user:ana]
+}

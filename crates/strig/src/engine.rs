@@ -46,6 +46,7 @@ const OTHER_FIELD: &str = "\0other";
 /// Data of a decision: grants, ReBAC tuples, environment attributes and the current instant. The
 /// [`Engine`] only holds configuration; the data arrives with each call.
 #[derive(Clone, Copy)]
+#[non_exhaustive]
 pub struct Context<'a> {
     pub grants: &'a dyn GrantSource,
     pub tuples: Option<&'a dyn TupleStore>,
@@ -89,6 +90,7 @@ impl<'a> Context<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum EngineError {
     #[error("exceção de override cita permissão fora do catálogo: {0}")]
     UnknownPermission(String),

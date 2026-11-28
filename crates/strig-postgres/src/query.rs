@@ -584,6 +584,7 @@ impl PgTable {
 
 /// A bound parameter of a translated filter.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PgParam {
     Text(String),
     TextArray(Vec<String>),

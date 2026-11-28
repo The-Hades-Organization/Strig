@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Public API freeze for 1.0. CI gains `cargo semver-checks` for the published library crates (against the last release on crates.io), a snapshot of every published `.d.ts` (`crates/strig-node/js/api/strig.d.ts.snap`) and of the Python stubs (`crates/strig-python/api/strig.pyi.snap`), and frozen fixtures for the policy JSON (`DSL_SCHEMA` 5, text to JSON to text for each syntax), the audit record and chain hash, the sync protocol version 2 (one file per message) and the `strig-server` wire. `strig::audit::AUDIT_FORMAT` and `strig::dsl::DSL_SCHEMA` are public constants. `dsl.run_tests` is in the `__all__` of the Python package. `docs/versioning.md` states the promise from 1.0, the closed `errorCode` lists per surface, and which crates are not public API (`strig-node`, `strig-inspect`, `strig-lsp`). The `semver` job runs with `--release-type major` while the workspace version is `0.x` (the pre-1.0 window: it reports but does not fail on a declared break) and infers the release type from the version from `1.0.0-rc.1`, reading `Cargo.toml`. Update the fixtures with `STRIG_UPDATE_FROZEN=1`, the snapshots with `--update` (see versioning.md).
+
+### Breaking
+
+- Rust: about 40 public enums that can grow (the error enums, `Condition`, `Operand`, `Reason`, `Rewrite`, `Value`, `MutationKind` and others) and about 60 structs the library returns (`Decision`, `Explanation`, `WhoCan`, `CheckAnswer`, `AuditStats`, `Violation` and others) are now `#[non_exhaustive]`: a `match` needs a catch-all arm that fails closed, a destructuring needs `..`, and a result struct is no longer built with a literal outside its crate. `Effect`, `PendingStatus`, `TupleSubject`, `Mutation` and `SubjectMatcher` stay exhaustive on purpose. Structs you build to feed the library are unchanged for now; they become `#[non_exhaustive]`, with a constructor or builder, before `1.0.0-rc.1`. JavaScript, Python, Go, Java, the JSON formats and the audit hash do not change. See "0.10 → 1.0" in docs/migration.md.
+
 ## [0.10.0] - 2026-11-28
 
 ### Added
