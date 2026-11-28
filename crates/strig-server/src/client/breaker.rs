@@ -78,6 +78,12 @@ impl Inner {
     fn enter(&mut self, phase: Phase) {
         self.phase = phase;
         self.generation = self.generation.wrapping_add(1);
+        #[cfg(feature = "tracing")]
+        match phase {
+            Phase::Closed { .. } => crate::obs::breaker("closed", 0.0),
+            Phase::HalfOpen => crate::obs::breaker("half_open", 1.0),
+            Phase::Open { .. } => crate::obs::breaker("open", 2.0),
+        }
     }
 }
 

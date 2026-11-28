@@ -80,6 +80,8 @@ impl DecisionServer {
             .route("/v1/who", post(who))
             .route("/v1/access", post(access))
             .layer(middleware::from_fn_with_state(state.clone(), set_deadline));
+        #[cfg(feature = "tracing")]
+        let decisions = decisions.layer(middleware::from_fn(crate::obs::http::observe));
         Router::new()
             .merge(decisions)
             .route("/health/live", get(live))

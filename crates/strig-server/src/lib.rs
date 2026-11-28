@@ -11,6 +11,7 @@
 pub mod clock;
 pub mod config;
 pub mod error;
+mod obs;
 pub mod server;
 pub mod source;
 pub mod wire;

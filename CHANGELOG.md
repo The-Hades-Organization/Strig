@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Observability, opt-in: a `tracing` feature (off by default, zero cost off) in `strig`, `strig-sync`, `strig-postgres`, `strig-redis` and `strig-server` adds spans through `tracing` and metrics through the `metrics` facade. Spans cover `decide`, `check` and `explain`, `list` and `who_can`, `Governance::apply`, the approval flow, each audit write, the hub, the relay and the sessions, the Postgres and Redis transports, and the decision server and its client. Metrics cover decision latency and decisions by effect and reason, applied and refused changes by invariant, the audit retry queue and its drops, open sessions, transport reconnections and the client circuit breaker. Labels never carry a subject, a resource or an attribute; a test in each crate enforces it. The core still has no IO and still compiles to WebAssembly with and without the feature. `crates/strig-server/examples/otlp.rs` exports both over OTLP. The JavaScript binding is not instrumented yet. See Observability in the README.
+
 ### Fixed
 
 - The release workflow now generates the npm SBOM from a full `npm ci` with `--omit dev --omit peer`; the `--omit=dev` install left the peer and dev dependencies missing and failed the SBOM job, which skipped the GitHub release. The READMEs no longer say custom `call` conditions and overrides exist only in Rust.
