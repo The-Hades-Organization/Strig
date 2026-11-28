@@ -1212,9 +1212,17 @@ export interface PolicyDiff {
   universe: PolicyDiffUniverse;
 }
 
+/** What a diff asks about. Every list is optional: what is left out is derived from the policies. */
+export interface PolicyDiffFixture extends PolicyTestFixture {
+  /** `global`, `kind:id`, or the resource object. */
+  resources?: unknown[];
+  /** Permissions to ask about; by default every one of the two catalogs. */
+  permissions?: string[];
+}
+
 export interface PolicyDiffOptions {
   /** Subjects, resources, permissions, grants, tuples and env every question is asked with, as in a test fixture; an object or its JSON text. Left out, they are derived from the policies. */
-  fixture?: PolicyTestFixture | string;
+  fixture?: PolicyDiffFixture | string;
   /** Most subjects asked about. */
   maxSubjects?: number;
   /** Most questions asked. */

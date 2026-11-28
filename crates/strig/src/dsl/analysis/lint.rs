@@ -404,7 +404,10 @@ impl Cx<'_> {
                 LintCode::UnheldPermission,
                 ids::permission(&def.key),
                 &ids::permission(&def.key),
-                format!("permission `{}` is in the catalog and no grant allows it to anyone", def.key),
+                format!(
+                    "permission `{}` is in the catalog and no grant allows it to anyone",
+                    def.key
+                ),
                 "add the grant, or drop the permission; ignore the code when grants live outside the sources",
             );
         }
@@ -448,7 +451,10 @@ impl Cx<'_> {
                 LintCode::UnusedRole,
                 ids::role(&spec.role),
                 &ids::role(&spec.role),
-                format!("role `{}` is declared and no grant, subject or related role uses it", spec.role),
+                format!(
+                    "role `{}` is declared and no grant, subject or related role uses it",
+                    spec.role
+                ),
                 "remove the role, or grant something to it",
             );
         }
@@ -468,9 +474,7 @@ impl Cx<'_> {
                     def.implied_by
                         .iter()
                         .enumerate()
-                        .find(|(other, via)| {
-                            *other != index && via.as_str() != parent && catalog.implies(parent, via)
-                        })
+                        .find(|(other, via)| *other != index && via.as_str() != parent && catalog.implies(parent, via))
                         .map(|(_, via)| format!("`{via}`, also listed, is already implied by `{parent}`"))
                 };
                 let Some(why) = why else { continue };
@@ -495,14 +499,20 @@ impl Cx<'_> {
                     LintCode::ConditionAlwaysFalse,
                     ids::grant(&grant.id),
                     &at,
-                    format!("the condition of grant `{}` is always false: the grant never applies", grant.id),
+                    format!(
+                        "the condition of grant `{}` is always false: the grant never applies",
+                        grant.id
+                    ),
                     "fix the condition or remove the grant",
                 ),
                 Some(true) => self.report(
                     LintCode::ConditionAlwaysTrue,
                     ids::grant(&grant.id),
                     &at,
-                    format!("the condition of grant `{}` is always true: it restricts nothing", grant.id),
+                    format!(
+                        "the condition of grant `{}` is always true: it restricts nothing",
+                        grant.id
+                    ),
                     "remove the condition",
                 ),
                 None => {}
@@ -611,10 +621,8 @@ fn constant(condition: &Condition, registry: &ConditionRegistry) -> Option<bool>
 }
 
 fn has_complement(of: &[Condition]) -> bool {
-    of.iter().any(|a| {
-        of.iter()
-            .any(|b| matches!(b, Condition::Not { cond } if **cond == *a))
-    })
+    of.iter()
+        .any(|a| of.iter().any(|b| matches!(b, Condition::Not { cond } if **cond == *a)))
 }
 
 fn ground_value(leaf: &Condition, registry: &ConditionRegistry) -> Option<bool> {

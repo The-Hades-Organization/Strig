@@ -170,7 +170,10 @@ fn an_implied_by_already_implied_by_another_entry_is_redundant() {
     let found = lint(&built.policy, Some(&built.origins), &LintOptions::default());
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(found[0].code, "L005");
-    assert!(found[0].message.contains("`doc.manage` in `implied_by` of `doc.read`"), "{found:?}");
+    assert!(
+        found[0].message.contains("`doc.manage` in `implied_by` of `doc.read`"),
+        "{found:?}"
+    );
 }
 
 #[test]
@@ -225,7 +228,10 @@ fn findings_carry_position_severity_and_hint_and_can_be_ignored() {
     let all = lint(&built.policy, Some(&built.origins), &LintOptions::default());
     let finding = all.iter().find(|f| f.code == "L002").unwrap();
     assert_eq!(finding.severity, Severity::Warning);
-    assert!(finding.position().is_some_and(|p| p.starts_with("p.strig:")), "{finding:?}");
+    assert!(
+        finding.position().is_some_and(|p| p.starts_with("p.strig:")),
+        "{finding:?}"
+    );
     assert!(!finding.hint.is_empty());
     let options = LintOptions::default().ignoring("unreachable-deny").ignoring("l003");
     assert!(lint(&built.policy, Some(&built.origins), &options).is_empty());
@@ -283,7 +289,10 @@ fn a_new_allow_widens_access_and_names_the_responsible_grant() {
     assert_eq!(change.permission, "doc.read");
     assert_eq!(change.before.reason, "no_applicable_grant");
     assert_eq!(change.after.grant.as_deref(), Some("g2"));
-    assert!(change.after.at.as_deref().is_some_and(|a| a.starts_with("p.strig:")), "{change:?}");
+    assert!(
+        change.after.at.as_deref().is_some_and(|a| a.starts_with("p.strig:")),
+        "{change:?}"
+    );
 }
 
 #[test]
@@ -388,5 +397,8 @@ fn a_removed_permission_narrows_with_unknown_permission() {
     let after = "language blocks\n\ntarget_kinds = [doc]\n".to_string();
     let found = diff_of(&before, &after, &DiffFixture::default());
     assert!(found.count(ChangeKind::Narrowed) >= 1, "{found:?}");
-    assert!(found.changes.iter().all(|c| c.after.reason == "unknown_permission"), "{found:?}");
+    assert!(
+        found.changes.iter().all(|c| c.after.reason == "unknown_permission"),
+        "{found:?}"
+    );
 }

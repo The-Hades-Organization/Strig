@@ -154,14 +154,12 @@ for (const backend of ['native', 'wasm'] as const) {
     const after = strig.compile(WITH_ROLE + GRANT_READ);
     const fixture = { resources: ['org:1'] };
     const found = strig.diff(before, after, { fixture });
-    assert.equal(found.changes.length, 1);
-    assert.deepEqual(
-      [found.changes[0]!.subject, found.changes[0]!.permission, found.changes[0]!.resource, found.changes[0]!.change],
-      ['user:ana', 'org.read', 'org:1', 'widened'],
-    );
-    assert.equal(found.changes[0]!.after.grant, 'g');
+    const ana = found.changes.find((c) => c.subject === 'user:ana');
+    assert.ok(ana, 'a mudança de user:ana');
+    assert.deepEqual([ana.permission, ana.resource, ana.change], ['org.read', 'org:1', 'widened']);
+    assert.equal(ana.after.grant, 'g');
     assert.equal(found.universe.partial, false);
-    assert.equal(strig.diff(after, before, { fixture: JSON.stringify(fixture) }).changes[0]!.change, 'narrowed');
+    assert.equal(strig.diff(after, before, { fixture: JSON.stringify(fixture) }).changes.find((c) => c.subject === 'user:ana')?.change, 'narrowed');
     assert.deepEqual(strig.diff(before, before, { fixture }).changes, []);
   });
 

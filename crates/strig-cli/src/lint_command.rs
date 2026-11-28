@@ -91,7 +91,10 @@ fn read_config(path: &Path) -> Result<Vec<String>, String> {
         .as_object()
         .ok_or_else(|| format!("`{}` must be a JSON object", path.display()))?;
     if let Some(key) = object.keys().find(|k| k.as_str() != "ignore") {
-        return Err(format!("`{}` has an unknown key `{key}`; only `ignore` is read", path.display()));
+        return Err(format!(
+            "`{}` has an unknown key `{key}`; only `ignore` is read",
+            path.display()
+        ));
     }
     match object.get("ignore") {
         None => Ok(Vec::new()),

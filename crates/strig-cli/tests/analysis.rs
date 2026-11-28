@@ -8,9 +8,11 @@ use strig_cli::{EXIT_FAILED, EXIT_OK, EXIT_USAGE, execute};
 const BASE: &str = "language blocks\n\ntarget_kinds = [doc]\n\npermission doc.read {\n  targets = [doc]\n}\n\n\
 role reader {\n}\n\nrole editor {\n}\n\ngrant g {\n  effect = allow\n  subject = role reader\n  permission = doc.read\n  target = doc\n}\n";
 
-const WIDER: &str = "\ngrant g2 {\n  effect = allow\n  subject = role editor\n  permission = doc.read\n  target = doc\n}\n";
+const WIDER: &str =
+    "\ngrant g2 {\n  effect = allow\n  subject = role editor\n  permission = doc.read\n  target = doc\n}\n";
 
-const NARROWER: &str = "\ngrant g-no {\n  effect = deny\n  subject = role reader\n  permission = doc.read\n  target = doc\n}\n";
+const NARROWER: &str =
+    "\ngrant g-no {\n  effect = deny\n  subject = role reader\n  permission = doc.read\n  target = doc\n}\n";
 
 fn dir(name: &str, files: &[(&str, &str)]) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
@@ -114,7 +116,10 @@ fn diff_marks_a_cut_as_partial() {
 fn diff_usage_errors_exit_two() {
     let a = dir("diff-usage", &[("p.strig", BASE)]);
     assert_eq!(strig(&["diff", path(&a)]).0, EXIT_USAGE);
-    assert_eq!(strig(&["diff", path(&a), path(&a), "--fail-on", "sometimes"]).0, EXIT_USAGE);
+    assert_eq!(
+        strig(&["diff", path(&a), path(&a), "--fail-on", "sometimes"]).0,
+        EXIT_USAGE
+    );
     assert_eq!(strig(&["diff", path(&a), "/nonexistent/strig"]).0, EXIT_USAGE);
     let empty = dir("diff-usage-empty", &[]);
     assert_eq!(strig(&["diff", path(&a), path(&empty)]).0, EXIT_USAGE);
@@ -167,7 +172,10 @@ fn lint_ignores_codes_from_the_flag_and_from_the_config_file() {
     assert_eq!(code, EXIT_OK, "{out}");
     let d = dir(
         "lint-config",
-        &[("p.strig", &text), ("strig-lint.json", r#"{"ignore": ["shadowed-grant"]}"#)],
+        &[
+            ("p.strig", &text),
+            ("strig-lint.json", r#"{"ignore": ["shadowed-grant"]}"#),
+        ],
     );
     let (code, out, _) = strig(&["lint", path(&d)]);
     assert_eq!(code, EXIT_OK, "{out}");
@@ -188,6 +196,9 @@ fn lint_usage_errors_exit_two() {
     assert_eq!(strig(&["lint"]).0, EXIT_USAGE);
     assert_eq!(strig(&["lint", path(&d), "--ignore", "L999"]).0, EXIT_USAGE);
     assert_eq!(strig(&["lint", path(&d), "--bogus"]).0, EXIT_USAGE);
-    let bad = dir("lint-usage-config", &[("p.strig", BASE), ("strig-lint.json", r#"{"skip": []}"#)]);
+    let bad = dir(
+        "lint-usage-config",
+        &[("p.strig", BASE), ("strig-lint.json", r#"{"skip": []}"#)],
+    );
     assert_eq!(strig(&["lint", path(&bad)]).0, EXIT_USAGE);
 }

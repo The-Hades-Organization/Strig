@@ -58,11 +58,12 @@ pub(crate) fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> 
 
     let mut fixture = match fixture_path {
         None => DiffFixture::default(),
-        Some(path) => match read_limited(Path::new(path)).and_then(|t| DiffFixture::parse(path, &t).map_err(|e| e.to_string()))
-        {
-            Ok(fixture) => fixture,
-            Err(message) => return usage(err, &message),
-        },
+        Some(path) => {
+            match read_limited(Path::new(path)).and_then(|t| DiffFixture::parse(path, &t).map_err(|e| e.to_string())) {
+                Ok(fixture) => fixture,
+                Err(message) => return usage(err, &message),
+            }
+        }
     };
     if let Some(now) = now {
         fixture = with_now(fixture, now);
@@ -109,7 +110,12 @@ fn human(diff: &PolicyDiff) -> String {
             ChangeKind::Narrowed => "NARROWED",
             _ => "CHANGED ",
         };
-        writeln!(text, "{word} {} {} on {}", change.subject, change.permission, change.resource).ok();
+        writeln!(
+            text,
+            "{word} {} {} on {}",
+            change.subject, change.permission, change.resource
+        )
+        .ok();
         writeln!(text, "  before: {}", side(&change.before)).ok();
         writeln!(text, "  after:  {}", side(&change.after)).ok();
     }
@@ -124,7 +130,11 @@ fn human(diff: &PolicyDiff) -> String {
         universe.subjects,
         universe.permissions,
         universe.resources,
-        if universe.derived { " (derived from the policies)" } else { "" },
+        if universe.derived {
+            " (derived from the policies)"
+        } else {
+            ""
+        },
     )
     .ok();
     if universe.partial {

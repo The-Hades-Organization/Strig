@@ -328,7 +328,10 @@ fn merged_grants(policy: &Policy, fixture: &DiffFixture) -> Result<Vec<Grant>, D
         if !seen.insert(grant.id.as_str()) {
             return Err(DiffError::Fixture {
                 file: "(fixture)".to_string(),
-                message: format!("fixture grant `{}` repeats an id a policy or the fixture uses", grant.id),
+                message: format!(
+                    "fixture grant `{}` repeats an id a policy or the fixture uses",
+                    grant.id
+                ),
             });
         }
     }
@@ -348,11 +351,7 @@ fn permission_list(engines: &[Engine; 2], fixture: &DiffFixture) -> Vec<String> 
 }
 
 /// The subjects to ask about by name, with the definition they have when no version declares them.
-fn subject_names(
-    sides: &[DiffSide<'_>; 2],
-    fixture: &DiffFixture,
-    grants: &[Vec<Grant>; 2],
-) -> Vec<(String, Subject)> {
+fn subject_names(sides: &[DiffSide<'_>; 2], fixture: &DiffFixture, grants: &[Vec<Grant>; 2]) -> Vec<(String, Subject)> {
     let mut found: BTreeMap<String, Subject> = BTreeMap::new();
     for subject in sides.iter().flat_map(|s| &s.policy.subjects) {
         found.entry(subject_name(subject)).or_insert_with(|| subject.clone());
@@ -456,7 +455,12 @@ fn resource_list(fixture: &DiffFixture, grants: &[Vec<Grant>; 2]) -> Result<Vec<
     let mut out: Vec<Resource> = singles.into_values().collect();
     out.sort_by_key(display_resource);
     let single_names: BTreeSet<String> = out.iter().map(display_resource).collect();
-    out.extend(pairs.into_iter().filter(|(k, _)| !single_names.contains(k)).map(|(_, r)| r));
+    out.extend(
+        pairs
+            .into_iter()
+            .filter(|(k, _)| !single_names.contains(k))
+            .map(|(_, r)| r),
+    );
     Ok(out)
 }
 
