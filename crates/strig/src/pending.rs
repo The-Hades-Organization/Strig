@@ -830,6 +830,7 @@ impl<'a> Approvals<'a> {
 }
 
 #[derive(Clone, Copy)]
+#[non_exhaustive]
 enum Step {
     Propose,
     Approve,

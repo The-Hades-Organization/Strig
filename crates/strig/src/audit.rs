@@ -101,6 +101,7 @@ impl fmt::Display for AuditLevel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum AuditAction {
     GrantAdd,
     GrantRemove,

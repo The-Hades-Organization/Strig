@@ -142,7 +142,7 @@ accepts a closed list of `action` and `outcome` values, add them before you turn
 
 **After.** Temporary elevation (see the README) adds `AuditAction::ElevationReview`, written when someone closes the review of a break-glass elevation. In the JSON it is `elevation_review`. The other steps of an elevation reuse the actions you already have (`mutation_propose`, `mutation_approve`, `mutation_reject`, `grant_remove`, `role_revoke`, ...), with `elevation`, `break_glass`, `justification`, `request_id` and `revoked_by` in the record's metadata.
 
-**Step.** Add an arm for `AuditAction::ElevationReview` (or a `_ =>` arm) where you match the enum exhaustively, and add `elevation_review` to a closed list of `action` values in a log consumer. Nothing changes for code that never calls `Elevations`. `PendingStore` has a new method, `annotate`, with a default that refuses: implement it in a store of your own before using `Elevations`.
+**Step.** `AuditAction` is now `#[non_exhaustive]`: add a `_ =>` arm where you match it exhaustively outside the crate (an arm for `AuditAction::ElevationReview` is optional), and add `elevation_review` to a closed list of `action` values in a log consumer. Nothing changes for code that never calls `Elevations`. `PendingStore` has a new method, `annotate`, with a default that refuses: implement it in a store of your own before using `Elevations`.
 
 ### Rust: `AuditRecord` has a `pending` field
 

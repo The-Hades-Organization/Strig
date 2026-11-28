@@ -29,6 +29,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Breaking
 
+- Rust only. `AuditAction` is now `#[non_exhaustive]` (it gained `ElevationReview`, and a variant added later is no longer a breaking change). What to do: add a `_ =>` arm to every exhaustive `match` on it, outside the `strig` crate; the new `ElevationReview` is only written by `Elevations::close_review`, and in the JSON it is `elevation_review` (add it to a closed list of `action` values in a log consumer). Reading, serialising and comparing the values is unchanged. `PendingStore` also has a new method, `annotate`, with a default that refuses, so existing implementations still compile.
 - Rust only. `PendingRequest`, `Approved` and `AuditRecord` gain a public `impact` field (`proposed_impact` for `Approved`) and are now `#[non_exhaustive]`, so that a field added later is no longer a breaking change. What to do: build a `PendingRequest` with `PendingRequest::new(..)` and its builders (`expiring_at`, `with_status`, `with_impact`, `with_elevation`) instead of a struct literal; `Approved` and `AuditRecord` come from `Approvals` and the auditor, so only code that built them by hand changes; and add `..` to any pattern that destructures them. Reading and serialising the fields is unchanged, and stored requests and records without `impact` still load.
 
 
