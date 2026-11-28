@@ -430,6 +430,10 @@ impl ExclusiveStore for PgExclusiveStore {
         self.leases_of(Op::Leases)
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "strig.postgres.exclusive.acquire", level = "info", skip_all)
+    )]
     fn acquire_lease(&mut self, claim: &Claim, now: u64, preemption: Preemption) -> Result<Acquisition, StoreError> {
         match self.call(Op::Acquire(claim.clone(), now, preemption))? {
             Reply::Acquisition(outcome) => Ok(outcome),
@@ -437,6 +441,10 @@ impl ExclusiveStore for PgExclusiveStore {
         }
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "strig.postgres.exclusive.renew", level = "info", skip_all)
+    )]
     fn renew_lease(
         &mut self,
         resource: &ObjectRef,
@@ -447,10 +455,18 @@ impl ExclusiveStore for PgExclusiveStore {
         self.change(Op::Renew(resource.clone(), holder.clone(), now, ttl_ms))
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "strig.postgres.exclusive.release", level = "info", skip_all)
+    )]
     fn release_lease(&mut self, resource: &ObjectRef, holder: &ObjectRef, now: u64) -> Result<OwnedChange, StoreError> {
         self.change(Op::Release(resource.clone(), holder.clone(), now))
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "strig.postgres.exclusive.remove_expired", level = "info", skip_all)
+    )]
     fn remove_expired(&mut self, now: u64) -> Result<Vec<Lease>, StoreError> {
         self.leases_of(Op::RemoveExpired(now))
     }

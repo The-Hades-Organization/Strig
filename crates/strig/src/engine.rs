@@ -212,7 +212,12 @@ impl Engine {
     }
 
     pub fn decide(&self, ctx: &Context<'_>, request: &Request<'_>) -> Decision {
-        self.decide_inner(ctx, request, true, None)
+        crate::obs::decision(
+            "decide",
+            request,
+            || self.decide_inner(ctx, request, true, None),
+            |decision| decision,
+        )
     }
 
     /// Decision by the grants only, without overrides. Used by overrides that depend on a permission.
@@ -234,6 +239,15 @@ impl Engine {
     }
 
     pub(crate) fn explain_with(&self, ctx: &Context<'_>, request: &Request<'_>, with_overrides: bool) -> Explanation {
+        crate::obs::decision(
+            "explain",
+            request,
+            || self.explain_traced(ctx, request, with_overrides),
+            |explanation| &explanation.decision,
+        )
+    }
+
+    fn explain_traced(&self, ctx: &Context<'_>, request: &Request<'_>, with_overrides: bool) -> Explanation {
         let mut recorder = Recorder::default();
         let decision = self.decide_inner(ctx, request, with_overrides, Some(&mut recorder));
         if matches!(decision.reason, Reason::Override { .. }) {

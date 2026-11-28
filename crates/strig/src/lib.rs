@@ -24,6 +24,7 @@
 //! See the [repository README](https://github.com/The-Hades-Organization/Strig) for the full guide.
 
 mod graph;
+mod obs;
 
 pub mod attr;
 #[cfg(feature = "audit")]

@@ -333,11 +333,24 @@ impl<'a> Approvals<'a> {
         id: impl Into<String>,
         expires_at: Option<u64>,
     ) -> Result<Proposed, ApprovalError> {
+        crate::obs::approval("propose", || {
+            self.propose_inner(review, actor, mutation, id.into(), expires_at)
+        })
+    }
+
+    fn propose_inner(
+        &self,
+        review: &Review<'_>,
+        actor: &Subject,
+        mutation: &Mutation,
+        id: String,
+        expires_at: Option<u64>,
+    ) -> Result<Proposed, ApprovalError> {
         let Some(rule) = self.policy.rule_for(mutation) else {
             return self.apply_directly(review, actor, mutation).map(Proposed::Applied);
         };
         let request = PendingRequest {
-            id: id.into(),
+            id,
             actor: actor.clone(),
             mutation: mutation.clone(),
             requested_at: review.now,
@@ -383,6 +396,10 @@ impl<'a> Approvals<'a> {
     /// audited. On success the change has been applied through the governance and the request is
     /// `approved`.
     pub fn approve(&self, review: &Review<'_>, approver: &Subject, id: &str) -> Result<Approved, ApprovalError> {
+        crate::obs::approval("approve", || self.approve_inner(review, approver, id))
+    }
+
+    fn approve_inner(&self, review: &Review<'_>, approver: &Subject, id: &str) -> Result<Approved, ApprovalError> {
         let (request, rule) = self.open_for_decision(review, id)?;
         let refuse = |violations: Vec<Violation>| -> ApprovalError {
             match self.record(
@@ -428,6 +445,16 @@ impl<'a> Approvals<'a> {
         id: &str,
         reason: &str,
     ) -> Result<PendingRequest, ApprovalError> {
+        crate::obs::approval("reject", || self.reject_inner(review, approver, id, reason))
+    }
+
+    fn reject_inner(
+        &self,
+        review: &Review<'_>,
+        approver: &Subject,
+        id: &str,
+        reason: &str,
+    ) -> Result<PendingRequest, ApprovalError> {
         let (request, rule) = self.open_for_decision(review, id)?;
         let mut violations = self.approver_violations(review, approver, &request, &rule);
         if reason.trim().is_empty() {
@@ -462,6 +489,10 @@ impl<'a> Approvals<'a> {
 
     /// Closes every pending request due at `now` and returns them, each with its `mutation_expire` record.
     pub fn expire_due(&self, now: u64, meta: &Attributes) -> Result<Vec<PendingRequest>, ApprovalError> {
+        crate::obs::approval("expire", || self.expire_due_inner(now, meta))
+    }
+
+    fn expire_due_inner(&self, now: u64, meta: &Attributes) -> Result<Vec<PendingRequest>, ApprovalError> {
         let mut expired = Vec::new();
         for request in self.store.list()? {
             if request.is_pending() && request.is_due(now) {

@@ -55,6 +55,22 @@ pub enum Failure {
     Encode,
 }
 
+#[cfg(feature = "tracing")]
+impl Failure {
+    fn outcome(&self) -> &'static str {
+        match self {
+            Failure::CircuitOpen => "circuit_open",
+            Failure::Timeout => "timeout",
+            Failure::Unreachable => "unreachable",
+            Failure::Server { .. } => "server_error",
+            Failure::Rejected { .. } => "rejected",
+            Failure::UnexpectedStatus { .. } => "unexpected_status",
+            Failure::InvalidResponse => "invalid_response",
+            Failure::Encode => "encode",
+        }
+    }
+}
+
 /// The outcome of a check: what the server decided, or the deny the client made up for it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClientDecision {
@@ -217,6 +233,26 @@ impl Client {
     }
 
     async fn call<T: DeserializeOwned>(&self, path: &str, body: &impl Serialize) -> Result<T, Failure> {
+        #[cfg(feature = "tracing")]
+        {
+            let span = tracing::info_span!("strig.client.call", route = path, outcome = tracing::field::Empty);
+            let started = std::time::Instant::now();
+            let result = tracing::Instrument::instrument(self.call_inner(path, body), span.clone()).await;
+            let outcome = match &result {
+                Ok(_) => "ok",
+                Err(failure) => failure.outcome(),
+            };
+            span.record("outcome", outcome);
+            metrics::counter!(crate::obs::CALLS, "route" => path.to_string(), "outcome" => outcome).increment(1);
+            metrics::histogram!(crate::obs::CALL_DURATION, "route" => path.to_string())
+                .record(started.elapsed().as_secs_f64());
+            result
+        }
+        #[cfg(not(feature = "tracing"))]
+        self.call_inner(path, body).await
+    }
+
+    async fn call_inner<T: DeserializeOwned>(&self, path: &str, body: &impl Serialize) -> Result<T, Failure> {
         let body = serde_json::to_vec(body).map_err(|error| {
             tracing::error!(error = %error, "could not encode the request");
             Failure::Encode

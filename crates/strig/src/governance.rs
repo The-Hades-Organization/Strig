@@ -386,17 +386,22 @@ impl Governance {
         meta: &Attributes,
         call: CallMode,
     ) -> (Result<Vec<Grant>, Vec<Violation>>, Delivery) {
-        let result = self.evaluate_inner(engine, actor, current, mutation, scene, true);
-        #[cfg(feature = "audit")]
-        if let Some(auditor) = &self.auditor {
-            return match auditor.grant_mutation_with(actor, mutation, current, &result, meta, call) {
-                Ok(emitted) => (result, Some(emitted.status)),
-                Err(error) => (Err(vec![Violation::new("audit", error.to_string())]), None),
-            };
-        }
-        #[cfg(not(feature = "audit"))]
-        let _ = (meta, call);
-        (result, None)
+        crate::obs::mutation(
+            || {
+                let result = self.evaluate_inner(engine, actor, current, mutation, scene, true);
+                #[cfg(feature = "audit")]
+                if let Some(auditor) = &self.auditor {
+                    return match auditor.grant_mutation_with(actor, mutation, current, &result, meta, call) {
+                        Ok(emitted) => (result, Some(emitted.status)),
+                        Err(error) => (Err(vec![Violation::new("audit", error.to_string())]), None),
+                    };
+                }
+                #[cfg(not(feature = "audit"))]
+                let _ = (meta, call);
+                (result, None)
+            },
+            |(result, _)| result.as_ref().err().map(Vec::as_slice),
+        )
     }
 
     /// The mutation checked against the invariants, with no audit and no side effect. Also used by

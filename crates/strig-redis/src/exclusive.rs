@@ -225,6 +225,10 @@ impl ExclusiveStore for RedisExclusiveStore {
         Ok(leases)
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "strig.redis.exclusive.acquire", level = "info", skip_all)
+    )]
     fn acquire_lease(&mut self, claim: &Claim, now: u64, preemption: Preemption) -> Result<Acquisition, StoreError> {
         self.transact(&claim.resource, |current| {
             let outcome = Acquisition::decide(current, claim, now, preemption);
@@ -237,6 +241,10 @@ impl ExclusiveStore for RedisExclusiveStore {
         })
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "strig.redis.exclusive.renew", level = "info", skip_all)
+    )]
     fn renew_lease(
         &mut self,
         resource: &ObjectRef,
@@ -253,6 +261,10 @@ impl ExclusiveStore for RedisExclusiveStore {
         })
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "strig.redis.exclusive.release", level = "info", skip_all)
+    )]
     fn release_lease(&mut self, resource: &ObjectRef, holder: &ObjectRef, now: u64) -> Result<OwnedChange, StoreError> {
         self.transact(resource, |current| {
             let change = OwnedChange::decide(current, holder, now);
@@ -265,6 +277,10 @@ impl ExclusiveStore for RedisExclusiveStore {
         })
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "strig.redis.exclusive.remove_expired", level = "info", skip_all)
+    )]
     fn remove_expired(&mut self, now: u64) -> Result<Vec<Lease>, StoreError> {
         let mut removed = Vec::new();
         for lease in self.leases()? {

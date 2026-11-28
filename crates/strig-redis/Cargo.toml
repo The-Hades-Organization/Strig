@@ -16,6 +16,8 @@ authors.workspace = true
 default = ["exclusive"]
 ## `RedisExclusiveStore`, an `ExclusiveStore` over Redis keys.
 exclusive = ["dep:strig", "dep:serde_json", "strig/exclusive"]
+## Spans (`tracing`) for the redis transport, and everything `strig-sync/tracing` covers. Off by default; off costs nothing.
+tracing = ["dep:tracing", "strig-sync/tracing"]
 
 [dependencies]
 strig = { workspace = true, optional = true }
@@ -25,6 +27,8 @@ async-trait.workspace = true
 futures-util.workspace = true
 redis = { version = "1.8", default-features = false, features = ["aio", "tokio-comp", "connection-manager"] }
 tokio = { workspace = true, features = ["sync"] }
+
+tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
 strig = { workspace = true, features = ["conformance"] }

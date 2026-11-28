@@ -94,7 +94,11 @@ impl PgTransport {
                         let item = match message {
                             Ok(AsyncMessage::Notification(n)) => Ok(n.payload().to_string()),
                             Ok(_) => continue,
-                            Err(e) => Err(connection(e)),
+                            Err(e) => {
+                                #[cfg(feature = "tracing")]
+                                tracing::warn!("the LISTEN connection was lost");
+                                Err(connection(e))
+                            }
                         };
                         let failed = item.is_err();
                         if tx.send(item).is_err() || failed {
@@ -121,6 +125,12 @@ impl PgTransport {
 pub async fn notify<C: GenericClient + Sync>(client: &C, channel: &str, change: &Change) -> Result<(), TransportError> {
     let payload = change.to_json();
     if payload.len() > MAX_PAYLOAD {
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            bytes = payload.len(),
+            limit = MAX_PAYLOAD,
+            "change notice over the pg_notify limit"
+        );
         return Err(TransportError::Decode(format!(
             "aviso com {} bytes passa do limite do pg_notify",
             payload.len()
@@ -143,20 +153,32 @@ impl Transport for PgTransport {
         "postgres"
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "strig.postgres.publish", level = "info", skip_all)
+    )]
     async fn publish(&self, change: &Change) -> Result<(), TransportError> {
         let mut publisher = self.publisher.lock().await;
         if publisher.as_ref().is_none_or(Client::is_closed) {
+            #[cfg(feature = "tracing")]
+            tracing::info!("opening the publisher connection");
             let (client, _notifications) = (self.connect)().await?;
             *publisher = Some(client);
         }
         let client = publisher.as_ref().expect("cliente recém-conectado");
         let result = notify(client, &self.channel, change).await;
         if result.is_err() && client.is_closed() {
+            #[cfg(feature = "tracing")]
+            tracing::warn!("the publisher connection closed during a publish; the next one reconnects");
             *publisher = None;
         }
         result
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "strig.postgres.subscribe", level = "info", skip_all)
+    )]
     async fn subscribe(&self) -> Result<ChangeStream, TransportError> {
         let (client, notifications) = (self.connect)().await?;
         client
