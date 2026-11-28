@@ -191,17 +191,17 @@ impl<L: GrantLoader> EngineProvider<L> {
         required: Option<&Revision>,
     ) -> Result<Revised<Evaluation>, ConsistencyError> {
         let now = (self.clock)();
-        if let Some(cache) = &self.cache {
-            if let Some((set, next_boundary, revision)) = cache.get_revised(subject, scope, required) {
-                return Ok(Revised::new(
-                    Evaluation {
-                        set,
-                        evaluated_at: now,
-                        next_boundary,
-                    },
-                    revision,
-                ));
-            }
+        if let Some(cache) = &self.cache
+            && let Some((set, next_boundary, revision)) = cache.get_revised(subject, scope, required)
+        {
+            return Ok(Revised::new(
+                Evaluation {
+                    set,
+                    evaluated_at: now,
+                    next_boundary,
+                },
+                revision,
+            ));
         }
         let revision = self.settle(required).await?;
         let grants = self

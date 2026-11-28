@@ -59,7 +59,7 @@ struct Db {
 }
 
 impl Db {
-    fn new(scope: &str) -> Handle {
+    fn handle(scope: &str) -> Handle {
         Handle(Arc::new(Self {
             scope: scope.into(),
             state: Mutex::new((Vec::new(), 1)),
@@ -101,7 +101,7 @@ fn instance(db: &Handle) -> (Arc<CapabilityCache>, EngineProvider<Handle>) {
 
 #[tokio::test]
 async fn a_write_is_read_by_another_instance_that_holds_older_state() {
-    let db = Db::new("tenant");
+    let db = Db::handle("tenant");
     let transport = MemoryTransport::default();
     let writer = Hub::builder().origin("a").transport(transport.clone()).build();
     let reader = Hub::builder().origin("b").transport(transport).build();
@@ -155,7 +155,7 @@ async fn a_write_is_read_by_another_instance_that_holds_older_state() {
 
 #[tokio::test]
 async fn an_instance_behind_catches_up_within_the_timeout() {
-    let db = Db::new("tenant");
+    let db = Db::handle("tenant");
     let (_, provider) = instance(&db);
     let provider = provider.with_consistency(
         ConsistencyOptions::default()
@@ -177,7 +177,7 @@ async fn an_instance_behind_catches_up_within_the_timeout() {
 
 #[tokio::test]
 async fn an_instance_that_cannot_catch_up_denies_with_its_own_reason() {
-    let db = Db::new("tenant");
+    let db = Db::handle("tenant");
     let (_, provider) = instance(&db);
     let provider = provider.with_consistency(
         ConsistencyOptions::default()
@@ -194,7 +194,7 @@ async fn an_instance_that_cannot_catch_up_denies_with_its_own_reason() {
 
 #[tokio::test]
 async fn a_token_of_another_scope_is_never_compared() {
-    let db = Db::new("tenant-a");
+    let db = Db::handle("tenant-a");
     let (_, provider) = instance(&db);
     let error = provider
         .evaluate_revised(&alice(), &project(), Some(&Revision::new("tenant-b", 1)))
@@ -246,7 +246,7 @@ async fn a_provider_that_knows_no_revision_refuses_a_requirement() {
 
 #[tokio::test]
 async fn a_cached_entry_at_the_revision_is_served_without_reloading() {
-    let db = Db::new("tenant");
+    let db = Db::handle("tenant");
     db.write(vec![view_grant()], &Revision::new("tenant", 3));
     let (cache, provider) = instance(&db);
     provider.evaluate_revised(&alice(), &project(), None).await.unwrap();
@@ -269,7 +269,7 @@ async fn a_cached_entry_at_the_revision_is_served_without_reloading() {
 
 #[tokio::test]
 async fn a_session_sends_the_revision_and_refuses_to_send_an_older_set() {
-    let db = Db::new("tenant");
+    let db = Db::handle("tenant");
     db.write(vec![view_grant()], &Revision::new("tenant", 3));
     let provider: Arc<dyn CapabilityProvider> = Arc::new(
         EngineProvider::new(engine(), db.clone()).with_consistency(
