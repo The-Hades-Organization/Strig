@@ -988,7 +988,7 @@ mod tests {
         let utc = Tlv { tag: 0x17, content: b"700101000000Z", raw: &[] };
         assert_eq!(parse_time(utc).unwrap(), (0, 0));
         let general = Tlv { tag: 0x18, content: b"20261128121800.5Z", raw: &[] };
-        assert_eq!(parse_time(general).unwrap(), (1_795_954_680, 500));
+        assert_eq!(parse_time(general).unwrap(), (1_795_868_280, 500));
         let bad = Tlv { tag: 0x18, content: b"20261328121800Z", raw: &[] };
         assert!(parse_time(bad).is_err());
     }
