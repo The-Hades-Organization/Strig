@@ -298,6 +298,81 @@ Dois arquivos de tipos diferentes que significam o mesmo dão o mesmo JSON. Trat
 editarem a política e o JSON como o artefato que os serviços carregam. `Policy::engine_spec` transforma a política na
 especificação com que se monta um motor.
 
+## Testando uma política
+
+Política é código, então ganha testes ao lado dela. O arquivo de teste é JSON, chamado `*.strig-test.json`, no mesmo
+diretório dos `*.strig`. É JSON, e não um bloco da linguagem, porque o motor já lê JSON para grants, tuplas e sujeitos e o
+binding JavaScript passa os mesmos documentos; o texto da política fica livre de fixtures. `examples/policy-tests/` tem
+um projeto que passa.
+
+```json
+{
+  "name": "política do workspace",
+  "fixture": "workspace.fixture.json",
+  "cases": [
+    { "kind": "check", "name": "admin chega nas configurações da org",
+      "subject": "user:ana", "permission": "org.settings", "resource": "org:acme",
+      "expect": "allow", "grant": "admin-settings" },
+    { "kind": "mutation", "name": "ninguém se promove",
+      "actor": "user:ana",
+      "mutation": { "assign_role": { "subject": { "kind": "user", "id": "ana" }, "role": { "role": "member" } } },
+      "expect": "refused", "invariant": "no_self_management" }
+  ]
+}
+```
+
+- **Dados.** O caso lê a própria política: grants, tuplas e sujeitos declarados. O `fixture` acrescenta: um objeto
+  inline, ou o caminho de um JSON com o mesmo formato (`subjects`, `grants`, `tuples`, `env`). Grant de fixture é validado
+  como qualquer grant, e id que a política já usa é erro. O `env` do fixture é o ambiente-base de todo caso.
+- **`check`** pergunta ao motor: `subject`, `permission`, `resource`, `env` e `now` opcionais (milissegundos desde a época
+  Unix; sem ele, grant com janela de validade ou condição de horário é julgado como o motor julga sem relógio). `expect` é
+  `allow` ou `deny`; `reason` (`override`, `grant`, `no_applicable_grant`, `unknown_permission`, `missing_prerequisite`) e
+  `grant` (id do grant que decide) estreitam o esperado.
+- **`mutation`** propõe uma mudança pela governança da política: `actor` e uma `mutation` como no JSON de `Mutation`
+  (`add`, `remove`, `assign_role`, `revoke_role`). `expect` é `accepted` ou `refused`; `invariant` nomeia uma que deve
+  estar entre as que recusam (`no_escalation`, `no_lockout`, ...).
+- **Nomes.** Sujeito é `"kind:id"` (procurado na política e no fixture), `"anonymous"` ou o objeto. Recurso é `"global"`,
+  `"kind:id"` ou o objeto, quando precisa de caminho.
+- **Estrito.** Campo desconhecido é erro, para que um erro de digitação não vire teste que não checa nada.
+
+O caso termina `passed`, `failed` (a resposta difere; o relatório traz esperado e obtido, os grants considerados e a
+explicação completa) ou `errored` (o caso não pode ser julgado: sujeito desconhecido, permissão fora do catálogo, a menos
+que o caso espere `unknown_permission`, fixture inválido). Erro nunca é aprovação, e execução sem nenhum caso não é sucesso.
+
+O runner é `strig::dsl::testing` (`TestFile::parse`, `run`, `Report`), puro como o resto do `dsl`; `dsl::fs::read_tests`
+lê os arquivos de um diretório e carrega os fixtures, recusando caminho que saia do diretório.
+
+```rust
+use strig::dsl::{fs, testing};
+
+let project = fs::read_dir("policies")?.build()?;
+let report = testing::run(&project.policy, &fs::read_tests("policies")?);
+assert!(report.is_success());
+```
+
+No terminal ou no CI, o comando `strig` do crate `strig-cli`:
+
+```sh
+cargo install strig-cli --locked
+strig test policies/                    # relatório humano; exit 1 se um caso falha ou dá erro
+strig test policies/ --junit test.xml   # e um relatório JUnit
+```
+
+Códigos de saída: `0` tudo passou, `1` caso falhou ou deu erro, `2` política, arquivo de teste ou argumentos errados, ou o
+diretório não tem arquivo de teste. No GitHub Actions:
+
+```yaml
+- uses: The-Hades-Organization/Strig/.github/actions/strig-test@v0.9.0
+  with:
+    path: policies
+    junit: test-results/strig.xml
+    version: 0.9.0   # fixe a versão do strig-cli
+```
+
+Em JavaScript, `strig.runTests(policy, tests)` roda o mesmo runner sobre um documento de política e arquivos de teste
+(objetos ou texto JSON), no nativo e no wasm, e devolve `{ results }`; não há IO, então fixture dado como caminho faz seus
+casos darem erro.
+
 ## Macros
 
 O crate `strig-macros` confere a política durante a compilação do seu programa, então uma política que não valida

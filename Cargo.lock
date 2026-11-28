@@ -6694,6 +6694,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "strig-cli"
+version = "0.8.0"
+dependencies = [
+ "serde_json",
+ "strig",
+]
+
+[[package]]
 name = "strig-inspect"
 version = "0.8.0"
 dependencies = [

@@ -734,6 +734,13 @@ pub fn dsl_load_project(env: &Env, sources: Unknown<'_>) -> Value {
 }
 
 #[napi]
+pub fn dsl_run_tests(env: &Env, policy: Unknown<'_>, tests: Unknown<'_>) -> Value {
+    crate::dsl::envelope((|| {
+        crate::dsl::run_tests(&dsl_arg(env, policy)?, &dsl_arg(env, tests)?)
+    })())
+}
+
+#[napi]
 pub fn dsl_load_project_dir(env: &Env, dir: Unknown<'_>) -> Value {
     crate::dsl::envelope((|| crate::dsl::load_project_dir(&dsl_arg(env, dir)?))())
 }

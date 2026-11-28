@@ -751,6 +751,11 @@ pub fn dsl_load_project(sources: JsValue) -> Result<JsValue, JsFailure> {
     dsl_out((|| crate::dsl::load_project(&dsl_arg(sources)?))())
 }
 
+#[wasm_bindgen(js_name = dslRunTests)]
+pub fn dsl_run_tests(policy: JsValue, tests: JsValue) -> Result<JsValue, JsFailure> {
+    dsl_out((|| crate::dsl::run_tests(&dsl_arg(policy)?, &dsl_arg(tests)?))())
+}
+
 #[wasm_bindgen]
 pub fn backend() -> String {
     "wasm".to_string()
