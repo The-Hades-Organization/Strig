@@ -4,11 +4,15 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
+use crate::dsl::testing::{TestError, TestFile};
 use crate::dsl::{Diagnostics, Language, Parsed, Policy, PrintError, Project, parse, print};
 use crate::dsl::{MAX_PROJECT_BYTES, MAX_SOURCE_BYTES};
 
 /// The extension of the policy files [`read_dir`] picks up.
 pub const EXTENSION: &str = "strig";
+
+/// The ending of the test files [`read_tests`] picks up.
+pub const TEST_SUFFIX: &str = ".strig-test.json";
 
 /// The most files [`read_dir`] reads from one directory.
 pub const MAX_FILES: usize = 1024;
@@ -36,6 +40,9 @@ pub enum FsError {
     /// The text is not valid policy.
     #[error(transparent)]
     Syntax(#[from] Diagnostics),
+    /// A test file, or the fixture it names, is not valid.
+    #[error(transparent)]
+    Test(#[from] TestError),
     /// The policy cannot be written in the chosen syntax.
     #[error(transparent)]
     Print(#[from] PrintError),
@@ -200,4 +207,64 @@ pub fn write_file(path: impl AsRef<Path>, policy: &Policy, language: Language) -
         });
     }
     Ok(())
+}
+
+/// Reads every `*.strig-test.json` file of a directory (not its subdirectories), in alphabetical
+/// order, and loads the fixture of each one that names a file. Links are refused as in
+/// [`read_dir`]. A fixture path must stay inside the directory: an absolute path, a `..` or a
+/// link is [`FsError::Outside`].
+///
+/// # Errors
+/// [`FsError::Io`], [`FsError::TooLarge`], [`FsError::TooManyFiles`], [`FsError::Outside`] and,
+/// for the content, [`FsError::Test`].
+pub fn read_tests(path: impl AsRef<Path>) -> Result<Vec<TestFile>, FsError> {
+    let dir = path.as_ref();
+    let base = dir.canonicalize().map_err(io_error(dir))?;
+    let mut names = Vec::new();
+    for entry in fs::read_dir(&base).map_err(io_error(dir))? {
+        let entry = entry.map_err(io_error(dir))?;
+        let file_type = entry.file_type().map_err(io_error(dir))?;
+        let name = PathBuf::from(entry.file_name());
+        if !name.to_string_lossy().ends_with(TEST_SUFFIX) {
+            continue;
+        }
+        if file_type.is_symlink() {
+            return Err(FsError::Outside { path: dir.join(&name) });
+        }
+        if !file_type.is_file() {
+            continue;
+        }
+        if names.len() == MAX_FILES {
+            return Err(FsError::TooManyFiles {
+                path: dir.to_path_buf(),
+            });
+        }
+        names.push(name);
+    }
+    names.sort();
+    let mut files = Vec::new();
+    for name in names {
+        let shown = dir.join(&name);
+        let mut file = TestFile::parse(&shown.display().to_string(), &read_text(&base.join(&name))?)?;
+        if let Some(reference) = file.fixture_path().map(str::to_string) {
+            let relative = Path::new(&reference);
+            let escapes = relative.is_absolute()
+                || relative
+                    .components()
+                    .any(|c| !matches!(c, std::path::Component::Normal(_)));
+            if escapes {
+                return Err(FsError::Outside {
+                    path: shown.with_file_name(&reference),
+                });
+            }
+            let target = base.join(relative);
+            let resolved = target.canonicalize().map_err(io_error(&target))?;
+            if !resolved.starts_with(&base) {
+                return Err(FsError::Outside { path: resolved });
+            }
+            file.resolve_fixture(&read_text(&resolved)?)?;
+        }
+        files.push(file);
+    }
+    Ok(files)
 }

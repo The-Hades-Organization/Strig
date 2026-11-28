@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Policy tests: `*.strig-test.json` files beside a policy hold `check` cases (subject, permission, resource, optional `env` and `now`, expected `allow`/`deny`, optionally the reason and the deciding grant) and `mutation` cases (actor and change, `accepted`/`refused`, optionally the refusing invariant), over the grants, tuples and subjects of the policy plus an optional fixture. The runner is `strig::dsl::testing` (`TestFile`, `run`, `Report`; feature `dsl`, no IO) and `dsl::fs::read_tests` reads a directory, with fixtures kept inside it. A case that cannot be judged is `errored`, never a pass. See Testing a policy in `docs/dsl.md`.
+- `strig-cli`: the `strig` command, with `strig test <dir> [--junit <file>]` (human report with the diff and the grants considered, JUnit XML, exit `0`/`1`/`2`), and the composite GitHub Action `.github/actions/strig-test`.
+- JS binding: `strig.runTests(policy, tests)` runs the same runner natively and on wasm; types `PolicyTestFile`, `PolicyTestCase` and `PolicyTestReport` in `index.d.ts`.
+
 ## [0.8.0] - 2026-11-28
 
 ### Added

@@ -112,6 +112,7 @@ All crates except `strig-inspect` and `strig-node` are on crates.io at the same 
 | `strig-server` | HTTP decision server, and a Rust client that denies when it gets no answer | `axum`, `hyper-util` (client) |
 | `strig-macros` | `policy!` and `include_policy!`: the policy is validated at compile time | `strig` |
 | `strig-node` | The npm package: native module (N-API) for Node and Bun, WebAssembly for the browser | `napi` or `wasm-bindgen` |
+| `strig-cli` | The `strig` command: `strig test` runs the tests of a policy, for people and for CI (JUnit) | `strig` |
 | `strig-inspect` | Inspector: decision traces, grant simulation, access matrix, audit trail. Desktop window and terminal commands | `gpui-pre`, `gpui-component` |
 
 ```toml
@@ -939,6 +940,27 @@ try {
   const [first] = error.diagnostics; // first.file === 'a.strig', first.line === 3
 }
 ```
+
+### Testing a policy
+
+Tests sit beside the policy: `*.strig-test.json` files of `check` cases (subject, permission, resource, optional instant
+and environment, expected `allow` or `deny`, optionally the reason and the deciding grant) and `mutation` cases (an actor
+and a change, accepted or refused, optionally by which invariant). `strig test` runs them, and an error in the test itself
+is never a pass:
+
+```sh
+cargo install strig-cli --locked
+strig test policies/ --junit test-results/strig.xml   # exit 1 on a failure, 2 on a bad input
+```
+
+```yaml
+- uses: The-Hades-Organization/Strig/.github/actions/strig-test@v0.9.0
+  with: { path: policies, version: 0.9.0 }
+```
+
+The same runner is `strig::dsl::testing` in Rust and `strig.runTests(policy, tests)` in JavaScript. The format, the
+report and the exit codes are in [the guide](docs/dsl.md#testing-a-policy); `examples/policy-tests/` has a project that
+passes.
 
 ### Macros
 
