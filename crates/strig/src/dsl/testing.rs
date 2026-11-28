@@ -598,14 +598,14 @@ impl<'a> World<'a> {
     }
 }
 
-fn subject_name(subject: &Subject) -> String {
+pub(crate) fn subject_name(subject: &Subject) -> String {
     match &subject.id {
         Some(id) => format!("{}:{id}", subject.kind),
         None => subject.kind.clone(),
     }
 }
 
-fn resource_of(reference: &ResourceRef) -> Result<Resource, String> {
+pub(crate) fn resource_of(reference: &ResourceRef) -> Result<Resource, String> {
     match reference {
         ResourceRef::Inline(resource) => Ok(resource.clone()),
         ResourceRef::Name(name) if name == crate::resource::GLOBAL => Ok(Resource::global()),

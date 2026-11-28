@@ -17,6 +17,7 @@
 //! assert_eq!(print(&parsed.policy, Language::Blocks).unwrap(), text);
 //! ```
 
+pub mod analysis;
 mod actors;
 mod blocks;
 mod blocks_print;

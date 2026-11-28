@@ -297,6 +297,99 @@ pub fn run_tests(policy: &Value, tests: &Value) -> DslResult<Value> {
     serde_json::to_value(&report).map_err(|e| BindingError::new("INTERNAL", e.to_string()).into())
 }
 
+fn policy_arg(value: &Value, argument: &str) -> DslResult<dsl::Policy> {
+    let policy = dsl::Policy::from_json(&value.to_string()).map_err(|e| BindingError::invalid_input(argument, e))?;
+    policy.validate().map_err(|found| failure(DslCode::Validate, &found))?;
+    Ok(policy)
+}
+
+fn options_object<'a>(
+    options: Option<&'a Value>,
+    allowed: &[&str],
+) -> DslResult<Option<&'a serde_json::Map<String, Value>>> {
+    let Some(options) = options.filter(|o| !o.is_null()) else {
+        return Ok(None);
+    };
+    let map = options
+        .as_object()
+        .ok_or_else(|| BindingError::invalid_argument("options", "expected an object"))?;
+    if let Some(unknown) = map.keys().find(|k| !allowed.contains(&k.as_str())) {
+        return Err(BindingError::invalid_argument("options", format!("unknown option `{unknown}`")).into());
+    }
+    Ok(Some(map))
+}
+
+/// `diff(before, after, options?)`: the decisions that change between two policy documents, with no
+/// IO. `options` is `{ fixture?, maxSubjects?, maxDecisions? }`; the fixture is the object or the
+/// JSON text of a `DiffFixture`. The document carries no source positions, so a responsible grant
+/// is named by id only.
+pub fn diff_policies(before: &Value, after: &Value, options: Option<&Value>) -> DslResult<Value> {
+    use strig::QueryLimits;
+    use strig::dsl::analysis::{self, DiffFixture, DiffOptions, DiffSide};
+
+    let before = policy_arg(before, "before")?;
+    let after = policy_arg(after, "after")?;
+    let map = options_object(options, &["fixture", "maxSubjects", "maxDecisions"])?;
+    let number = |key: &str| -> DslResult<Option<usize>> {
+        match map.and_then(|m| m.get(key)) {
+            None | Some(Value::Null) => Ok(None),
+            Some(value) => value
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+                .map(Some)
+                .ok_or_else(|| BindingError::invalid_argument("options", format!("`{key}` must be a whole number")).into()),
+        }
+    };
+    let fixture = match map.and_then(|m| m.get("fixture")).filter(|f| !f.is_null()) {
+        None => DiffFixture::default(),
+        Some(value) => {
+            let text = match value {
+                Value::String(text) => text.clone(),
+                other => other.to_string(),
+            };
+            DiffFixture::parse("fixture", &text).map_err(|e| BindingError::invalid_input("fixture", e))?
+        }
+    };
+    let mut limits = QueryLimits::default();
+    if let Some(max) = number("maxSubjects")? {
+        limits = limits.with_max_parties(max);
+    }
+    if let Some(max) = number("maxDecisions")? {
+        limits = limits.with_max_decisions(max);
+    }
+    let found = analysis::diff(
+        DiffSide::new(&before),
+        DiffSide::new(&after),
+        &fixture,
+        &DiffOptions::default().with_limits(limits),
+    )
+    .map_err(|e| BindingError::invalid_input("policy", e))?;
+    serde_json::to_value(&found).map_err(|e| BindingError::new("INTERNAL", e.to_string()).into())
+}
+
+/// `lint(policy, options?)`: the findings about one policy document, with no IO. `options` is
+/// `{ ignore?: string[] }`, codes (`L004`) or names (`unused-role`). The document carries no source
+/// positions, so a finding names its element by id.
+pub fn lint_policy(policy: &Value, options: Option<&Value>) -> DslResult<Value> {
+    use strig::dsl::analysis::{self, LintCode, LintOptions};
+
+    let policy = policy_arg(policy, "policy")?;
+    let mut lint = LintOptions::default();
+    if let Some(list) = options_object(options, &["ignore"])?.and_then(|m| m.get("ignore")) {
+        let names = list
+            .as_array()
+            .and_then(|items| items.iter().map(Value::as_str).collect::<Option<Vec<_>>>())
+            .ok_or_else(|| BindingError::invalid_argument("options", "`ignore` must be a list of strings"))?;
+        for name in names {
+            if LintCode::parse(name).is_none() {
+                return Err(BindingError::invalid_argument("options", format!("`{name}` is not a lint code or name")).into());
+            }
+            lint = lint.ignoring(name);
+        }
+    }
+    serde_json::to_value(analysis::lint(&policy, None, &lint)).map_err(|e| BindingError::new("INTERNAL", e.to_string()).into())
+}
+
 /// O resultado de uma chamada como o JavaScript o recebe: `{ ok: true, value }` ou
 /// `{ ok: false, code, message, diagnostics }`. `dsl.js` o abre e lança o `Error`.
 pub fn envelope<T: Into<Value>>(result: DslResult<T>) -> Value {

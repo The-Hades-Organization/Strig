@@ -782,6 +782,28 @@ pub fn dsl_run_tests(env: &Env, policy: Unknown<'_>, tests: Unknown<'_>) -> Valu
 }
 
 #[napi]
+pub fn dsl_diff(env: &Env, before: Unknown<'_>, after: Unknown<'_>, options: Option<Unknown<'_>>) -> Value {
+    crate::dsl::envelope((|| {
+        let options = match options {
+            Some(o) => Some(dsl_arg(env, o)?),
+            None => None,
+        };
+        crate::dsl::diff_policies(&dsl_arg(env, before)?, &dsl_arg(env, after)?, options.as_ref())
+    })())
+}
+
+#[napi]
+pub fn dsl_lint(env: &Env, policy: Unknown<'_>, options: Option<Unknown<'_>>) -> Value {
+    crate::dsl::envelope((|| {
+        let options = match options {
+            Some(o) => Some(dsl_arg(env, o)?),
+            None => None,
+        };
+        crate::dsl::lint_policy(&dsl_arg(env, policy)?, options.as_ref())
+    })())
+}
+
+#[napi]
 pub fn dsl_load_project_dir(env: &Env, dir: Unknown<'_>) -> Value {
     crate::dsl::envelope((|| crate::dsl::load_project_dir(&dsl_arg(env, dir)?))())
 }

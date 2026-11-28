@@ -5,9 +5,13 @@ import type {
   DslDiagnostic,
   DslError,
   NativePolicyLanguageApi,
+  PolicyDiff,
+  PolicyDiffOptions,
   PolicyDocument,
   PolicyLanguage,
   PolicyLanguageApi,
+  PolicyLintFinding,
+  PolicyLintOptions,
   PolicySource,
   PolicyTestFile,
   PolicyTestReport,
@@ -26,6 +30,8 @@ export interface DslBinding {
   dslIsFormatted(text: string, options?: FileOption): DslResult<boolean>;
   dslLoadProject(sources: PolicySource[]): DslResult<PolicyDocument>;
   dslRunTests(policy: PolicyDocument, tests: (PolicyTestFile | string)[]): DslResult<PolicyTestReport>;
+  dslDiff(before: PolicyDocument, after: PolicyDocument, options?: PolicyDiffOptions): DslResult<PolicyDiff>;
+  dslLint(policy: PolicyDocument, options?: PolicyLintOptions): DslResult<PolicyLintFinding[]>;
   dslLoadProjectDir?(dir: string): DslResult<PolicyDocument>;
 }
 
@@ -46,6 +52,8 @@ export function makeDsl(raw: DslBinding): PolicyLanguageApi & Partial<NativePoli
     isFormatted: (text, options) => open(raw.dslIsFormatted(text, options)),
     loadProject: (sources) => open(raw.dslLoadProject(sources)),
     runTests: (policy, tests) => open(raw.dslRunTests(policy, tests)),
+    diff: (before, after, options) => open(raw.dslDiff(before, after, options)),
+    lint: (policy, options) => open(raw.dslLint(policy, options)),
   };
   // Só o módulo nativo lê um diretório: o wasm não tem IO.
   const loadProjectDir = raw.dslLoadProjectDir;
