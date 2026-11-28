@@ -611,6 +611,19 @@ client.on('capabilities', () => render());
 client.can('document.edit', resource);
 ```
 
+### Cost of a call and batches
+
+A `Context` keeps its grants, tuples, `env` and instant on the Rust side, so a decision never sends them again; change them with `addGrant` (the same `id` replaces), `removeGrant`, `addTuple`, `removeTuple`, `setNow` and `setEnv`. What still crosses the boundary on each call is the request, and the binding sends it as one `JSON.stringify` string (the decision comes back the same way) when it is plain JSON; a request with `undefined`, `NaN`, functions, bigints or class instances takes the original path and its errors. `check` answers a boolean without building the `Decision`.
+
+To decide many requests against one `Context` and one instant, cross the boundary once:
+
+```js
+const allowed = engine.checkMany(ctx, requests);   // boolean[], in order
+const traces = engine.explainMany(ctx, requests);  // Explanation[], in order
+```
+
+A request that cannot be read throws and decides none; it never becomes a silent `false`. Numbers per case are in [`docs/benchmarks.md`](docs/benchmarks.md).
+
 ### Rules written in JavaScript
 
 The `call` condition function, your own override and your own `Invariant` exist in JS too, as synchronous callbacks passed to the `Engine` constructor. The engine calls them in the middle of a decision or of `apply`; they show up like the native ones: the `explain` trace names the override, a refusal carries your violation, and the audit records it as it records the built-in invariants.

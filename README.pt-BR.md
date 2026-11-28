@@ -611,6 +611,19 @@ client.on('capabilities', () => render());
 client.can('document.edit', resource);
 ```
 
+### Custo de uma chamada e lotes
+
+O `Context` guarda grants, tuplas, `env` e instante no lado Rust, então uma decisão nunca os reenvia; altere-os com `addGrant` (o mesmo `id` substitui), `removeGrant`, `addTuple`, `removeTuple`, `setNow` e `setEnv`. O que ainda cruza a fronteira a cada chamada é o pedido, e o binding o envia como uma string de `JSON.stringify` (a decisão volta do mesmo jeito) quando ele é JSON simples; um pedido com `undefined`, `NaN`, funções, bigints ou instâncias de classe segue o caminho original e seus erros. `check` responde um booleano sem montar o `Decision`.
+
+Para decidir vários pedidos contra um `Context` e um instante, cruze a fronteira uma vez só:
+
+```js
+const allowed = engine.checkMany(ctx, requests);   // boolean[], na ordem
+const traces = engine.explainMany(ctx, requests);  // Explanation[], na ordem
+```
+
+Um pedido ilegível lança erro e não decide nenhum; nunca vira um `false` silencioso. Os números por caso estão em [`docs/benchmarks.md`](docs/benchmarks.md).
+
 ### Regras escritas em JavaScript
 
 A função da condição `call`, o override próprio e o `Invariant` próprio existem também em JS, como callbacks síncronos passados ao construtor de `Engine`. O motor os chama no meio da decisão ou do `apply`, e eles aparecem como os nativos: o rastro de `explain` nomeia o override, a recusa carrega a sua violação e a auditoria registra como registra as invariantes embutidas.
