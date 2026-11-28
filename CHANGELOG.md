@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- ORM adapters for filtered listings: `@the-hades-organization/strig/prisma`, `/drizzle` and `/kysely` turn the `expr` of `engine.list(...)` into the `where` of Prisma Client, drizzle-orm and Kysely through a declarative mapping of the resource's anchors and attributes to columns, with the semantics of `PgTables` (allow by kind, anchor and exact id; denies that cut without dropping rows whose column is `NULL`; a residue stays in `residual` with `where` as the upper bound and `settled` as the lower). A kind, attribute or node the mapping cannot express throws `OrmFilterError`, never "all rows". Drizzle and Kysely are optional peers; Prisma needs none. Each module also exports an `OrmAdapter` typed over the `PermissionId`. See Filtering a listing in Prisma, Drizzle and Kysely in the README.
+
 ## [0.8.0] - 2026-11-28
 
 ### Added

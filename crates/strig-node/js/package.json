@@ -26,6 +26,9 @@
     "./nestjs": { "types": "./dist/nestjs.d.ts", "default": "./dist/nestjs.js" },
     "./react": { "types": "./dist/react.d.ts", "default": "./dist/react.js" },
     "./angular": { "types": "./dist/angular.d.ts", "default": "./dist/angular.js" },
+    "./prisma": { "types": "./dist/prisma.d.ts", "default": "./dist/prisma.js" },
+    "./drizzle": { "types": "./dist/drizzle.d.ts", "default": "./dist/drizzle.js" },
+    "./kysely": { "types": "./dist/kysely.d.ts", "default": "./dist/kysely.js" },
     "./approvals": { "types": "./dist/approvals.d.ts", "default": "./dist/approvals.js" },
     "./store": { "types": "./dist/store.d.ts", "default": "./dist/store.js" },
     "./testing": { "types": "./dist/testing.d.ts", "default": "./dist/testing.js" }
@@ -43,16 +46,20 @@
     "@angular/common": ">=17",
     "@angular/core": ">=17",
     "@nestjs/common": ">=10",
+    "drizzle-orm": ">=0.30",
     "express": ">=4",
     "fastify": ">=4",
+    "kysely": ">=0.27",
     "react": ">=18"
   },
   "peerDependenciesMeta": {
     "@angular/common": { "optional": true },
     "@angular/core": { "optional": true },
     "@nestjs/common": { "optional": true },
+    "drizzle-orm": { "optional": true },
     "express": { "optional": true },
     "fastify": { "optional": true },
+    "kysely": { "optional": true },
     "react": { "optional": true }
   },
   "devDependencies": {
@@ -71,14 +78,18 @@
     "@types/pg": "^8.11.0",
     "@types/react": "19.1.8",
     "@types/react-dom": "19.1.6",
+    "@types/sql.js": "1.4.9",
+    "drizzle-orm": "0.44.7",
     "express": "5.1.0",
     "fastify": "5.2.1",
     "jsdom": "26.1.0",
+    "kysely": "0.28.8",
     "pg": "^8.13.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.1",
+    "sql.js": "1.13.0",
     "typescript": "~5.9.3"
   },
   "engines": {
