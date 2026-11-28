@@ -126,6 +126,8 @@ pub enum AuditAction {
     MutationReject,
     /// A pending request ran out of time before anyone decided it.
     MutationExpire,
+    /// Another actor closed the review of a break-glass elevation (`pending::elevation`).
+    ElevationReview,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

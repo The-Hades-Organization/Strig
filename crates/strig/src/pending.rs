@@ -44,6 +44,10 @@ use crate::rebac::TupleStore;
 use crate::resource::Resource;
 use crate::subject::Subject;
 
+pub mod elevation;
+
+use elevation::ElevationInfo;
+
 /// Who may approve a kind of change: whoever holds `permission` on `resource`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ApprovalRule {
@@ -132,6 +136,9 @@ pub struct PendingRequest {
     /// Absent when the flow ran without [`Approvals::with_impact`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub impact: Option<Impact>,
+    /// Present when the request is a time-boxed elevation ([`elevation`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elevation: Option<ElevationInfo>,
 }
 
 impl PendingRequest {
@@ -145,6 +152,7 @@ impl PendingRequest {
             expires_at: None,
             status: PendingStatus::Pending,
             impact: None,
+            elevation: None,
         }
     }
 
@@ -163,6 +171,12 @@ impl PendingRequest {
     #[must_use]
     pub fn with_impact(mut self, impact: Impact) -> Self {
         self.impact = Some(impact);
+        self
+    }
+
+    #[must_use]
+    pub fn with_elevation(mut self, elevation: ElevationInfo) -> Self {
+        self.elevation = Some(elevation);
         self
     }
 
@@ -220,6 +234,16 @@ pub trait PendingStore: Send + Sync {
     fn update(&self, request: PendingRequest) -> Result<(), PendingError>;
     /// Every request, whatever its status, oldest first.
     fn list(&self) -> Result<Vec<PendingRequest>, PendingError>;
+    /// Replaces the request with the same id whatever its status, to keep the bookkeeping of a decided
+    /// elevation (its revocation, its break-glass review). Only [`elevation`] calls it, and it never
+    /// changes `status`. A store that cannot do it keeps the default, which refuses, and the elevation
+    /// operations that need it are refused with it.
+    fn annotate(&self, request: PendingRequest) -> Result<(), PendingError> {
+        Err(PendingError::Store(format!(
+            "o armazenamento não anota o pedido {}",
+            request.id
+        )))
+    }
 }
 
 /// [`PendingStore`] in memory.
@@ -257,6 +281,16 @@ impl PendingStore for MemoryPendingStore {
         match requests.get_mut(&request.id) {
             None => Err(PendingError::Unknown(request.id)),
             Some(stored) if !stored.is_pending() => Err(PendingError::NotPending(request.id)),
+            Some(stored) => {
+                *stored = request;
+                Ok(())
+            }
+        }
+    }
+
+    fn annotate(&self, request: PendingRequest) -> Result<(), PendingError> {
+        match self.lock().get_mut(&request.id) {
+            None => Err(PendingError::Unknown(request.id)),
             Some(stored) => {
                 *stored = request;
                 Ok(())
@@ -427,7 +461,7 @@ impl<'a> Approvals<'a> {
         expires_at: Option<u64>,
     ) -> Result<Proposed, ApprovalError> {
         crate::obs::approval("propose", || {
-            self.propose_inner(review, actor, mutation, id.into(), expires_at)
+            self.propose_inner(review, actor, mutation, id.into(), expires_at, None)
         })
     }
 
@@ -438,6 +472,7 @@ impl<'a> Approvals<'a> {
         mutation: &Mutation,
         id: String,
         expires_at: Option<u64>,
+        elevation: Option<ElevationInfo>,
     ) -> Result<Proposed, ApprovalError> {
         let Some(rule) = self.policy.rule_for(mutation) else {
             return self.apply_directly(review, actor, mutation).map(Proposed::Applied);
@@ -450,6 +485,7 @@ impl<'a> Approvals<'a> {
             expires_at,
             status: PendingStatus::Pending,
             impact: None,
+            elevation,
         };
         let refuse = |violations: Vec<Violation>| -> ApprovalError {
             match self.record(
@@ -766,6 +802,7 @@ impl<'a> Approvals<'a> {
                 Step::Propose => (AuditAction::MutationPropose, AuditOutcome::Pending),
                 Step::Approve => (AuditAction::MutationApprove, AuditOutcome::Applied),
                 Step::Reject => (AuditAction::MutationReject, AuditOutcome::Applied),
+                Step::ReviewClose => (AuditAction::ElevationReview, AuditOutcome::Applied),
             };
             let outcome = if violations.is_some() {
                 AuditOutcome::Rejected
@@ -797,6 +834,7 @@ enum Step {
     Propose,
     Approve,
     Reject,
+    ReviewClose,
 }
 
 fn subject_label(subject: &Subject) -> String {

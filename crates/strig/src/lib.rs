@@ -101,6 +101,10 @@ pub use impact::{
 pub use overrides::{
     FnOverride, Override, OverrideGate, OverrideReach, PermissionHolder, ReachRequest, ResourceOwner, SubjectsRequest,
 };
+pub use pending::elevation::{
+    BreakGlassRule, Elevated, ElevationInfo, ElevationKey, ElevationPolicy, ElevationRequest, ElevationRule,
+    ElevationTarget, Elevations, ReviewState, Revocation, Revoked,
+};
 pub use pending::{
     ApprovalError, ApprovalPolicy, ApprovalRule, Approvals, Approved, ImpactReview, MemoryPendingStore, PendingError,
     PendingRequest, PendingStatus, PendingStore, Proposed, Review,
