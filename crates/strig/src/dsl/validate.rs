@@ -140,6 +140,16 @@ fn catalog_error(error: CatalogError, policy: &Policy, report: &mut Report<'_>) 
                 hint("add it to target_kinds"),
             ),
         ),
+        CatalogError::InvalidField { key, field } => report.error(
+            &format!("{}/fields/{field}", ids::permission(&key)),
+            format!("`{field}` is not a valid field name"),
+            hint("use words of letters, digits and _, joined by dots (title, address.street)"),
+        ),
+        CatalogError::DuplicateField { key, field } => report.error(
+            &format!("{}/fields/{field}", ids::permission(&key)),
+            format!("field `{field}` is declared twice on `{key}`"),
+            None,
+        ),
         CatalogError::NoTargets(key) => report.error(
             &ids::permission(&key),
             format!("permission `{key}` has no targets"),
@@ -329,6 +339,19 @@ fn grants(policy: &Policy, catalog: Option<&Catalog>, report: &mut Report<'_>) {
                 Some("declare at least one `relation kind#name` block".into()),
             );
         }
+        let mut named = HashSet::new();
+        for field in &grant.fields {
+            let at = format!("{id}/fields/{field}");
+            if !crate::catalog::valid_field(field) {
+                report.error(
+                    &at,
+                    format!("`{field}` is not a valid field name"),
+                    Some("use words of letters, digits and _, joined by dots (title, address.street)".into()),
+                );
+            } else if !named.insert(field.as_str()) {
+                report.error(&at, format!("field `{field}` is listed twice"), None);
+            }
+        }
         let Some(catalog) = catalog else { continue };
         let Some(def) = catalog.get(&grant.permission) else {
             report.error(
@@ -351,6 +374,19 @@ fn grants(policy: &Policy, catalog: Option<&Catalog>, report: &mut Report<'_>) {
                 ),
                 None,
             );
+        }
+        if !def.fields.is_empty() {
+            for field in grant.fields.iter().filter(|f| !def.fields.contains(f)) {
+                report.error(
+                    &format!("{id}/fields/{field}"),
+                    format!("`{}` does not declare the field `{field}`", grant.permission),
+                    near(
+                        field,
+                        def.fields.iter().map(String::as_str),
+                        Some(format!("declared: {}", def.fields.join(", "))),
+                    ),
+                );
+            }
         }
         let kind = grant.target.kind.as_str();
         if !catalog.is_broad_target(kind) && !def.targets.iter().any(|t| t == kind) {

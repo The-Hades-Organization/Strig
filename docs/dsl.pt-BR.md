@@ -473,10 +473,10 @@ Um texto é uma lista de declarações. As configurações de topo são `target_
 
 | Declaração | Campos |
 | --- | --- |
-| `permission <id> { }` | `label`, `description`, `targets` (obrigatório), `implied_by`, `depends_on`, `non_delegable`, `management_only`, `override_only`, `meta { k = "v" }` |
+| `permission <id> { }` | `label`, `description`, `targets` (obrigatório), `implied_by`, `depends_on`, `fields`, `non_delegable`, `management_only`, `override_only`, `meta { k = "v" }` |
 | `role <nome> { }` | `inherits` |
 | `subject <tipo:id> { }` | `principals`, `attrs { }`, `assign <papel> { scope, valid_from, valid_until }` |
-| `grant <id> { }` | `effect` (`allow` ou `deny`), `subject`, `permission`, `target`, `scope`, `when`, `valid_from`, `valid_until` |
+| `grant <id> { }` | `effect` (`allow` ou `deny`), `subject`, `permission`, `target`, `scope`, `when`, `fields`, `valid_from`, `valid_until` |
 | `relation <tipo#nome> { }` | `rewrite` |
 | `relations = []` | declara que a política não usa relações |
 | `tuples { }` | um `objeto#relação@sujeito` por linha |
@@ -499,13 +499,13 @@ Uma instrução por linha. Uma linha recuada mais que a de cima a continua.
 | `broad` | `broad org` |
 | `strategy` | `strategy <nome>` |
 | `depth` | `depth <n>` |
-| `permission` | `permission <id> on <tipos> [implied by <ids>] [depends_on <ids>] [label "..."] [about "..."] [non-delegable] [management-only] [override-only] [meta k = "v"]` |
+| `permission` | `permission <id> on <tipos> [implied by <ids>] [depends_on <ids>] [fields <nomes>] [label "..."] [about "..."] [non-delegable] [management-only] [override-only] [meta k = "v"]` |
 | `role` | `role <nome> [inherits <nomes>]` |
 | `subject` | `subject team:ops` declara um sujeito; `user:ana has role <nome> [in <escopo>] [from <data>] [until <data>]`, `user:ana has principal <id>` e `user:ana has attr <chave> = <valor>` o preenchem |
 | `relations` | `relations none` declara que a política não usa relações |
 | `relation` | `relation doc#viewer = this \| owner` |
 | `tuple` | `tuple doc:d1#owner@user:bob` |
-| concessão | `<id>: allow\|deny <matcher> to <permissão> on <alvo> [in <escopo>] [when <condição>] [from <data>] [until <data>]` |
+| concessão | `<id>: allow\|deny <matcher> to <permissão> on <alvo> [in <escopo>] [fields <nomes>] [when <condição>] [from <data>] [until <data>]` |
 | `override` | `override resource-owner <attr> [except <ids>]`, `override permission-holder <id> [except <ids>]` |
 | `always` | `always <invariante> [campos]` |
 
@@ -519,7 +519,7 @@ Os títulos começam na primeira coluna e as linhas abaixo são recuadas.
 
 | Título | Linhas abaixo |
 | --- | --- |
-| `role <nome> [inherits <nomes>]` | `in <escopo>` e, sob ele ou direto, `allow\|deny <permissão> on <alvo> [when <condição>] [from <data>] [until <data>] as <id>` |
+| `role <nome> [inherits <nomes>]` | `in <escopo>` e, sob ele ou direto, `allow\|deny <permissão> on <alvo> [fields <nomes>] [when <condição>] [from <data>] [until <data>] as <id>` |
 | `user <id>` ou `subject <tipo:id>` | `role <nome> [in <escopo>] [from <data>] [until <data>]`, `principal <id>`, `attr <chave> = <valor>` e as mesmas linhas `allow` e `deny` |
 | `principal <id>`, `relation <nome>`, `anyone` | as linhas `allow` e `deny` |
 | `catalog` | `kinds`, `broad`, depois cada permissão como em rules, sem a palavra `permission` |
@@ -608,6 +608,54 @@ invariant forbid {
   permissions = [doc.edit]
 }
 ```
+
+## Campos
+
+`fields` limita uma permissão ou um grant a campos do recurso. Em uma `permission`, declara os campos a que um grant
+dessa permissão pode ser restrito; em um `grant`, nomeia os campos que o grant cobre. Um grant sem `fields` cobre o
+recurso inteiro.
+
+```strig
+language blocks
+
+target_kinds = [document]
+
+permission document.edit {
+  targets = [document]
+  fields = [title, body, status]
+}
+
+role editor {
+}
+
+grant g-edit {
+  effect = allow
+  subject = role editor
+  permission = document.edit
+  target = document
+  fields = [title, body]
+}
+```
+
+Rules e Actors escrevem `fields title, body`, depois do alvo:
+
+```strig
+g-edit: allow role editor to document.edit on document fields title, body
+```
+
+```strig
+role editor
+  allow document.edit on document fields title, body as g-edit
+```
+
+Um campo é uma palavra de letras, dígitos e `_`, com pontos para aninhar (`address.street`); não pode se repetir. Quando
+a permissão declara seus campos, um grant que nomeia outro é erro naquele campo, com os declarados na dica. Como os
+campos se combinam com as estratégias, `implied_by` e `depends_on` está no README, seção Permissão por campo.
+
+`DSL_SCHEMA` sobe de 3 para 4 por causa de `fields`. O JSON canônico da política que nomeia campos em um grant ou em uma
+permissão começa com `"schema": 4`, então um leitor do schema 3 a recusa (senão leria um grant restrito a campos como um
+do recurso inteiro); a política sem campos mantém o `schema` que tinha. Este leitor aceita todos e recusa um `schema`
+acima de 4.
 
 ## Janelas de validade
 

@@ -1,0 +1,12 @@
+language actors
+
+role editor
+  allow document.edit on document fields title, body as g-edit
+
+anyone
+  deny document.edit on document:contract fields body as g-freeze
+
+catalog
+  kinds document
+  // An editor changes the text, never the status.
+  document.edit on document fields title, body, status

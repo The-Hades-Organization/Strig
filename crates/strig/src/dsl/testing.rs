@@ -240,6 +240,7 @@ pub struct MutationCase {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
+#[allow(clippy::large_enum_variant)]
 pub enum Case {
     /// A decision of the engine.
     Check(CheckCase),

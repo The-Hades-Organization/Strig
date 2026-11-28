@@ -10,6 +10,7 @@ use crate::resource::GLOBAL;
 /// Definition of an atomic permission.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct PermissionDef {
     pub key: String,
     /// Target kinds a grant of this permission can anchor to, besides the broad ones.
@@ -48,6 +49,12 @@ pub struct PermissionDef {
     /// catalog rules ([`CatalogRule`]) can require it.
     #[serde(default, skip_serializing_if = "Attributes::is_empty")]
     pub meta: Attributes,
+    /// Fields of the resource this permission can be restricted to (`title`, `address.street`).
+    /// Empty means the permission is not field-aware: a grant may still name fields, and the
+    /// engine then trusts them. When declared, a grant naming a field outside the list is
+    /// refused by [`crate::Engine::validate_grant`] and a request for such a field is denied.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<String>,
 }
 
 impl PermissionDef {
@@ -65,6 +72,7 @@ impl PermissionDef {
             management_only: false,
             override_only: false,
             meta: Attributes::new(),
+            fields: Vec::new(),
         }
     }
 
@@ -138,10 +146,31 @@ impl PermissionDef {
         self
     }
 
+    /// Declares the fields a grant of this permission may be restricted to.
+    #[must_use]
+    pub fn fields<I, S>(mut self, fields: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.fields.extend(fields.into_iter().map(Into::into));
+        self
+    }
+
     pub fn meta(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
         self.meta.insert(key.into(), value.into());
         self
     }
+}
+
+/// A field path: segments `[A-Za-z_][A-Za-z0-9_]*` separated by dots.
+pub fn valid_field(field: &str) -> bool {
+    !field.is_empty()
+        && field.split('.').all(|segment| {
+            let mut chars = segment.chars();
+            chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        })
 }
 
 fn is_false(flag: &bool) -> bool {
@@ -149,6 +178,7 @@ fn is_false(flag: &bool) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum CatalogError {
     #[error("chave inválida '{0}': use segmentos [a-z0-9_] separados por ponto")]
     InvalidKey(String),
@@ -172,6 +202,10 @@ pub enum CatalogError {
     NoTargets(String),
     #[error("ciclo de implicação: {}", .0.join(" -> "))]
     Cycle(Vec<String>),
+    #[error("'{key}' declara campo inválido '{field}': use segmentos [A-Za-z_][A-Za-z0-9_]* separados por ponto")]
+    InvalidField { key: String, field: String },
+    #[error("'{key}' declara o campo '{field}' mais de uma vez")]
+    DuplicateField { key: String, field: String },
     #[error("'{key}' viola a regra {rule}: {message}")]
     Rule { rule: String, key: String, message: String },
 }
@@ -361,6 +395,20 @@ impl CatalogBuilder {
             }
             if def.targets.is_empty() {
                 errors.push(CatalogError::NoTargets(def.key.clone()));
+            }
+            let mut seen_fields = BTreeSet::new();
+            for field in &def.fields {
+                if !valid_field(field) {
+                    errors.push(CatalogError::InvalidField {
+                        key: def.key.clone(),
+                        field: field.clone(),
+                    });
+                } else if !seen_fields.insert(field.as_str()) {
+                    errors.push(CatalogError::DuplicateField {
+                        key: def.key.clone(),
+                        field: field.clone(),
+                    });
+                }
             }
             for target in def.targets.iter().filter(|t| !target_kinds.contains(*t)) {
                 errors.push(CatalogError::UnknownTarget {
@@ -553,6 +601,11 @@ impl Catalog {
     }
 
     /// `key` is in the catalog and is marked [`PermissionDef::override_only`].
+    /// Fields the permission declares; empty when it is not field-aware.
+    pub fn fields(&self, key: &str) -> &[String] {
+        self.get(key).map_or(&[], |def| def.fields.as_slice())
+    }
+
     pub fn is_override_only(&self, key: &str) -> bool {
         self.get(key).is_some_and(|d| d.override_only)
     }

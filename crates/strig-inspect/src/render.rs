@@ -66,7 +66,9 @@ pub fn verdict(verdict: &Verdict) -> String {
         Verdict::ConditionFalse => "condition false".into(),
         Verdict::ConditionUnresolved { problem } => format!("allow dropped: condition cannot be evaluated ({problem})"),
         Verdict::OverrideOnly => "permission only holds through an override: grant ignored".into(),
+        Verdict::FieldNotCovered => "the grant names fields and this one is not among them".into(),
         Verdict::NotReached => "not evaluated (an override decided first)".into(),
+        _ => "not classified by this version".into(),
     }
 }
 

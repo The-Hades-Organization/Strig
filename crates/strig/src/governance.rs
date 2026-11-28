@@ -1346,26 +1346,68 @@ impl NoEscalation {
         carried: Option<&Grant>,
     ) -> Result<(), Violation> {
         for key in &c.keys {
-            let explanation = engine.explain(ctx, &Request::new(actor, key, &c.resource));
-            if !explanation.decision.is_allowed() {
-                return Err(Violation::new(
-                    self.name_of(),
-                    format!("o ator não tem {key} onde a mudança passaria a valer"),
-                ));
-            }
-            let Some(grant) = carried else { continue };
-            let Some(required) = conditions_behind(&explanation) else {
-                continue;
-            };
-            if !required.iter().any(|r| covers(grant.condition.as_ref(), r)) {
-                return Err(Violation::new(
-                    self.name_of(),
-                    format!("o ator só tem {key} sob condição: a concessão precisa carregar a mesma condição"),
-                ));
+            for question in held_questions(engine, key, &c.grant.fields) {
+                let explanation = engine.explain(ctx, &question.request(actor, key, &c.resource));
+                if !explanation.decision.is_allowed() {
+                    return Err(Violation::new(
+                        self.name_of(),
+                        match question {
+                            HeldQuestion::Field(field) => {
+                                format!("o ator não tem {key} no campo {field} onde a mudança passaria a valer")
+                            }
+                            HeldQuestion::Whole => format!("o ator não tem {key} onde a mudança passaria a valer"),
+                        },
+                    ));
+                }
+                let Some(grant) = carried else { continue };
+                let Some(required) = conditions_behind(&explanation) else {
+                    continue;
+                };
+                if !required.iter().any(|r| covers(grant.condition.as_ref(), r)) {
+                    return Err(Violation::new(
+                        self.name_of(),
+                        format!("o ator só tem {key} sob condição: a concessão precisa carregar a mesma condição"),
+                    ));
+                }
             }
         }
         Ok(())
     }
+}
+
+/// What the actor has to hold for one permission a change hands out: the whole resource, or each
+/// field the grant names.
+enum HeldQuestion<'f> {
+    Whole,
+    Field(&'f str),
+}
+
+impl<'f> HeldQuestion<'f> {
+    fn request<'a>(&self, actor: &'a Subject, key: &'a str, resource: &'a Resource) -> Request<'a>
+    where
+        'f: 'a,
+    {
+        let request = Request::new(actor, key, resource);
+        match self {
+            HeldQuestion::Whole => request,
+            HeldQuestion::Field(field) => request.field(field),
+        }
+    }
+}
+
+/// The questions that stand for handing out `key` restricted to `fields`. A field the catalog
+/// declares for `key` without including it is skipped: the engine denies it there, so the grant
+/// confers nothing on it.
+fn held_questions<'f>(engine: &Engine, key: &str, fields: &'f [String]) -> Vec<HeldQuestion<'f>> {
+    if fields.is_empty() {
+        return vec![HeldQuestion::Whole];
+    }
+    let declared = engine.catalog().fields(key);
+    fields
+        .iter()
+        .filter(|f| declared.is_empty() || declared.contains(f))
+        .map(|f| HeldQuestion::Field(f))
+        .collect()
 }
 
 /// Conditions of the `allow` grants the decision stands on. `None` when some of them is

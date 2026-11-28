@@ -295,6 +295,32 @@ impl JsEngine {
             .map_err(err)
     }
 
+    #[napi]
+    pub fn allowed_fields(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        request: Unknown<'_>,
+        now: Option<Unknown<'_>>,
+    ) -> Result<Value> {
+        self.inner
+            .allowed_fields(&ctx.inner, json(env, request)?, now_of(env, now)?)
+            .map_err(err)
+    }
+
+    #[napi]
+    pub fn explain_fields(
+        &self,
+        env: &Env,
+        ctx: &JsContext,
+        request: Unknown<'_>,
+        now: Option<Unknown<'_>>,
+    ) -> Result<Value> {
+        self.inner
+            .explain_fields(&ctx.inner, json(env, request)?, now_of(env, now)?)
+            .map_err(err)
+    }
+
     /// Decides every request of the array in one crossing: one boolean per request, in order.
     #[napi]
     pub fn check_many(

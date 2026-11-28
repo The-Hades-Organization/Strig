@@ -551,6 +551,21 @@ pub struct FilterResolution {
     pub undecided: Vec<String>,
 }
 
+/// How a listing sees a grant. A listing answers for the whole resource, so a field-restricted
+/// `allow` is left out (it never opens the resource) and a field-restricted `deny` counts as a
+/// plain one (it keeps the resource out, failing closed). See [`crate::field`].
+pub(crate) fn whole_resource_form(grant: &Grant) -> Option<Grant> {
+    match (grant.is_field_restricted(), grant.effect) {
+        (false, _) => Some(grant.clone()),
+        (true, Effect::Allow) => None,
+        (true, Effect::Deny) => {
+            let mut whole = grant.clone();
+            whole.fields.clear();
+            Some(whole)
+        }
+    }
+}
+
 /// A part of the decision that only the resource can settle.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -1252,7 +1267,7 @@ impl Engine {
         let mut grants = Vec::new();
         ctx.grants.visit_by_permission(&keys, &mut |g| {
             if effective.contains(&g.permission) && who.roles.may_match(subject, &g.subject) {
-                grants.push(g.clone());
+                grants.extend(whole_resource_form(g));
             }
         });
         for grant in grants {
@@ -1860,7 +1875,11 @@ impl Engine {
         let keys: Vec<&str> = effective.iter().map(String::as_str).collect();
         let mut out = BTreeSet::new();
         ctx.grants.visit_by_permission(&keys, &mut |grant| {
-            if grant.effect != Effect::Allow || !effective.contains(&grant.permission) || !grant.in_force(ctx.now) {
+            if grant.effect != Effect::Allow
+                || grant.is_field_restricted()
+                || !effective.contains(&grant.permission)
+                || !grant.in_force(ctx.now)
+            {
                 return;
             }
             match &grant.subject {
