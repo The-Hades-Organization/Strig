@@ -14,6 +14,7 @@
 pub mod cache;
 pub mod change;
 pub mod hub;
+mod obs;
 pub mod protocol;
 pub mod provider;
 pub mod session;

@@ -49,6 +49,10 @@ impl PgTables {
     ///
     /// Whatever the writes return, or [`PgQueryError::Notify`] when the notice does not fit
     /// [`crate::MAX_PAYLOAD`] or the statement fails.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "strig.postgres.store.commit_mutation", level = "info", skip_all)
+    )]
     pub async fn commit_mutation<C: GenericClient + Sync>(
         &self,
         client: &C,

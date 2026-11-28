@@ -36,6 +36,7 @@ Features do crate `strig`:
 |---|---|---|
 | `audit` | sim | Trilha de auditoria das mudanças de grant e das decisões, com cadeia de hash |
 | `exclusive` | não | Um detentor por recurso, com prioridade e preempção |
+| `conformance` | não | Liga `exclusive` e traz `strig::exclusive_conformance`, a bateria que um adaptador de `ExclusiveStore` roda nos testes (fora da API estável) |
 | `dsl` | não | A linguagem de políticas: parse, validação, conversão, formatação. Sem IO, funciona em wasm |
 | `dsl-fs` | não | `dsl` mais leitura e escrita de arquivos e diretórios `.strig` |
 
@@ -424,6 +425,21 @@ let second = registry.acquire_checked(&engine, &ctx, &bob, &document, Terms::new
 assert!(matches!(second, Acquisition::Preempted { .. }));
 ```
 
+### Entre processos
+
+`ExclusiveRegistry::default()` guarda as posses na memória, então o recurso é exclusivo dentro de um processo. Para dividi-lo entre instâncias, dê ao registro um store que decide de forma atômica no banco:
+
+```rust
+// Postgres: rode `migrate_with` antes (a versão 4 do esquema cria `<prefixo>_exclusive`).
+let store = PgExclusiveStore::connect(&url, PgTables::default()).await?;
+let mut registry = ExclusiveRegistry::new(store);
+
+// Redis: toda instância que divide o recurso usa o mesmo prefixo.
+let mut registry = ExclusiveRegistry::new(RedisExclusiveStore::new("redis://127.0.0.1/", "strig:exclusive")?);
+```
+
+Adquirir, renovar, liberar e a varredura (`expire`) são um passo atômico em cada store: trava de linha numa transação no Postgres, `WATCH`/`MULTI`/`EXEC` no Redis. Duas instâncias disputando o mesmo recurso têm exatamente um vencedor. Os dois dão as mesmas respostas do store em memória (`strig::exclusive_conformance::run` (feature `conformance`) é a bateria que todo store passa), e a posse estar ativa é sempre decidido com o `now` que você passa, nunca com o relógio do banco. No Redis a expiração nativa só devolve memória, depois da vida da posse mais uma retenção (uma hora por padrão). O trait é síncrono: os dois stores bloqueiam quem chama pelo tempo da ida e volta (use `spawn_blocking` dentro de uma task async) e falham fechado com `StoreError` em timeout ou conexão perdida. O Postgres mantém a conexão numa thread própria, como o `PgPendingStore`; o Redis usa a conexão síncrona do crate `redis` com timeouts. Os dois crates têm a feature `exclusive`, ligada por padrão. O binding JavaScript ainda não os expõe.
+
 ## Tempo real
 
 ```text
@@ -508,6 +524,66 @@ let request = CheckRequest::new(Subject::user("alice"), "document.view", Resourc
 if client.check(&request).await.is_allowed() {
     // serve o documento
 }
+```
+
+## Observabilidade
+
+Todo crate tem uma feature `tracing` opcional, desligada por padrão. Ela traz spans pelo [`tracing`](https://docs.rs/tracing) e métricas pela fachada [`metrics`](https://docs.rs/metrics), então o backend é escolha sua: Prometheus, OpenTelemetry ou um recorder próprio. As features se encadeiam (`strig-sync/tracing` liga `strig/tracing`, `strig-postgres/tracing` e `strig-redis/tracing` ligam `strig-sync/tracing`, `strig-server/tracing` liga `strig/tracing`).
+
+```toml
+strig = { version = "0.8", features = ["tracing"] }
+strig-server = { version = "0.8", features = ["tracing"] }
+```
+
+Com a feature desligada nada é compilado: os pontos instrumentados são a chamada direta. Ligada e sem subscriber nem recorder instalado, uma decisão custa cerca de 110 ns a mais (`decide/simple`: 518 ns desligada, 630 ns ligada, contra 517 ns antes de a feature existir; as operações maiores ficam dentro do ruído). O núcleo continua sem IO e continua compilando para WebAssembly com e sem a feature; lá o histograma de latência de decisão não é gravado, porque `std::time::Instant` não existe em `wasm32-unknown-unknown`. O binding JavaScript ainda não é instrumentado.
+
+**Sem dado pessoal.** Um label de métrica é um destes: operação, permissão (só uma que o catálogo conhece; qualquer outra vira `unknown`), efeito, tipo de motivo, nome da invariante, etapa, resultado, status, tipo de mudança, nome do transporte, rota, código de erro, fase do breaker. Nunca id de sujeito, id de recurso, atributo nem corpo de requisição, e os spans levam os mesmos campos. Testes em cada crate rodam um cenário com ids reconhecíveis e falham se algum aparecer num label ou num span. Uma invariante sua rotula a métrica com o nome que você deu, então mantenha-o constante.
+
+Uma decisão que uma invariante ou um override seu toma enquanto a governança julga uma mudança pertence a essa mudança: só a operação mais externa em cada thread alimenta as métricas, então `strig_decisions_total` conta o que a aplicação pediu. Os spans se aninham de qualquer jeito.
+
+| Métrica | Tipo | Labels |
+|---|---|---|
+| `strig_decisions_total` | contador | `operation` (`decide`, `explain`), `effect`, `reason`, `permission` |
+| `strig_decision_duration_seconds` | histograma | `operation` |
+| `strig_query_duration_seconds` | histograma | `operation` (`list`, `who_can`, `who_can_on`) |
+| `strig_mutations_total` | contador | `outcome` (`applied`, `refused`) |
+| `strig_mutation_violations_total` | contador | `invariant` |
+| `strig_approvals_total` | contador | `step` (`propose`, `approve`, `reject`, `expire`), `outcome` |
+| `strig_audit_writes_total` | contador | `status` (`written`, `pending`, `dropped`, `refused`) |
+| `strig_audit_pending` | gauge | nenhum (tamanho da fila de retentativa) |
+| `strig_audit_write_failures_total` | contador | nenhum |
+| `strig_audit_dropped_total` | contador | nenhum |
+| `strig_sync_changes_total` | contador | `kind`, `direction` (`published`, `received`) |
+| `strig_sync_publish_errors_total` | contador | `transport` |
+| `strig_sync_sessions_open` / `strig_sync_sessions_opened_total` | gauge / contador | nenhum |
+| `strig_sync_resyncs_total` | contador | `reason` (`reconnect`, `lagged`, `notice`) |
+| `strig_sync_transport_reconnects_total` | contador | `transport` |
+| `strig_sync_transport_failures_total` | contador | `transport`, `stage` (`subscribe`, `stream`) |
+| `strig_server_requests_total` | contador | `route`, `status` |
+| `strig_server_request_duration_seconds` | histograma | `route` |
+| `strig_server_errors_total` | contador | `code` |
+| `strig_client_calls_total` | contador | `route`, `outcome` |
+| `strig_client_call_duration_seconds` | histograma | `route` |
+| `strig_client_breaker_transitions_total` | contador | `to` (`closed`, `half_open`, `open`) |
+| `strig_client_breaker_state` | gauge | nenhum (`0` fechado, `1` meio aberto, `2` aberto) |
+
+| Span | Onde | Campos |
+|---|---|---|
+| `strig.decision` | `decide`, `check`, `explain` | `operation`, `permission`, `effect`, `reason` |
+| `strig.query` | `list`, `who_can`, `who_can_on` | `operation`, `permission`, `kind` |
+| `strig.governance.apply` | `Governance::apply` e `GovernanceAt` | `outcome` |
+| `strig.approval` | `propose`, `approve`, `reject`, `expire_due` | `step`, `outcome` |
+| `strig.audit.write` | cada registro de auditoria enviado ao sink | `mode` |
+| `strig.sync.publish`, `strig.sync.relay`, `strig.sync.session` | publicação no hub, relay do transporte, uma sessão de cliente | `transport` na publicação |
+| `strig.postgres.publish`, `strig.postgres.subscribe`, `strig.postgres.store.load`, `strig.postgres.store.reload`, `strig.postgres.store.commit_mutation`, `strig.redis.publish`, `strig.redis.subscribe` | os transportes | nenhum |
+| `strig.server.request`, `strig.client.call` | o servidor de decisão e o cliente | `route`, `status` ou `outcome` |
+
+Eventos (registro de auditoria descartado, conexão `LISTEN` perdida, breaker mudando de fase) saem em `warn` ou `info`. Os spans de decisão e de consulta são `debug`, os demais `info`.
+
+[`crates/strig-server/examples/otlp.rs`](crates/strig-server/examples/otlp.rs) exporta os dois por OTLP/HTTP com `tracing-opentelemetry` e `metrics-exporter-opentelemetry`:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 cargo run -p strig-server --features tracing --example otlp
 ```
 
 ## JavaScript: Node, Bun e navegador

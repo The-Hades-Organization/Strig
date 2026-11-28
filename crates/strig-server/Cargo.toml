@@ -16,6 +16,8 @@ authors.workspace = true
 default = ["client"]
 ## Rust client: per-call timeout, circuit breaker and fail-closed answers.
 client = ["dep:hyper-util", "dep:http-body-util"]
+## Request spans and metrics for the server, calls and circuit breaker of the client, and everything `strig/tracing` covers. The log events (`tracing` is a plain dependency here) stay on either way; off costs nothing more.
+tracing = ["dep:metrics", "strig/tracing", "axum/matched-path"]
 
 [dependencies]
 strig.workspace = true
@@ -26,11 +28,27 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "sync"] }
 futures-util.workspace = true
-tracing = "0.1"
+tracing.workspace = true
+metrics = { workspace = true, optional = true }
 hyper-util = { version = "0.1", optional = true, default-features = false, features = ["client-legacy", "http1", "tokio"] }
 http-body-util = { version = "0.1", optional = true }
 
 [dev-dependencies]
+opentelemetry = "0.33"
+opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics"] }
+tracing-opentelemetry = "0.34"
+tracing-subscriber = { version = "0.3", features = ["registry"] }
+metrics-exporter-opentelemetry = "0.2"
+metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
 http-body-util = "0.1"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "test-util"] }
 tower = { version = "0.5", features = ["util"] }
+
+[[test]]
+name = "observability"
+required-features = ["tracing", "client"]
+
+[[example]]
+name = "otlp"
+required-features = ["tracing", "client"]

@@ -465,13 +465,19 @@ impl PendingQueue {
                     state.stats.written_late += 1;
                     state.attempts = 0;
                     state.next_at = 0;
+                    #[cfg(feature = "tracing")]
+                    crate::obs::audit::retried(1);
                 }
                 Err(error) => {
                     self.failed(state, now, &error);
+                    #[cfg(feature = "tracing")]
+                    crate::obs::audit::depth(state.items.len());
                     return;
                 }
             }
         }
+        #[cfg(feature = "tracing")]
+        crate::obs::audit::depth(state.items.len());
     }
 
     fn failed(&self, state: &mut QueueState, now: u64, error: &AuditError) {
@@ -485,11 +491,35 @@ impl PendingQueue {
             .saturating_mul(1u64 << shift)
             .min(self.policy.max_delay_ms);
         state.next_at = now.saturating_add(delay);
+        #[cfg(feature = "tracing")]
+        crate::obs::audit::write_failed();
     }
 
     /// Writes `record` after everything already waiting, or queues it (`open`) or refuses it
     /// (`closed`) if the sink fails.
     fn submit(
+        &self,
+        sink: &dyn AuditSink,
+        record: &AuditRecord,
+        mode: FailMode,
+        now: u64,
+    ) -> Result<AuditStatus, AuditError> {
+        #[cfg(feature = "tracing")]
+        {
+            let span = tracing::info_span!("strig.audit.write", mode = ?mode);
+            let result = span.in_scope(|| self.submit_inner(sink, record, mode, now));
+            match &result {
+                Ok(status) => crate::obs::audit::status(*status),
+                Err(_) => crate::obs::audit::refused(),
+            }
+            crate::obs::audit::depth(lock(&self.state).items.len());
+            result
+        }
+        #[cfg(not(feature = "tracing"))]
+        self.submit_inner(sink, record, mode, now)
+    }
+
+    fn submit_inner(
         &self,
         sink: &dyn AuditSink,
         record: &AuditRecord,

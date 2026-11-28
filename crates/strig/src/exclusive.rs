@@ -15,7 +15,11 @@
 //! request. The permission is checked on the whole path, but the lease is keyed by its first step.
 //!
 //! The registry takes `&mut self`, so one registry is one writer. A store shared between processes
-//! must make the read-decide-write sequence atomic by itself (a lock or a compare-and-set).
+//! must make each decision atomic by itself: [`ExclusiveStore::acquire_lease`],
+//! [`ExclusiveStore::renew_lease`], [`ExclusiveStore::release_lease`] and
+//! [`ExclusiveStore::remove_expired`] are the units it has to keep indivisible, and
+//! [`Acquisition::decide`] is the rule they all apply. The defaults compose `get`/`put`/`remove`,
+//! which is atomic only for a store that has a single writer, like [`MemoryExclusiveStore`].
 
 use std::collections::BTreeMap;
 
@@ -54,6 +58,27 @@ pub struct Lease {
 impl Lease {
     pub fn is_active(&self, now: u64) -> bool {
         now < self.expires_at
+    }
+
+    /// The lease `claim` creates when granted at `now`.
+    #[must_use]
+    pub fn granted(claim: &Claim, now: u64) -> Self {
+        Self {
+            resource: claim.resource.clone(),
+            holder: claim.holder.clone(),
+            priority: claim.terms.priority,
+            acquired_at: now,
+            expires_at: now.saturating_add(claim.terms.ttl_ms),
+        }
+    }
+
+    /// This lease extended to `now + ttl_ms`, keeping holder, priority and acquisition instant.
+    #[must_use]
+    pub fn renewed(&self, now: u64, ttl_ms: u64) -> Self {
+        Self {
+            expires_at: now.saturating_add(ttl_ms),
+            ..self.clone()
+        }
     }
 }
 
@@ -111,6 +136,48 @@ pub enum Acquisition {
     Busy { holder: Lease },
 }
 
+impl Acquisition {
+    /// The decision for `claim` at `now` against the lease on the resource, if there is one. A lease
+    /// that ran out does not count. This is the one rule every store applies, so a store that
+    /// decides inside its own transaction agrees with [`MemoryExclusiveStore`].
+    #[must_use]
+    pub fn decide(current: Option<Lease>, claim: &Claim, now: u64, preemption: Preemption) -> Self {
+        match current.filter(|lease| lease.is_active(now)) {
+            None => Self::Granted,
+            Some(lease) if lease.holder == claim.holder => Self::Granted,
+            Some(lease) if preemption == Preemption::Allowed && claim.terms.priority > lease.priority => {
+                Self::Preempted { previous: lease }
+            }
+            Some(lease) => Self::Busy { holder: lease },
+        }
+    }
+}
+
+/// Outcome of a change only the holder can make: [`ExclusiveStore::renew_lease`] and
+/// [`ExclusiveStore::release_lease`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum OwnedChange {
+    /// Applied. Carries the lease as it is now (renewed) or as it was (released).
+    Applied(Lease),
+    /// There is no active lease on the resource.
+    NotHeld,
+    /// Another holder has it.
+    NotHolder { holder: ObjectRef },
+}
+
+impl OwnedChange {
+    /// The decision for `holder` against the lease on the resource, if there is one.
+    #[must_use]
+    pub fn decide(current: Option<Lease>, holder: &ObjectRef, now: u64) -> Self {
+        match current.filter(|lease| lease.is_active(now)) {
+            None => Self::NotHeld,
+            Some(lease) if &lease.holder != holder => Self::NotHolder { holder: lease.holder },
+            Some(lease) => Self::Applied(lease),
+        }
+    }
+}
+
 /// Failure to read or write the lease store.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("falha no armazenamento de posse exclusiva: {0}")]
@@ -150,6 +217,55 @@ pub trait ExclusiveStore {
     fn remove(&mut self, resource: &ObjectRef) -> Result<Option<Lease>, StoreError>;
     /// Every stored lease, expired or not, ordered by resource.
     fn leases(&self) -> Result<Vec<Lease>, StoreError>;
+
+    /// Decides and writes a claim as one step ([`Acquisition::decide`]). A store shared between
+    /// processes overrides it with one atomic operation; the default reads, decides and writes.
+    fn acquire_lease(&mut self, claim: &Claim, now: u64, preemption: Preemption) -> Result<Acquisition, StoreError> {
+        let outcome = Acquisition::decide(self.get(&claim.resource)?, claim, now, preemption);
+        if !matches!(outcome, Acquisition::Busy { .. }) {
+            self.put(Lease::granted(claim, now))?;
+        }
+        Ok(outcome)
+    }
+
+    /// Extends the lease of `holder` to `now + ttl_ms` as one step ([`OwnedChange::decide`]).
+    fn renew_lease(
+        &mut self,
+        resource: &ObjectRef,
+        holder: &ObjectRef,
+        now: u64,
+        ttl_ms: u64,
+    ) -> Result<OwnedChange, StoreError> {
+        let change = OwnedChange::decide(self.get(resource)?, holder, now);
+        if let OwnedChange::Applied(lease) = &change {
+            let renewed = lease.renewed(now, ttl_ms);
+            self.put(renewed.clone())?;
+            return Ok(OwnedChange::Applied(renewed));
+        }
+        Ok(change)
+    }
+
+    /// Removes the lease of `holder` as one step ([`OwnedChange::decide`]).
+    fn release_lease(&mut self, resource: &ObjectRef, holder: &ObjectRef, now: u64) -> Result<OwnedChange, StoreError> {
+        let change = OwnedChange::decide(self.get(resource)?, holder, now);
+        if matches!(change, OwnedChange::Applied(_)) {
+            self.remove(resource)?;
+        }
+        Ok(change)
+    }
+
+    /// Removes and returns the leases that ran out at `now`, ordered by resource, so a lease
+    /// renewed or taken meanwhile by another process is never removed.
+    fn remove_expired(&mut self, now: u64) -> Result<Vec<Lease>, StoreError> {
+        let mut expired = Vec::new();
+        for lease in self.leases()? {
+            if !lease.is_active(now) {
+                self.remove(&lease.resource)?;
+                expired.push(lease);
+            }
+        }
+        Ok(expired)
+    }
 }
 
 /// Leases in memory.
@@ -310,26 +426,7 @@ impl<S: ExclusiveStore> ExclusiveRegistry<S> {
     /// [`ExclusiveError::ZeroTtl`], or [`ExclusiveError::Store`] / [`ExclusiveError::Audit`].
     pub fn acquire(&mut self, claim: &Claim, now: u64, preemption: Preemption) -> Result<Acquisition, ExclusiveError> {
         self.check_ttl(claim.terms.ttl_ms)?;
-        let current = self.holder(&claim.resource, now)?;
-        let outcome = match current {
-            None => Acquisition::Granted,
-            Some(lease) if lease.holder == claim.holder => Acquisition::Granted,
-            Some(lease) if preemption == Preemption::Allowed && claim.terms.priority > lease.priority => {
-                Acquisition::Preempted { previous: lease }
-            }
-            Some(lease) => Acquisition::Busy { holder: lease },
-        };
-        if matches!(outcome, Acquisition::Busy { .. }) {
-            self.record_acquisition(claim, now, &outcome)?;
-            return Ok(outcome);
-        }
-        self.store.put(Lease {
-            resource: claim.resource.clone(),
-            holder: claim.holder.clone(),
-            priority: claim.terms.priority,
-            acquired_at: now,
-            expires_at: now.saturating_add(claim.terms.ttl_ms),
-        })?;
+        let outcome = self.store.acquire_lease(claim, now, preemption)?;
         self.record_acquisition(claim, now, &outcome)?;
         Ok(outcome)
     }
@@ -386,8 +483,7 @@ impl<S: ExclusiveStore> ExclusiveRegistry<S> {
     /// [`ExclusiveError::NotHeld`] when there is no active lease, [`ExclusiveError::NotHolder`]
     /// when another holder has it.
     pub fn release(&mut self, resource: &ObjectRef, holder: &ObjectRef, now: u64) -> Result<Lease, ExclusiveError> {
-        let lease = self.owned_by(resource, holder, now)?;
-        self.store.remove(resource)?;
+        let lease = Self::applied(resource, self.store.release_lease(resource, holder, now)?)?;
         self.record(AuditKind::Release, &lease.holder, resource, now, &lease)?;
         Ok(lease)
     }
@@ -407,10 +503,7 @@ impl<S: ExclusiveStore> ExclusiveRegistry<S> {
         ttl_ms: u64,
     ) -> Result<Lease, ExclusiveError> {
         self.check_ttl(ttl_ms)?;
-        let mut lease = self.owned_by(resource, holder, now)?;
-        lease.expires_at = now.saturating_add(ttl_ms);
-        self.store.put(lease.clone())?;
-        Ok(lease)
+        Self::applied(resource, self.store.renew_lease(resource, holder, now, ttl_ms)?)
     }
 
     /// Renews the lease of `subject` on `resource` after asking the engine: the ownership
@@ -446,30 +539,22 @@ impl<S: ExclusiveStore> ExclusiveRegistry<S> {
     /// [`ExclusiveError::Store`] or [`ExclusiveError::Audit`]. On an audit failure the leases
     /// already removed stay removed.
     pub fn expire(&mut self, now: u64) -> Result<Vec<Lease>, ExclusiveError> {
-        let mut expired = Vec::new();
-        for lease in self.store.leases()? {
-            if !lease.is_active(now) {
-                self.store.remove(&lease.resource)?;
-                expired.push(lease);
-            }
-        }
+        let expired = self.store.remove_expired(now)?;
         for lease in &expired {
             self.record(AuditKind::Expire, &lease.holder, &lease.resource, now, lease)?;
         }
         Ok(expired)
     }
 
-    fn owned_by(&self, resource: &ObjectRef, holder: &ObjectRef, now: u64) -> Result<Lease, ExclusiveError> {
-        let lease = self
-            .holder(resource, now)?
-            .ok_or_else(|| ExclusiveError::NotHeld(resource.clone()))?;
-        if &lease.holder != holder {
-            return Err(ExclusiveError::NotHolder {
+    fn applied(resource: &ObjectRef, change: OwnedChange) -> Result<Lease, ExclusiveError> {
+        match change {
+            OwnedChange::Applied(lease) => Ok(lease),
+            OwnedChange::NotHolder { holder } => Err(ExclusiveError::NotHolder {
                 resource: resource.clone(),
-                holder: lease.holder,
-            });
+                holder,
+            }),
+            OwnedChange::NotHeld => Err(ExclusiveError::NotHeld(resource.clone())),
         }
-        Ok(lease)
     }
 
     fn require(

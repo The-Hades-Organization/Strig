@@ -36,6 +36,7 @@ Features of the `strig` crate:
 |---|---|---|
 | `audit` | yes | Audit trail for grant changes and decisions, with a hash chain |
 | `exclusive` | no | One holder per resource, with priority and preemption |
+| `conformance` | no | Turns on `exclusive` and adds `strig::exclusive_conformance`, the battery an `ExclusiveStore` adapter runs in its tests (not stable API) |
 | `dsl` | no | The policy language: parse, validate, convert, format. No IO, works in wasm |
 | `dsl-fs` | no | `dsl` plus reading and writing `.strig` files and directories |
 
@@ -424,6 +425,21 @@ let second = registry.acquire_checked(&engine, &ctx, &bob, &document, Terms::new
 assert!(matches!(second, Acquisition::Preempted { .. }));
 ```
 
+### Across processes
+
+`ExclusiveRegistry::default()` keeps the leases in memory, so a resource is exclusive inside one process. To share it between instances, give the registry a store that decides atomically in the database:
+
+```rust
+// Postgres: run `migrate_with` first (schema version 4 adds `<prefix>_exclusive`).
+let store = PgExclusiveStore::connect(&url, PgTables::default()).await?;
+let mut registry = ExclusiveRegistry::new(store);
+
+// Redis: every instance that shares the resource uses the same prefix.
+let mut registry = ExclusiveRegistry::new(RedisExclusiveStore::new("redis://127.0.0.1/", "strig:exclusive")?);
+```
+
+Acquire, renew, release and the sweep (`expire`) are one atomic step in each store: a row lock in a transaction for Postgres, `WATCH`/`MULTI`/`EXEC` for Redis. Two instances racing for the same resource have exactly one winner. Both give the same answers as the in-memory store (`strig::exclusive_conformance::run` (feature `conformance`) is the battery every store passes), and whether a lease is active is always decided with the `now` you pass, never the clock of the database. In Redis the native expiry only reclaims memory, after the lease's lifetime plus a retention (one hour by default). The trait is synchronous: both stores block the caller for the round trip (use `spawn_blocking` inside an async task) and fail closed with a `StoreError` on a timeout or a lost connection. Postgres keeps its connection on a thread of its own, like `PgPendingStore`; Redis uses the synchronous connection of the `redis` crate with timeouts. Both crates have the `exclusive` feature, on by default. The JavaScript binding does not expose them yet.
+
 ## Real time
 
 ```text
@@ -508,6 +524,66 @@ let request = CheckRequest::new(Subject::user("alice"), "document.view", Resourc
 if client.check(&request).await.is_allowed() {
     // serve the document
 }
+```
+
+## Observability
+
+Every crate has an optional `tracing` feature, off by default. It adds spans through [`tracing`](https://docs.rs/tracing) and metrics through the [`metrics`](https://docs.rs/metrics) facade, so you pick the backend: Prometheus, OpenTelemetry or your own recorder. The features chain (`strig-sync/tracing` turns on `strig/tracing`, `strig-postgres/tracing` and `strig-redis/tracing` turn on `strig-sync/tracing`, `strig-server/tracing` turns on `strig/tracing`).
+
+```toml
+strig = { version = "0.8", features = ["tracing"] }
+strig-server = { version = "0.8", features = ["tracing"] }
+```
+
+With the feature off nothing is compiled in: the instrumented entry points are the plain calls. With it on and no subscriber or recorder installed, a decision costs about 110 ns more (`decide/simple`: 518 ns off, 630 ns on, against 517 ns before the feature existed; the bigger operations are within noise). The core still does no IO and still compiles to WebAssembly with and without the feature; there the decision latency histogram is not recorded, because `std::time::Instant` is not available on `wasm32-unknown-unknown`. The JavaScript binding is not instrumented yet.
+
+**No personal data.** A metric label is one of: operation, permission (only a permission the catalog knows; anything else is `unknown`), effect, reason kind, invariant name, step, outcome, status, change kind, transport name, route, error code, breaker phase. Never a subject id, a resource id, an attribute or a request body, and spans carry the same fields. Tests in each crate run a scenario with recognizable ids and fail if one shows up in a label or a span. An invariant you write labels the metric with the name you gave it, so keep it a constant.
+
+A decision a custom invariant or override makes while governance judges a change belongs to that change: only the outermost operation on a thread feeds the metrics, so `strig_decisions_total` counts what your application asked for. Spans nest either way.
+
+| Metric | Type | Labels |
+|---|---|---|
+| `strig_decisions_total` | counter | `operation` (`decide`, `explain`), `effect`, `reason`, `permission` |
+| `strig_decision_duration_seconds` | histogram | `operation` |
+| `strig_query_duration_seconds` | histogram | `operation` (`list`, `who_can`, `who_can_on`) |
+| `strig_mutations_total` | counter | `outcome` (`applied`, `refused`) |
+| `strig_mutation_violations_total` | counter | `invariant` |
+| `strig_approvals_total` | counter | `step` (`propose`, `approve`, `reject`, `expire`), `outcome` |
+| `strig_audit_writes_total` | counter | `status` (`written`, `pending`, `dropped`, `refused`) |
+| `strig_audit_pending` | gauge | none (depth of the retry queue) |
+| `strig_audit_write_failures_total` | counter | none |
+| `strig_audit_dropped_total` | counter | none |
+| `strig_sync_changes_total` | counter | `kind`, `direction` (`published`, `received`) |
+| `strig_sync_publish_errors_total` | counter | `transport` |
+| `strig_sync_sessions_open` / `strig_sync_sessions_opened_total` | gauge / counter | none |
+| `strig_sync_resyncs_total` | counter | `reason` (`reconnect`, `lagged`, `notice`) |
+| `strig_sync_transport_reconnects_total` | counter | `transport` |
+| `strig_sync_transport_failures_total` | counter | `transport`, `stage` (`subscribe`, `stream`) |
+| `strig_server_requests_total` | counter | `route`, `status` |
+| `strig_server_request_duration_seconds` | histogram | `route` |
+| `strig_server_errors_total` | counter | `code` |
+| `strig_client_calls_total` | counter | `route`, `outcome` |
+| `strig_client_call_duration_seconds` | histogram | `route` |
+| `strig_client_breaker_transitions_total` | counter | `to` (`closed`, `half_open`, `open`) |
+| `strig_client_breaker_state` | gauge | none (`0` closed, `1` half open, `2` open) |
+
+| Span | Where | Fields |
+|---|---|---|
+| `strig.decision` | `decide`, `check`, `explain` | `operation`, `permission`, `effect`, `reason` |
+| `strig.query` | `list`, `who_can`, `who_can_on` | `operation`, `permission`, `kind` |
+| `strig.governance.apply` | `Governance::apply` and `GovernanceAt` | `outcome` |
+| `strig.approval` | `propose`, `approve`, `reject`, `expire_due` | `step`, `outcome` |
+| `strig.audit.write` | each audit record sent to the sink | `mode` |
+| `strig.sync.publish`, `strig.sync.relay`, `strig.sync.session` | hub publish, transport relay, one client session | `transport` on publish |
+| `strig.postgres.publish`, `strig.postgres.subscribe`, `strig.postgres.store.load`, `strig.postgres.store.reload`, `strig.postgres.store.commit_mutation`, `strig.redis.publish`, `strig.redis.subscribe` | the transports | none |
+| `strig.server.request`, `strig.client.call` | the decision server and its client | `route`, `status` or `outcome` |
+
+Events (a dropped audit record, a lost `LISTEN` connection, a breaker changing phase) go out at `warn` or `info`. Decision and query spans are `debug`, the rest `info`.
+
+[`crates/strig-server/examples/otlp.rs`](crates/strig-server/examples/otlp.rs) exports both over OTLP/HTTP with `tracing-opentelemetry` and `metrics-exporter-opentelemetry`:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 cargo run -p strig-server --features tracing --example otlp
 ```
 
 ## JavaScript: Node, Bun and the browser

@@ -1179,7 +1179,9 @@ impl Engine {
     /// permission outside the catalog lists nothing. What the resource alone can settle is left
     /// in [`AccessFilter::residual`].
     pub fn list(&self, ctx: &QueryContext<'_>, subject: &Subject, permission: &str, kind: &str) -> AccessFilter {
-        self.plan(ctx, subject, permission, kind, true)
+        crate::obs::query("list", permission, Some(kind), || {
+            self.plan(ctx, subject, permission, kind, true)
+        })
     }
 
     pub(crate) fn plan(
@@ -1839,13 +1841,19 @@ impl Engine {
         permission: &str,
         resource: &Resource,
     ) -> Result<WhoCan, QueryError> {
-        self.who_can_inner(ctx, permission, resource, true)
+        crate::obs::query("who_can_on", permission, None, || {
+            self.who_can_inner(ctx, permission, resource, true)
+        })
     }
 
     /// Parties named by an allow grant of `permission` (or of something that implies it),
     /// anywhere. Without a resource nothing is evaluated: a deny, an override or a condition can
     /// still keep a party out of a given resource, which [`Engine::who_can_on`] settles.
     pub fn who_can(&self, ctx: &QueryContext<'_>, permission: &str) -> Vec<SubjectRef> {
+        crate::obs::query("who_can", permission, None, || self.who_can_parties(ctx, permission))
+    }
+
+    fn who_can_parties(&self, ctx: &QueryContext<'_>, permission: &str) -> Vec<SubjectRef> {
         let Some(effective) = self.catalog.effective(permission) else {
             return Vec::new();
         };

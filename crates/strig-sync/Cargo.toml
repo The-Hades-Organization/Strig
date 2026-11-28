@@ -12,6 +12,10 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 
+[features]
+## Spans (`tracing`) and metrics (`metrics`) for the hub, the relay, the sessions and the transport, and everything `strig/tracing` covers. Off by default; off costs nothing.
+tracing = ["dep:tracing", "dep:metrics", "strig/tracing"]
+
 [dependencies]
 strig.workspace = true
 async-trait.workspace = true
@@ -21,6 +25,13 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }
 tokio-stream = { workspace = true, features = ["sync"] }
+tracing = { workspace = true, optional = true }
+metrics = { workspace = true, optional = true }
 
 [dev-dependencies]
+metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
+
+[[test]]
+name = "observability"
+required-features = ["tracing"]

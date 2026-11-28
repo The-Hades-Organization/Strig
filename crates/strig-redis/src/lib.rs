@@ -18,6 +18,11 @@
 //! dedicated pub/sub connection; when it drops, the stream ends and the hub reopens it and emits
 //! `Resync`.
 
+#[cfg(feature = "exclusive")]
+mod exclusive;
+#[cfg(feature = "exclusive")]
+pub use exclusive::RedisExclusiveStore;
+
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use redis::aio::ConnectionManager;
@@ -67,6 +72,10 @@ impl Transport for RedisTransport {
         "redis"
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "strig.redis.publish", level = "info", skip_all)
+    )]
     async fn publish(&self, change: &Change) -> Result<(), TransportError> {
         let mut con = self.publisher().await?;
         con.publish::<_, _, ()>(&self.channel, change.to_json())
@@ -74,6 +83,10 @@ impl Transport for RedisTransport {
             .map_err(connection)
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "strig.redis.subscribe", level = "info", skip_all)
+    )]
     async fn subscribe(&self) -> Result<ChangeStream, TransportError> {
         let mut pubsub = self.client.get_async_pubsub().await.map_err(connection)?;
         pubsub.subscribe(&self.channel).await.map_err(connection)?;
@@ -81,7 +94,11 @@ impl Transport for RedisTransport {
             let payload: String = message
                 .get_payload()
                 .map_err(|e| TransportError::Decode(e.to_string()))?;
-            Change::from_json(&payload).map_err(|e| TransportError::Decode(e.to_string()))
+            Change::from_json(&payload).map_err(|e| {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("a change notice could not be decoded");
+                TransportError::Decode(e.to_string())
+            })
         });
         Ok(Box::pin(stream))
     }
