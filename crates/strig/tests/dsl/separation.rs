@@ -241,7 +241,10 @@ fn a_project_keeps_the_separation_declared_in_each_file_and_refuses_a_name_decla
     twice.add_source("a.strig", BLOCKS).unwrap();
     let again = "language blocks\n\nmutually_exclusive payment_duties {\n  of = roles\n  members = [maker, auditor]\n}\n\nrole auditor {}\n";
     twice.add_source("b.strig", again).unwrap();
-    let errors = twice.build().err().expect("a name declared twice").to_string();
+    let Err(errors) = twice.build() else {
+        panic!("a name declared twice was accepted");
+    };
+    let errors = errors.to_string();
     assert!(errors.contains("payment_duties"), "{errors}");
 }
 
