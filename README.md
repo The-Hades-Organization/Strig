@@ -1241,6 +1241,23 @@ permission org.read {
 let from_file: strig::dsl::Policy = include_policy!("policies/main.strig");
 ```
 
+## Migrating from Casbin / OpenFGA
+
+`strig import` reads the model and the policy of another library and writes a `.strig` file. Nothing runs Casbin or OpenFGA: the converter is a module of the library (feature `import`, on in `strig-cli`, no IO) that takes text and returns a policy and a report.
+
+```sh
+strig import casbin model.conf policy.csv -o ./policy [--language blocks|rules|actors] [--action read]...
+strig import openfga model.fga tuples.csv -o ./policy [--language blocks|rules|actors]
+```
+
+It writes `<dir>/policy.strig` and prints what was converted, what was converted with a narrower reach and what was not. Exit `0` when everything converted, `1` when something has no faithful translation (nothing is written), `2` for usage errors. The result is checked like any policy: run it with `strig test`.
+
+**Casbin.** ACL, RBAC (`g = _, _`, and domains with `g = _, _, _`), RBAC with `keyMatch` on the resource, and ABAC over attributes are read. A `p` line becomes grants, a `g` line a role assignment or an edge of the role graph, and the policy effect picks the strategy (`some(where (p.eft == allow))` is `most_specific`, with a `deny` line dropped and reported; `!some(where (p.eft == deny))`, allow-and-deny and `priority(p.eft)` become `deny_overrides` or `first_applicable`). A model that does not constrain the action (ABAC) needs `--action <name>`. `keyMatch` becomes a `starts_with` condition and `regexMatch` is read only over alternations of literals, expanded over the actions the policy names. A matcher with no faithful translation (`keyMatch2`, `globMatch`, arithmetic, `!=` between request and policy) is an error with the file, line and column and the reason, never an approximation that allows more.
+
+**OpenFGA.** The DSL and the JSON of the model are read, and the tuples as JSON, CSV, YAML or one per line. Types and relations become a `RelationSchema` (`This`, `Computed`, `TupleToUserset`, `Union`, `Intersection`, `Exclusion`), tuples go to the `TupleStore`, and each relation gets a permission and a grant. Conditions (CEL) are not translated: a model or a tuple that uses one is an error that points at it.
+
+Each fixture under `crates/strig/tests/fixtures/import/` holds a model, a policy and a table of requests with the answers the source library gives (from its documentation); the tests decide the same requests with the imported policy, in the three syntaxes, and compare.
+
 ## Inspector (`strig-inspect`)
 
 `strig-inspect` shows why a decision came out the way it did. It is built on `Engine::explain`, which Rust and JS can also call directly. From the example scenario:
