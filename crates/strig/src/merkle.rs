@@ -424,6 +424,48 @@ mod tests {
         }
     }
 
+    const INCLUSION_5_OF_8: [&str; 3] = [
+        "bc1a0643b12e4d2d7c77918f44e0f4f79a838b6cf9ec5b5c283e1f4d88599e6b",
+        "ca854ea128ed050b41b35ffc1b87b8eb2bde461e9e3b5596ece6b9d5975a0ae0",
+        "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",
+    ];
+    const CONSISTENCY_3_TO_8: [&str; 4] = [
+        "0298d122906dcfc10892cb53a73992fc5b9f493ea4c9badb27b791b4127a7fe7",
+        "07506a85fd9dd2f120eb694f86011e5bb4662e5c415a62917033d4a9624487e7",
+        "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "6b47aaf29ee3c2af9af889bc1fb9254dabd31177f16232dd6aab035ca39bf6e4",
+    ];
+
+    fn hashes(texts: &[&str]) -> Vec<Hash> {
+        texts.iter().map(|t| from_hex(t).unwrap()).collect()
+    }
+
+    /// The vectors printed in `docs/audit-format.md`.
+    #[test]
+    fn the_documented_proof_vectors() {
+        let tree = MerkleTree::new(leaves(8));
+        assert_eq!(to_hex(&leaves(8)[5]), "4271a26be0d8a84f0bd54c8c302e7cb3a3b5d1fa6780a40bcce2873477dab658");
+        assert_eq!(tree.inclusion_proof(5).unwrap(), hashes(&INCLUSION_5_OF_8));
+        assert_eq!(tree.consistency_proof(3).unwrap(), hashes(&CONSISTENCY_3_TO_8));
+        let (first, second) = (tree.root_at(3).unwrap(), tree.root());
+        assert_eq!(to_hex(&first), "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77");
+        assert_eq!(verify_consistency(3, 8, &first, &second, &hashes(&CONSISTENCY_3_TO_8)), Ok(()));
+    }
+
+    #[test]
+    fn the_audit_vector_record_has_the_documented_leaf() {
+        let line = format!(
+            "{},\"hash\":\"087dbffda54667a64ae971f80c70bf6544b205be90c9ca9cc592ef113f4a4cb5\"}}",
+            &crate::audit::tests::VECTOR_RECORD[..crate::audit::tests::VECTOR_RECORD.len() - 1]
+        );
+        let record: AuditRecord = serde_json::from_str(&line).unwrap();
+        assert_eq!(record_leaf_data(&record).unwrap(), line.as_bytes());
+        assert_eq!(
+            to_hex(&record_leaf(&record).unwrap()),
+            "2ae4dc94737c2493a65e7d7329ed18b0a441951dbe14e3f3b5bef172a6a2e658"
+        );
+    }
+
     #[test]
     fn consistency_refuses_bad_sizes() {
         let zero = [0u8; 32];

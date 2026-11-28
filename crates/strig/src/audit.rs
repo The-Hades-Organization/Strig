@@ -1363,7 +1363,7 @@ fn suggestions_of(violations: &[Violation]) -> Vec<Suggestion> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::resource::ObjectRef;
 
@@ -1787,7 +1787,7 @@ mod tests {
     }
 
     /// The vector of `docs/audit-format.md`: another implementation must reproduce these bytes and this hash.
-    pub(super) const VECTOR_RECORD: &str = r#"{"at":1700000000000,"level":"forensic","actor":"alice","action":"tuple_add","object":"doc:d1#viewer@user:bob","outcome":"applied","tuple":{"object":{"kind":"doc","id":"d1"},"relation":"viewer","subject":{"object":{"kind":"user","id":"bob"}}},"actor_detail":{"kind":"user","id":"alice","roles":[{"role":"admin"}],"principals":["authenticated"]},"meta":{"ip":"203.0.113.42","reason":"ticket \"SUP-1\" é"},"prev_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#;
+    pub(crate) const VECTOR_RECORD: &str = r#"{"at":1700000000000,"level":"forensic","actor":"alice","action":"tuple_add","object":"doc:d1#viewer@user:bob","outcome":"applied","tuple":{"object":{"kind":"doc","id":"d1"},"relation":"viewer","subject":{"object":{"kind":"user","id":"bob"}}},"actor_detail":{"kind":"user","id":"alice","roles":[{"role":"admin"}],"principals":["authenticated"]},"meta":{"ip":"203.0.113.42","reason":"ticket \"SUP-1\" é"},"prev_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#;
     pub(super) const VECTOR_HASH: &str = "087dbffda54667a64ae971f80c70bf6544b205be90c9ca9cc592ef113f4a4cb5";
 
     fn vector_record() -> AuditRecord {

@@ -99,3 +99,7 @@ required-features = ["audit"]
 [[test]]
 name = "timestamp"
 required-features = ["timestamp"]
+
+[[example]]
+name = "timestamp_http"
+required-features = ["timestamp"]

@@ -7,11 +7,17 @@ cargo install strig-cli --locked
 
 strig test policies/                   # every *.strig and *.strig-test.json in the directory
 strig test policies/ --junit out.xml   # plus a JUnit report for CI
+
+strig audit report trail.jsonl --anchor-head <hash> --timestamp head.tsr --root ca.pem   # conformance report
 ```
 
 `strig test <dir>` reads the `*.strig` files of the directory as one project, runs the cases of every
 `*.strig-test.json` beside them and prints one line per case, with the expected and the obtained answer (and the grants
 considered) for each that fails. Exit code: `0` all passed, `1` some case failed or could not be judged, `2` the policy,
 a test file or the arguments are wrong, or the directory has no test file.
+
+`strig audit report <trail.jsonl>` summarizes an audit trail (period, records per action and outcome, changes per actor,
+refusals per invariant, chain breaks, anchors and RFC 3161 stamps verified) in text or, with `--json`, as JSON. Exit code:
+`0` the trail conforms, `1` it does not, `2` usage. See [docs/audit-format.md](../../docs/audit-format.md).
 
 The test format is in [docs/dsl.md](../../docs/dsl.md#testing-a-policy). More subcommands arrive in the same binary.
