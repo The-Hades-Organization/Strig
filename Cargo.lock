@@ -6661,7 +6661,7 @@ dependencies = [
 
 [[package]]
 name = "strig"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -6678,7 +6678,7 @@ dependencies = [
 
 [[package]]
 name = "strig-axum"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -6695,7 +6695,7 @@ dependencies = [
 
 [[package]]
 name = "strig-inspect"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "gpui-component",
  "gpui-pre",
@@ -6708,7 +6708,7 @@ dependencies = [
 
 [[package]]
 name = "strig-macros"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6720,7 +6720,7 @@ dependencies = [
 
 [[package]]
 name = "strig-node"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "js-sys",
  "napi",
@@ -6735,7 +6735,7 @@ dependencies = [
 
 [[package]]
 name = "strig-postgres"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -6751,7 +6751,7 @@ dependencies = [
 
 [[package]]
 name = "strig-redis"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -6765,7 +6765,7 @@ dependencies = [
 
 [[package]]
 name = "strig-server"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -6796,7 +6796,7 @@ dependencies = [
 
 [[package]]
 name = "strig-sync"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "async-trait",
  "futures-util",
